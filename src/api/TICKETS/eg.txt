@@ -1,0 +1,1125 @@
+1. BASE SETUP
+//- Base URL: http://localhost:3000/api/v1/spin-wheels` (adjust based on your server)
+//- Headers:
+//  - `Content-Type: application/json`
+ // - `Authorization: Bearer <jwt_token>` (for authenticated endpoints)
+  - `X-Admin-Token: <admin_token>` (for admin endpoints)
+
+USER ENDPOINTS
+
+1. Spin a Wheel
+POST `/spin`
+json
+
+{
+  "wheel_id": "550e8400-e29b-41d4-a716-446655440000",
+  "competition_id": "660e8400-f29b-51d4-b716-556655440001"
+}
+
+
+Response (Success):
+json
+{
+  "success": true,
+  "spin_id": 12345,
+  "prize": {
+    "name": "10 Credits",
+    "type": "SITE_CREDIT",
+    "value": "10",
+    "color": "#FF5733"
+  },
+  "award_result": {
+    "type": "SITE_CREDIT",
+    "amount": "10"
+  },
+  "wheel": {
+    "id": "550e8400-e29b-41d4-a716-446655440000",
+    "name": "Daily Wheel",
+    "type": "DAILY",
+    "animation_speed": 5000
+  },
+  "spin_remaining": 2
+}
+
+
+Response (Error - No spins left):
+json
+{
+  "error": "Not eligible to spin",
+  "details": "No spins remaining for today",
+  "next_available": "2024-01-15T00:00:00.000Z"
+}
+
+
+
+
+ 2. Get User Spin History
+GET `/history?wheel_id=550e8400-e29b-41d4-a716-446655440000&limit=10&offset=0`
+
+Response:
+json
+{
+  "total": 25,
+  "history": [
+    {
+      "id": "660e8400-f29b-51d4-b716-556655440002",
+      "wheel_id": "550e8400-e29b-41d4-a716-446655440000",
+      "user_id": "770e8400-g29b-61d4-c716-666655440003",
+      "segment_id": "880e8400-h29b-71d4-d716-776655440004",
+      "prize_type": "SITE_CREDIT",
+      "prize_value": "10",
+      "spin_result": {
+        "segment_position": 3,
+        "prize_name": "10 Credits",
+        "wheel_name": "Daily Wheel",
+        "segment_id": "880e8400-h29b-71d4-d716-776655440004",
+        "wheel_id": "550e8400-e29b-41d4-a716-446655440000"
+      },
+      "created_at": "2024-01-14T15:30:00.000Z",
+      "wheel_name": "Daily Wheel",
+      "prize_name": "10 Credits",
+      "segment_prize_type": "SITE_CREDIT",
+      "color_hex": "#FF5733",
+      "segment_image": "https://example.com/prize.png"
+    }
+  ]
+}
+
+ADMIN ENDPOINTS
+
+ 1. Create a New Wheel
+POST `/admin/wheels`
+json
+{
+  "name": "Weekly Premium Wheel",
+  "type": "WEEKLY",
+  "description": "Weekly wheel for premium users",
+  "min_tier": "PREMIUM",
+  "spins_per_user_period": 3,
+  "max_spins_per_period": 1000,
+  "cooldown_hours": 24,
+  "background_image_url": "https://example.com/wheel-bg.jpg",
+  "animation_speed_ms": 7000,
+  "is_active": true
+}
+
+
+Response:
+json
+{
+  "success": true,
+  "wheel_id": "990e8400-i29b-81d4-e716-886655440005",
+  "message": "Wheel created successfully"
+}
+
+
+
+
+ 2. Add Segments to Wheel
+POST `/admin/wheels/segments`
+json
+{
+  "wheel_id": "990e8400-i29b-81d4-e716-886655440005",
+  "segments": [
+    {
+      "position": 1,
+      "color_hex": "#FF0000",
+      "prize_name": "100 Credits",
+      "prize_type": "SITE_CREDIT",
+      "prize_value": "100",
+      "probability": 5.0,
+      "image_url": "https://example.com/prize1.png",
+      "text_color": "#FFFFFF",
+      "stock": 10
+    },
+    {
+      "position": 2,
+      "color_hex": "#00FF00",
+      "prize_name": "50 Credits",
+      "prize_type": "SITE_CREDIT",
+      "prize_value": "50",
+      "probability": 10.0,
+      "image_url": "https://example.com/prize2.png",
+      "text_color": "#000000",
+      "stock": null
+    },
+    {
+      "position": 3,
+      "color_hex": "#0000FF",
+      "prize_name": "Free Ticket",
+      "prize_type": "FREE_TICKET",
+      "prize_value": "1",
+      "probability": 15.0,
+      "image_url": "https://example.com/ticket.png",
+      "text_color": "#FFFFFF",
+      "stock": 50
+    },
+    {
+      "position": 4,
+      "color_hex": "#FFFF00",
+      "prize_name": "Better Luck Next Time",
+      "prize_type": "NO_WIN",
+      "prize_value": "0",
+      "probability": 30.0,
+      "image_url": null,
+      "text_color": "#000000",
+      "stock": null
+    },
+    {
+      "position": 5,
+      "color_hex": "#FF00FF",
+      "prize_name": "10 Cash",
+      "prize_type": "CASH",
+      "prize_value": "10",
+      "probability": 5.0,
+      "image_url": "https://example.com/cash.png",
+      "text_color": "#FFFFFF",
+      "stock": 5
+    },
+    {
+      "position": 6,
+      "color_hex": "#00FFFF",
+      "prize_name": "500 Points",
+      "prize_type": "POINTS",
+      "prize_value": "500",
+      "probability": 10.0,
+      "image_url": "https://example.com/points.png",
+      "text_color": "#000000",
+      "stock": null
+    },
+    {
+      "position": 7,
+      "color_hex": "#FFA500",
+      "prize_name": "Bonus Spin",
+      "prize_type": "BONUS_SPIN",
+      "prize_value": "1",
+      "probability": 5.0,
+      "image_url": "https://example.com/bonus.png",
+      "text_color": "#000000",
+      "stock": 20
+    },
+    {
+      "position": 8,
+      "color_hex": "#800080",
+      "prize_name": "5 Credits",
+      "prize_type": "SITE_CREDIT",
+      "prize_value": "5",
+      "probability": 20.0,
+      "image_url": null,
+      "text_color": "#FFFFFF",
+      "stock": null
+    }
+  ]
+}
+
+
+Response:
+json
+{
+  "success": true,
+  "segments_added": 8,
+  "segment_ids": [
+    "aa0e8400-j29b-91d4-f716-996655440006",
+    "bb0e8400-k29b-02d4-g716-007655440007",
+    "cc0e8400-l29b-12d4-h716-118655440008",
+    "dd0e8400-m29b-22d4-i716-229655440009",
+    "ee0e8400-n29b-32d4-j716-330655440010",
+    "ff0e8400-o29b-42d4-k716-441655440011",
+    "gg0e8400-p29b-52d4-l716-552655440012",
+    "hh0e8400-q29b-62d4-m716-663655440013"
+  ],
+  "message": "Segments added successfully"
+}
+
+
+
+
+ 3. Get Wheel Details (Admin)
+GET `/admin/wheels/990e8400-i29b-81d4-e716-886655440005`
+
+Response:
+json
+{
+  "wheel": {
+    "id": "990e8400-i29b-81d4-e716-886655440005",
+    "name": "Weekly Premium Wheel",
+    "type": "WEEKLY",
+    "description": "Weekly wheel for premium users",
+    "min_tier": "PREMIUM",
+    "spins_per_user_period": 3,
+    "max_spins_per_period": 1000,
+    "cooldown_hours": 24,
+    "background_image_url": "https://example.com/wheel-bg.jpg",
+    "animation_speed_ms": 7000,
+    "is_active": true,
+    "created_at": "2024-01-14T10:00:00.000Z"
+  },
+  "segments": [
+    {
+      "id": "aa0e8400-j29b-91d4-f716-996655440006",
+      "position": 1,
+      "color_hex": "#FF0000",
+      "prize_name": "100 Credits",
+      "prize_type": "SITE_CREDIT",
+      "prize_value": "100",
+      "probability": 5.0,
+      "image_url": "https://example.com/prize1.png",
+      "text_color": "#FFFFFF",
+      "stock": 10,
+      "current_stock": 0
+    }
+  ],
+  "statistics": {
+    "total_spins": 0,
+    "unique_users": 0,
+    "winning_spins": 0,
+    "total_prize_value": 0
+  },
+  "segment_count": 8
+}
+
+
+
+
+ 4. Update Wheel
+PUT `/admin/wheels/990e8400-i29b-81d4-e716-886655440005`
+json
+{
+  "name": "Weekly Premium Wheel v2",
+  "description": "Updated weekly wheel with better prizes",
+  "animation_speed_ms": 6000,
+  "is_active": false
+}
+
+
+Response:
+json
+{
+  "success": true,
+  "message": "Wheel updated successfully",
+  "updated_fields": ["name", "description", "animation_speed_ms", "is_active"]
+}
+
+
+
+
+ 5. List All Wheels (Admin)
+GET `/admin/wheels?page=1&limit=10&type=WEEKLY&is_active=true&min_tier=PREMIUM`
+
+Response:
+json
+{
+  "wheels": [
+    {
+      "id": "990e8400-i29b-81d4-e716-886655440005",
+      "name": "Weekly Premium Wheel",
+      "type": "WEEKLY",
+      "min_tier": "PREMIUM",
+      "spins_per_user_period": 3,
+      "max_spins_per_period": 1000,
+      "cooldown_hours": 24,
+      "is_active": true,
+      "created_at": "2024-01-14T10:00:00.000Z",
+      "segment_count": 8,
+      "total_spins": 150
+    },
+    {
+      "id": "550e8400-e29b-41d4-a716-446655440000",
+      "name": "Daily Wheel",
+      "type": "DAILY",
+      "min_tier": null,
+      "spins_per_user_period": 1,
+      "max_spins_per_period": 5000,
+      "cooldown_hours": 24,
+      "is_active": true,
+      "created_at": "2024-01-10T08:00:00.000Z",
+      "segment_count": 6,
+      "total_spins": 3245
+    }
+  ],
+  "pagination": {
+    "page": 1,
+    "limit": 10,
+    "total": 2,
+    "total_pages": 1
+  }
+}
+
+
+
+
+ERROR RESPONSES
+
+ Validation Error:
+json
+{
+  "error": "Invalid request data",
+  "details": [
+    {
+      "code": "invalid_type",
+      "expected": "string",
+      "received": "undefined",
+      "path": ["wheel_id"],
+      "message": "Required"
+    }
+  ]
+}
+
+
+ Authentication Error:
+json
+{
+  "error": "Unauthorized",
+  "code": "AUTH_ERROR"
+}
+
+
+ Wheel Not Found:
+json
+{
+  "error": "Wheel not found",
+  "code": "WHEEL_NOT_FOUND"
+}
+
+
+ Spin Error:
+json
+{
+  "error": "No spins remaining",
+  "code": "SPIN_ERROR"
+}
+
+///////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////
+/////////////////////////////////////////////////////////////////////////////////////////////////////
+
+Here are the Postman API requests and JSON bodies to test all the ticket endpoints:
+
+ Postman Collection Structure
+
+ 1. POST - Allocate Tickets
+Endpoint: `POST /api/tickets/allocate`  
+Headers:
+json
+{
+  "Authorization": "Bearer <your_jwt_token>",
+  "Content-Type": "application/json"
+}
+
+
+Test Cases:
+
+# Case A: Buy competition tickets with site credit
+json
+{
+  "competition_id": "550e8400-e29b-41d4-a716-446655440000",
+  "quantity": 5,
+  "use_universal_tickets": false,
+  "payment_method": "SITE_CREDIT"
+}
+
+INSERT INTO competitions (
+  id, 
+  title, 
+  description, 
+  price, 
+  total_tickets, 
+  category, 
+  type, 
+  start_date, 
+  status,
+  competition_type
+) VALUES (
+  UUID_TO_BIN('550e8400-e29b-41d4-a716-446655440000'),
+  'Test Competition',
+  'This is a test competition',
+  10.00,
+  100,
+  'PAID',
+  'STANDARD',
+  NOW(),
+  'ACTIVE',
+  'PAID'
+);
+
+
+INSERT IGNORE INTO users (
+        id,
+        email,
+        phone,
+        username,
+        password_hash,
+        profile_photo,
+        first_name,
+        last_name,
+        date_of_birth,
+        country,
+        kyc_status,
+        role,
+        is_active,
+        age_verified,
+        email_verified,
+        referral_code,
+        xp_points,
+        level
+    ) VALUES 
+    (
+        UUID_TO_BIN('33333333-4444-5555-6666-777777777777'),
+        'user1@example.com',
+        '+447123456789',
+        'user1',
+        '$2a$12$hash1',
+        'https://example.com/user1.jpg',
+        'John',
+        'Doe',
+        '1995-08-20',
+        'CA',
+        'verified',
+        'USER',
+        TRUE,
+        TRUE,
+        TRUE,
+        'USER001',
+        1000,
+        2
+    ),
+    (
+        UUID_TO_BIN('44444444-5555-6666-7777-888888888888'),
+        'user2@example.com',
+        '+447123456780',
+        'user2',
+        '$2a$12$hash2',
+        'https://example.com/user2.jpg',
+        'Jane',
+        'Smith',
+        '1998-12-10',
+        'UK',
+        'pending',
+        'USER',
+        TRUE,
+        FALSE,
+        TRUE,
+        'USER002',
+        500,
+        1
+    );
+
+
+# Case B: Use universal tickets for competition
+json
+{
+  "competition_id": "550e8400-e29b-41d4-a716-446655440001",
+  "quantity": 2,
+  "use_universal_tickets": true
+}
+
+
+# Case C: Purchase with different payment method
+json
+{
+  "competition_id": "550e8400-e29b-41d4-a716-446655440002",
+  "quantity": 3,
+  "use_universal_tickets": false,
+  "payment_method": "CREDIT_CARD",
+  "purchase_id": "txn_123456789"
+}
+
+
+# Case D: Free competition (ticket_price = 0)
+json
+{
+  "competition_id": "550e8400-e29b-41d4-a716-446655440003",
+  "quantity": 1,
+  "use_universal_tickets": false
+}
+
+
+ 2. GET - Get User Tickets
+Endpoint: `GET /api/tickets/my-tickets`  
+Headers:
+json
+{
+  "Authorization": "Bearer <your_jwt_token>"
+}
+
+
+Query Parameters Test Cases:
+
+# Case A: Get all tickets
+
+No query parameters
+
+
+# Case B: Filter by competition
+
+?competition_id=550e8400-e29b-41d4-a716-446655440000
+
+
+# Case C: Filter by ticket type
+
+?ticket_type=COMPETITION
+
+or
+
+?ticket_type=UNIVERSAL
+
+
+# Case D: Include only instant wins
+
+?include_instant_wins=true
+
+
+# Case E: Combined filters
+
+?competition_id=550e8400-e29b-41d4-a716-446655440000&ticket_type=COMPETITION&include_instant_wins=true
+
+
+ 3. GET - Get Universal Tickets Balance
+Endpoint: `GET /api/tickets/universal-balance`  
+Note: You need to add this endpoint first (it exists in controller but not in router)
+
+Add to router.js:
+javascript
+ticketRouter.get(
+  "/tickets/universal-balance",
+  authenticate,
+  TicketSystemController.getUniversalTicketsBalance
+);
+
+
+Query Parameters Test Cases:
+
+# Case A: Get current balance (exclude expired)
+
+No query parameters
+
+
+# Case B: Include expired tickets in count
+
+?include_expired=true
+
+
+ 4. GET - Get Competition Ticket Statistics
+Endpoint: `GET /api/tickets/competition/:competition_id/stats`  
+Note: You need to add this endpoint first
+
+Add to router.js:
+javascript
+ticketRouter.get(
+  "/tickets/competition/:competition_id/stats",
+  authenticate,
+  TicketSystemController.getCompetitionTicketStats
+);
+
+
+Test Case:
+
+GET /api/tickets/competition/550e8400-e29b-41d4-a716-446655440000/stats
+
+
+ 5. POST - Award Universal Tickets
+Endpoint: `POST /api/tickets/award-universal`  
+Note: This is typically an admin/internal endpoint
+
+Test Cases:
+
+# Case A: Award tickets that don't expire
+json
+{
+  "user_id": "123e4567-e89b-12d3-a456-426614174000",
+  "source": "SPIN_WIN",
+  "quantity": 3
+}
+
+
+# Case B: Award tickets with expiration
+json
+{
+  "user_id": "123e4567-e89b-12d3-a456-426614174001",
+  "source": "ACHIEVEMENT",
+  "quantity": 5,
+  "expires_at": "2024-12-31T23:59:59Z"
+}
+
+
+ Postman Test Script Examples
+
+ Pre-request Script (for JWT token):
+javascript
+// Set your JWT token here
+pm.environment.set("jwt_token", "your_actual_jwt_token_here");
+
+
+ Test Script for Allocate Tickets:
+javascript
+pm.test("Status code is 200", function () {
+    pm.response.to.have.status(200);
+});
+
+pm.test("Response has success structure", function () {
+    const jsonData = pm.response.json();
+    pm.expect(jsonData).to.have.property("success", true);
+    pm.expect(jsonData).to.have.property("tickets").that.is.an("array");
+    pm.expect(jsonData).to.have.property("competition");
+});
+
+pm.test("Tickets have correct properties", function () {
+    const jsonData = pm.response.json();
+    if (jsonData.tickets.length > 0) {
+        const ticket = jsonData.tickets[0];
+        pm.expect(ticket).to.have.property("id");
+        pm.expect(ticket).to.have.property("ticket_number");
+        pm.expect(ticket).to.have.property("ticket_type");
+    }
+});
+
+
+ Test Script for Get User Tickets:
+javascript
+pm.test("Status code is 200", function () {
+    pm.response.to.have.status(200);
+});
+
+pm.test("Response has correct structure", function () {
+    const jsonData = pm.response.json();
+    pm.expect(jsonData).to.have.property("total").that.is.a("number");
+    pm.expect(jsonData).to.have.property("tickets").that.is.an("array");
+});
+
+pm.test("Tickets have required fields", function () {
+    const jsonData = pm.response.json();
+    if (jsonData.tickets.length > 0) {
+        const ticket = jsonData.tickets[0];
+        pm.expect(ticket).to.have.property("id");
+        pm.expect(ticket).to.have.property("ticket_number");
+        pm.expect(ticket).to.have.property("competition_title");
+    }
+});
+
+
+ Test Data Setup
+
+Before testing, ensure you have:
+
+1. Active competitions in your database:
+sql
+-- Sample competition with ticket price
+INSERT INTO competitions (id, title, total_tickets, ticket_price, status) 
+VALUES (UUID_TO_BIN('550e8400-e29b-41d4-a716-446655440000'), 'Test Competition', 100, 5.00, 'ACTIVE');
+
+-- Free competition
+INSERT INTO competitions (id, title, total_tickets, ticket_price, status) 
+VALUES (UUID_TO_BIN('550e8400-e29b-41d4-a716-446655440003'), 'Free Competition', 50, 0.00, 'ACTIVE');
+
+
+2. User with site credit:
+sql
+INSERT INTO wallets (user_id, type, balance) 
+VALUES (UUID_TO_BIN('123e4567-e89b-12d3-a456-426614174000'), 'CREDIT', 100.00);
+
+
+3. Universal tickets for testing:
+sql
+INSERT INTO universal_tickets (id, user_id, source, is_used) 
+VALUES 
+    (UUID_TO_BIN('11111111-2222-3333-4444-555555555551'), UUID_TO_BIN('123e4567-e89b-12d3-a456-426614174000'), 'TEST', false),
+    (UUID_TO_BIN('11111111-2222-3333-4444-555555555552'), UUID_TO_BIN('123e4567-e89b-12d3-a456-426614174000'), 'TEST', false);
+
+
+ Error Testing Scenarios
+
+Test these error cases:
+
+1. Insufficient universal tickets:
+json
+{
+  "competition_id": "550e8400-e29b-41d4-a716-446655440000",
+  "quantity": 10,
+  "use_universal_tickets": true
+}
+
+
+2. Insufficient site credit:
+json
+{
+  "competition_id": "550e8400-e29b-41d4-a716-446655440000",
+  "quantity": 100,
+  "use_universal_tickets": false,
+  "payment_method": "SITE_CREDIT"
+}
+
+
+3. Competition not found:
+json
+{
+  "competition_id": "99999999-9999-9999-9999-999999999999",
+  "quantity": 1,
+  "use_universal_tickets": false
+}
+
+
+4. Max tickets per user exceeded:
+json
+{
+  "competition_id": "550e8400-e29b-41d4-a716-446655440000",
+  "quantity": 50,
+  "use_universal_tickets": false
+}
+
+(Assuming competition has `max_tickets_per_user` set to 10)
+
+These test cases cover all the functionality of the ticket system controller. Make sure to adjust the UUIDs to match your actual database records.
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+///////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+Here are Postman API requests with JSON bodies to test all endpoints:
+
+ 1. Create Instant Wins (Admin Endpoint)
+Endpoint: `POST /api/admin/instant-wins`
+
+Headers:
+- `Authorization: Bearer <admin_token>`
+- `Content-Type: application/json`
+
+# A. Create with Pattern: RANDOM
+json
+{
+  "competition_id": "123e4567-e89b-12d3-a456-426614174000",
+  "pattern": {
+    "type": "RANDOM",
+    "count": 5
+  },
+  "prizes": [
+    {
+      "name": "Grand Cash Prize",
+      "value": 100.00,
+      "type": "CASH",
+      "max_winners": 1
+    },
+    {
+      "name": "Site Credit Bonus",
+      "value": 25.00,
+      "type": "SITE_CREDIT",
+      "max_winners": 2
+    },
+    {
+      "name": "Consolation Points",
+      "value": 1000,
+      "type": "POINTS",
+      "max_winners": 2
+    }
+  ]
+}
+
+
+# B. Create with Pattern: SEQUENTIAL
+json
+{
+  "competition_id": "123e4567-e89b-12d3-a456-426614174000",
+  "pattern": {
+    "type": "SEQUENTIAL",
+    "count": 10,
+    "start": 50
+  },
+  "prizes": [
+    {
+      "name": "Free Ticket Bundle",
+      "value": 5,
+      "type": "FREE_TICKET",
+      "max_winners": 3
+    },
+    {
+      "name": "Lucky Winner",
+      "value": 0,
+      "type": "NO_WIN",
+      "max_winners": 7
+    }
+  ]
+}
+
+
+# C. Create with Pattern: CUSTOM_RANGE
+json
+{
+  "competition_id": "123e4567-e89b-12d3-a456-426614174000",
+  "pattern": {
+    "type": "CUSTOM_RANGE",
+    "start": 100,
+    "end": 200,
+    "count": 8
+  },
+  "prizes": [
+    {
+      "name": "iPhone 15 Pro",
+      "value": 0,
+      "type": "PHYSICAL",
+      "max_winners": 1
+    },
+    {
+      "name": "AirPods Pro",
+      "value": 0,
+      "type": "PHYSICAL",
+      "max_winners": 1
+    },
+    {
+      "name": "Gift Card",
+      "value": 50.00,
+      "type": "SITE_CREDIT",
+      "max_winners": 6
+    }
+  ]
+}
+
+
+# D. Create with Specific Ticket Numbers
+json
+{
+  "competition_id": "123e4567-e89b-12d3-a456-426614174000",
+  "ticket_numbers": [7, 42, 77, 99, 123],
+  "prizes": [
+    {
+      "name": "Mega Jackpot",
+      "value": 500.00,
+      "type": "CASH",
+      "max_winners": 1
+    },
+    {
+      "name": "Runner Up",
+      "value": 100.00,
+      "type": "SITE_CREDIT",
+      "max_winners": 2
+    },
+    {
+      "name": "Participation Prize",
+      "value": 500,
+      "type": "POINTS",
+      "max_winners": 2
+    }
+  ]
+}
+
+
+ 2. Get Competition Instant Wins
+Endpoint: `GET /api/instant-wins/competition/:competition_id`
+
+Headers:
+- `Authorization: Bearer <user_token>`
+
+# A. Get All Wins
+
+GET /api/instant-wins/competition/123e4567-e89b-12d3-a456-426614174000
+
+
+# B. Get Available Wins Only
+
+GET /api/instant-wins/competition/123e4567-e89b-12d3-a456-426614174000?status=AVAILABLE&limit=20
+
+
+# C. Get Claimed Wins Only
+
+GET /api/instant-wins/competition/123e4567-e89b-12d3-a456-426614174000?status=CLAIMED&limit=10&offset=0
+
+
+# D. With Pagination
+
+GET /api/instant-wins/competition/123e4567-e89b-12d3-a456-426614174000?limit=5&offset=10
+
+
+ 3. Get User's Instant Wins
+Endpoint: `GET /api/instant-wins/my-wins`
+
+Headers:
+- `Authorization: Bearer <user_token>`
+
+# A. Get All User Wins
+
+GET /api/instant-wins/my-wins
+
+
+# B. Get Wins for Specific Competition
+
+GET /api/instant-wins/my-wins?competition_id=123e4567-e89b-12d3-a456-426614174000
+
+
+# C. With Pagination
+
+GET /api/instant-wins/my-wins?limit=10&offset=0
+
+
+# D. Get Limited Results
+
+GET /api/instant-wins/my-wins?limit=5&competition_id=123e4567-e89b-12d3-a456-426614174000
+
+
+ 4. Get Available Instant Wins (Additional Endpoint - Based on your controller)
+Note: This endpoint isn't in your router but exists in the controller. Add it to your router if needed:
+
+Add to router:
+javascript
+instantWinsRouter.get(
+  "/instant-wins/available/:competition_id",
+  authenticate,
+  InstantWinController.getAvailableInstantWins
+);
+
+
+Endpoint: `GET /api/instant-wins/available/:competition_id`
+
+Headers:
+- `Authorization: Bearer <user_token>`
+
+
+GET /api/instant-wins/available/123e4567-e89b-12d3-a456-426614174000
+
+
+ 5. Process Instant Win Claim (Internal/Manual Test)
+Since this is called internally from ticket allocation, you might want to test it manually. Add this to your router:
+
+javascript
+instantWinsRouter.post(
+  "/instant-wins/:instant_win_id/claim",
+  authenticate,
+  async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+      const result = await InstantWinController.processInstantWinClaim(
+        connection,
+        req.params.instant_win_id,
+        req.user.id,
+        req.body.user_details || {}
+      );
+      res.json(result);
+    } catch (error) {
+      res.status(400).json({ error: error.message });
+    } finally {
+      connection.release();
+    }
+  }
+);
+
+
+Endpoint: `POST /api/instant-wins/:instant_win_id/claim`
+
+Headers:
+- `Authorization: Bearer <user_token>`
+- `Content-Type: application/json`
+
+Body:
+json
+{
+  "user_details": {
+    "username": "testuser",
+    "email": "test@example.com",
+    "ticket_number": 42
+  }
+}
+
+
+ Test Data Setup:
+
+Before testing, ensure you have:
+
+1. Active Competition:
+   sql
+   INSERT INTO competitions (id, title, total_tickets, status) 
+   VALUES (UUID_TO_BIN('123e4567-e89b-12d3-a456-426614174000'), 'Test Competition', 1000, 'ACTIVE');
+   
+
+2. Test User with Tickets:
+   sql
+   -- Assign some tickets to the user
+   INSERT INTO tickets (competition_id, user_id, ticket_number, is_instant_win) 
+   VALUES (UUID_TO_BIN('123e4567-e89b-12d3-a456-426614174000'), UUID_TO_BIN('<user_id>'), 42, FALSE);
+   
+
+ Sample Response Structures:
+
+# Create Instant Wins Response:
+json
+{
+  "success": true,
+  "instant_wins_created": 5,
+  "ticket_numbers": [7, 42, 77, 99, 123],
+  "prize_distribution": {
+    "7": {
+      "name": "Mega Jackpot",
+      "value": 500.00,
+      "type": "CASH",
+      "max_winners": 1
+    },
+    "42": {
+      "name": "Runner Up",
+      "value": 100.00,
+      "type": "SITE_CREDIT",
+      "max_winners": 1
+    }
+  },
+  "competition": {
+    "id": "123e4567-e89b-12d3-a456-426614174000",
+    "total_tickets": 1000
+  }
+}
+
+
+# Get Competition Instant Wins Response:
+json
+{
+  "total": 10,
+  "statistics": {
+    "total_wins": 10,
+    "claimed_wins": 3,
+    "available_wins": 7,
+    "total_prize_value": 750.00,
+    "claimed_prize_value": 600.00
+  },
+  "prize_distribution": [
+    {
+      "prize_type": "CASH",
+      "count": 2,
+      "total_value": 600.00,
+      "claimed": 1,
+      "available": 1
+    }
+  ],
+  "instant_wins": [
+    {
+      "id": "456e7890-f12c-34d5-b678-567812345678",
+      "ticket_number": 42,
+      "prize_name": "Mega Jackpot",
+      "prize_value": 500.00,
+      "prize_type": "CASH",
+      "status": "CLAIMED",
+      "claimed_at": "2024-01-15T10:30:00Z"
+    }
+  ]
+}
+
+
+# Get User Instant Wins Response:
+json
+{
+  "total_wins": 3,
+  "total_value": 750.00,
+  "instant_wins": [
+    {
+      "id": "456e7890-f12c-34d5-b678-567812345678",
+      "competition_title": "Test Competition",
+      "ticket_number": 42,
+      "prize_name": "Mega Jackpot",
+      "prize_value": 500.00,
+      "prize_type": "CASH",
+      "win_date": "2024-01-15T10:30:00Z"
+    }
+  ],
+  "prize_distribution": [
+    {
+      "prize_type": "CASH",
+      "count": 1,
+      "total_value": 500.00
+    }
+  ]
+}
+
+
+These test cases cover all prize types (CASH, SITE_CREDIT, POINTS, FREE_TICKET, PHYSICAL, NO_WIN) and all pattern types (RANDOM, SEQUENTIAL, CUSTOM_RANGE).

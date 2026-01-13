@@ -1,0 +1,885 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>Winners Circle Management</title>
+    <link rel="stylesheet" href="/admin-ui/winners-circle.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+  </head>
+  <body>
+    <div class="bg" aria-hidden="true"></div>
+
+    <header class="top">
+      <div class="wrap">
+        <div class="titleRow">
+          <div>
+            <h1>Winners Circle Management</h1>
+            <p class="sub">
+              Manage competition winners, view leaderboard-style history, and
+              export payouts.
+            </p>
+          </div>
+          <div class="actions">
+            <button id="btnToken" class="btn btnGhost" type="button">
+              Token
+            </button>
+            <button id="btnExportWinners" class="btn btnPrimary" type="button">
+              <span class="btnIcon" aria-hidden="true">⭳</span>
+              Export Winners
+            </button>
+            <button
+              id="btnExportInstantAll"
+              class="btn btnPrimary"
+              type="button"
+              hidden
+            >
+              <span class="btnIcon" aria-hidden="true">⭳</span>
+              Export All Instant Wins
+            </button>
+            <button
+              id="btnInstantAnalytics"
+              class="btn btnGhost"
+              type="button"
+              hidden
+            >
+              View Analytics
+            </button>
+            <button
+              id="btnRefreshLb"
+              class="btn btnPrimary"
+              type="button"
+              hidden
+            >
+              <span class="btnIcon" aria-hidden="true">⟲</span>
+              Refresh Leaderboards
+            </button>
+            <button id="btnExportLb" class="btn btnGhost" type="button" hidden>
+              <span class="btnIcon" aria-hidden="true">⭳</span>
+              Export Leaderboard
+            </button>
+          </div>
+        </div>
+
+        <nav class="tabs" aria-label="Management tabs">
+          <button id="tabWinners" class="tab active" type="button">
+            Winners
+          </button>
+          <button id="tabLeaderboards" class="tab" type="button">
+            Game Leaderboards
+          </button>
+          <button id="tabVouchers" class="tab" type="button">Vouchers</button>
+          <button id="tabInstantWins" class="tab" type="button">
+            Instant Wins
+          </button>
+        </nav>
+
+        <div id="winnersTop">
+          <section class="cards" aria-label="Summary">
+            <article class="card">
+              <div class="cardIcon" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M7 4v3a5 5 0 0 0 10 0V4"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M17 4h2a2 2 0 0 1 2 2v1a5 5 0 0 1-5 5"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M7 4H5a2 2 0 0 0-2 2v1a5 5 0 0 0 5 5"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M12 14v3"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M8 20h8"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+              <div>
+                <div class="kpi" id="kpiTotalWinners">—</div>
+                <div class="label">Total Winners</div>
+                <div class="hint">All time</div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="cardIcon warm" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M12 3v18"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M16 7c0-2-2-3-4-3s-4 1-4 3 2 3 4 3 4 1 4 3-2 3-4 3-4-1-4-3"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+              <div>
+                <div class="kpi" id="kpiTotalPrize">—</div>
+                <div class="label">Total Prize Value</div>
+                <div class="hint">All time</div>
+              </div>
+            </article>
+
+            <article class="card">
+              <div class="cardIcon hot" aria-hidden="true">
+                <svg viewBox="0 0 24 24" fill="none">
+                  <path
+                    d="M12 21s7-4.5 7-11a7 7 0 1 0-14 0c0 6.5 7 11 7 11Z"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linejoin="round"
+                  />
+                  <path
+                    d="M12 9v4"
+                    stroke="currentColor"
+                    stroke-width="1.8"
+                    stroke-linecap="round"
+                  />
+                  <path
+                    d="M12 16h.01"
+                    stroke="currentColor"
+                    stroke-width="2.4"
+                    stroke-linecap="round"
+                  />
+                </svg>
+              </div>
+              <div>
+                <div class="kpi" id="kpiWonWeek">—</div>
+                <div class="label">Amount Won</div>
+                <div class="hint">Last 7 days</div>
+              </div>
+            </article>
+          </section>
+
+          <section class="panel" aria-label="Filters">
+            <div class="filters">
+              <label class="field">
+                <span class="fieldLabel">Search</span>
+                <div class="inputWrap">
+                  <span class="inputIcon" aria-hidden="true">⌕</span>
+                  <input
+                    id="q"
+                    type="search"
+                    placeholder="Username, competition, ticket…"
+                    autocomplete="off"
+                  />
+                </div>
+              </label>
+
+              <label class="field">
+                <span class="fieldLabel">Source</span>
+                <select id="source">
+                  <option value="ALL">All</option>
+                  <option value="MAIN">Main Draw</option>
+                  <option value="INSTANT">Instant Wins</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span class="fieldLabel">Category</span>
+                <select id="category">
+                  <option value="ALL">All</option>
+                  <option value="PAID">Paid</option>
+                  <option value="FREE">Free</option>
+                  <option value="JACKPOT">Jackpot</option>
+                  <option value="SUBSCRIPTION">Subscribers</option>
+                  <option value="SPIN_WHEEL">Spin the Wheel</option>
+                  <option value="INSTANT_WIN">Instant Win</option>
+                  <option value="MINI_GAME">Mini Game</option>
+                  <option value="VIP">VIP</option>
+                  <option value="ROLLING">Rolling</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span class="fieldLabel">From</span>
+                <input id="from" type="date" />
+              </label>
+
+              <label class="field">
+                <span class="fieldLabel">To</span>
+                <input id="to" type="date" />
+              </label>
+
+              <label class="field">
+                <span class="fieldLabel">Rows</span>
+                <select id="perPage">
+                  <option>10</option>
+                  <option selected>20</option>
+                  <option>50</option>
+                  <option>100</option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span class="fieldLabel">Sort</span>
+                <select id="sort">
+                  <option value="newest" selected>Newest</option>
+                  <option value="oldest">Oldest</option>
+                </select>
+              </label>
+
+              <div class="filterActions">
+                <button id="btnApply" class="btn btnGhost" type="button">
+                  Apply
+                </button>
+                <button id="btnReset" class="btn btnGhost" type="button">
+                  Reset
+                </button>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div id="leaderboardsTop" hidden>
+          <section class="panel" aria-label="Game selector">
+            <div class="lbTop">
+              <div class="lbHeader">
+                <div class="lbTitle">Game Leaderboards</div>
+                <div class="lbSub" id="lbSub">Pick a game and period</div>
+              </div>
+
+              <div class="lbControls">
+                <div class="seg" role="group" aria-label="Period">
+                  <button id="periodDaily" class="segBtn active" type="button">
+                    Daily
+                  </button>
+                  <button id="periodWeekly" class="segBtn" type="button">
+                    Weekly
+                  </button>
+                  <button id="periodMonthly" class="segBtn" type="button">
+                    Monthly
+                  </button>
+                  <button id="periodAll" class="segBtn" type="button">
+                    All
+                  </button>
+                </div>
+
+                <label class="toggle" title="Auto-refresh">
+                  <span class="toggleLabel">Real-time Updates</span>
+                  <input id="autoRefresh" type="checkbox" />
+                  <span class="toggleUi" aria-hidden="true"></span>
+                </label>
+              </div>
+            </div>
+
+            <div
+              class="gameStrip"
+              id="gameStrip"
+              role="list"
+              aria-label="Games"
+            >
+              <div class="gameSkeleton">Loading games…</div>
+            </div>
+          </section>
+        </div>
+
+        <div id="vouchersTop" hidden>
+          <section class="panel" aria-label="Voucher management">
+            <div class="lbTop">
+              <div class="lbHeader">
+                <div class="lbTitle">Vouchers</div>
+                <div class="lbSub">Create and manage voucher codes</div>
+              </div>
+              <div class="lbControls">
+                <div class="miniNote">Rewards: Site Credit (\u00a3)</div>
+              </div>
+            </div>
+          </section>
+        </div>
+
+        <div id="instantTop" hidden>
+          <section class="panel" aria-label="Instant win reports">
+            <div class="lbTop">
+              <div class="lbHeader">
+                <div class="lbTitle">Instant Win Reports</div>
+                <div class="lbSub">Overview of instant wins and claims.</div>
+              </div>
+              <div class="lbControls">
+                <div id="iwStatus" class="miniNote"></div>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section id="winnersSection" class="tablePanel" aria-label="Winners">
+        <div class="tableTop">
+          <div class="meta">
+            <div class="metaTitle">Winners</div>
+            <div class="metaSub" id="metaSub">—</div>
+          </div>
+          <div
+            class="status"
+            id="status"
+            role="status"
+            aria-live="polite"
+          ></div>
+        </div>
+
+        <div
+          class="tableWrap"
+          role="region"
+          aria-label="Winners table"
+          tabindex="0"
+        >
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Competition Name</th>
+                <th>Competition Type</th>
+                <th class="num">Reward Value</th>
+                <th class="num">Entry Price</th>
+                <th>Date Ended</th>
+                <th class="num">Ticket Number</th>
+              </tr>
+            </thead>
+            <tbody id="tbody">
+              <tr>
+                <td colspan="7" class="empty">Loading…</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pager">
+          <button
+            id="prev"
+            class="pagerBtn"
+            type="button"
+            aria-label="Previous page"
+          >
+            ‹
+          </button>
+          <div id="pages" class="pages" aria-label="Pages"></div>
+          <button
+            id="next"
+            class="pagerBtn"
+            type="button"
+            aria-label="Next page"
+          >
+            ›
+          </button>
+        </div>
+      </section>
+
+      <section
+        id="leaderboardsSection"
+        class="tablePanel"
+        aria-label="Leaderboards"
+        hidden
+      >
+        <div class="tableTop">
+          <div class="meta">
+            <div class="metaTitle" id="lbTitle">—</div>
+            <div class="metaSub" id="lbMeta">—</div>
+          </div>
+          <div
+            class="status"
+            id="lbStatus"
+            role="status"
+            aria-live="polite"
+          ></div>
+        </div>
+
+        <div
+          class="tableWrap"
+          role="region"
+          aria-label="Leaderboard table"
+          tabindex="0"
+        >
+          <table class="table">
+            <thead>
+              <tr>
+                <th class="num">Rank</th>
+                <th>Player</th>
+                <th class="num">Score/Points</th>
+                <th class="num">Games Played</th>
+                <th>Reward</th>
+                <th class="num">Trend</th>
+                <th class="num">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="lbTbody">
+              <tr>
+                <td colspan="7" class="empty">
+                  Pick a game to load leaderboard…
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="lbFooter">
+          <div class="lbNote" id="lbNote">Showing top 10</div>
+          <button id="btnTop100" class="btn btnPrimary" type="button">
+            VIEW FULL LEADERBOARD (TOP 100)
+          </button>
+        </div>
+      </section>
+
+      <section
+        id="vouchersSection"
+        class="tablePanel"
+        aria-label="Vouchers"
+        hidden
+      >
+        <div class="tableTop">
+          <div class="meta">
+            <div class="metaTitle">Create New Voucher</div>
+            <div class="metaSub">
+              Create site credit vouchers with date windows and usage limits.
+            </div>
+          </div>
+          <div
+            class="status"
+            id="vStatus"
+            role="status"
+            aria-live="polite"
+          ></div>
+        </div>
+
+        <div class="voucherBody">
+          <form id="voucherForm" class="voucherForm" autocomplete="off">
+            <div class="voucherGrid">
+              <label class="field span2">
+                <span class="fieldLabel"
+                  >Voucher Code <span class="req">*</span></span
+                >
+                <input
+                  id="vCode"
+                  type="text"
+                  placeholder="e.g. WELCOME50"
+                  inputmode="latin"
+                />
+                <span class="help"
+                  >Use uppercase letters and numbers. Will be auto-generated if
+                  left blank.</span
+                >
+              </label>
+
+              <label class="field span2">
+                <span class="fieldLabel"
+                  >Campaign Name <span class="req">*</span></span
+                >
+                <input
+                  id="vCampaign"
+                  type="text"
+                  placeholder="e.g. New User Welcome Campaign"
+                />
+              </label>
+
+              <label class="field span2">
+                <span class="fieldLabel"
+                  >Voucher Type <span class="req">*</span></span
+                >
+                <select id="vType">
+                  <option value="SINGLE_USE" selected>
+                    Single-Use (One redemption per code)
+                  </option>
+                  <option value="MULTI_USE">
+                    Multi-Use (Multiple redemptions)
+                  </option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span class="fieldLabel"
+                  >Reward Type <span class="req">*</span></span
+                >
+                <select id="vRewardType">
+                  <option value="SITE_CREDIT" selected>
+                    Site Credit (\u00a3)
+                  </option>
+                </select>
+              </label>
+
+              <label class="field">
+                <span class="fieldLabel"
+                  >Reward Value <span class="req">*</span></span
+                >
+                <input
+                  id="vRewardValue"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="5"
+                />
+              </label>
+
+              <label class="field">
+                <span class="fieldLabel"
+                  >Start Date <span class="req">*</span></span
+                >
+                <input id="vStartDate" type="date" />
+              </label>
+
+              <label class="field">
+                <span class="fieldLabel"
+                  >Expiry Date <span class="req">*</span></span
+                >
+                <input id="vExpiryDate" type="date" />
+              </label>
+
+              <label class="field span2">
+                <span class="fieldLabel">Usage Limit</span>
+                <input
+                  id="vUsageLimit"
+                  type="number"
+                  min="0"
+                  step="1"
+                  value="1"
+                />
+                <span class="help"
+                  >Maximum number of times this voucher can be redeemed (0 =
+                  unlimited).</span
+                >
+              </label>
+            </div>
+
+            <div class="voucherActions">
+              <button id="btnVoucherCancel" class="btn btnGhost" type="button">
+                CANCEL
+              </button>
+              <button
+                id="btnVoucherCreate"
+                class="btn btnPrimary"
+                type="submit"
+              >
+                <span class="btnIcon" aria-hidden="true">＋</span>
+                CREATE VOUCHER
+              </button>
+            </div>
+          </form>
+        </div>
+
+        <div class="divider" role="separator" aria-hidden="true"></div>
+
+        <div class="tableTop">
+          <div class="meta">
+            <div class="metaTitle">Vouchers</div>
+            <div class="metaSub" id="vMetaSub">—</div>
+          </div>
+          <div class="voucherListActions">
+            <div class="inputWrap">
+              <span class="inputIcon" aria-hidden="true">⌕</span>
+              <input
+                id="vQ"
+                type="search"
+                placeholder="Search code or campaign…"
+              />
+            </div>
+            <select id="vActive">
+              <option value="ALL" selected>All</option>
+              <option value="true">Active</option>
+              <option value="false">Inactive</option>
+            </select>
+            <select id="vPerPage">
+              <option>10</option>
+              <option selected>20</option>
+              <option>50</option>
+              <option>100</option>
+            </select>
+            <button id="btnVRefresh" class="btn btnGhost" type="button">
+              Refresh
+            </button>
+          </div>
+        </div>
+
+        <div
+          class="tableWrap"
+          role="region"
+          aria-label="Vouchers table"
+          tabindex="0"
+        >
+          <table class="table">
+            <thead>
+              <tr>
+                <th>Code</th>
+                <th>Campaign</th>
+                <th>Type</th>
+                <th class="num">Reward</th>
+                <th>Window</th>
+                <th class="num">Usage</th>
+                <th>Status</th>
+                <th class="num">Actions</th>
+              </tr>
+            </thead>
+            <tbody id="vTbody">
+              <tr>
+                <td colspan="8" class="empty">
+                  Select the Vouchers tab to load…
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+
+        <div class="pager">
+          <button
+            id="vPrev"
+            class="pagerBtn"
+            type="button"
+            aria-label="Previous page"
+          >
+            ‹
+          </button>
+          <div id="vPages" class="pages" aria-label="Pages"></div>
+          <button
+            id="vNext"
+            class="pagerBtn"
+            type="button"
+            aria-label="Next page"
+          >
+            ›
+          </button>
+        </div>
+      </section>
+
+      <section
+        id="instantSection"
+        class="tablePanel"
+        aria-label="Instant Wins"
+        hidden
+      >
+        <div class="tableTop">
+          <div class="meta">
+            <div class="metaTitle">Instant Win Reports</div>
+            <div class="metaSub">
+              Browse competitions and export instant wins.
+            </div>
+          </div>
+          <div
+            class="status"
+            id="iwStatus2"
+            role="status"
+            aria-live="polite"
+          ></div>
+        </div>
+
+        <div class="iwToolbar">
+          <div class="iwSearch">
+            <div class="inputWrap">
+              <span class="inputIcon" aria-hidden="true">⌕</span>
+              <input id="iwQ" type="search" placeholder="Search competition…" />
+            </div>
+            <select id="iwStatusFilter">
+              <option value="ACTIVE" selected>Active</option>
+              <option value="COMPLETED">Completed</option>
+              <option value="CANCELLED">Cancelled</option>
+              <option value="ALL">All</option>
+            </select>
+            <button id="btnIwRefresh" class="btn btnGhost" type="button">
+              Refresh
+            </button>
+          </div>
+
+          <div class="iwPager">
+            <button
+              id="iwPrev"
+              class="pagerBtn"
+              type="button"
+              aria-label="Previous page"
+            >
+              ‹
+            </button>
+            <div id="iwPages" class="pages" aria-label="Pages"></div>
+            <button
+              id="iwNext"
+              class="pagerBtn"
+              type="button"
+              aria-label="Next page"
+            >
+              ›
+            </button>
+          </div>
+        </div>
+
+        <div
+          id="iwCards"
+          class="iwGrid"
+          aria-label="Instant win competitions"
+        ></div>
+      </section>
+    </main>
+
+    <dialog id="tokenDlg" class="dlg">
+      <form method="dialog" class="dlgInner">
+        <div class="dlgHead">
+          <div>
+            <div class="dlgTitle">Admin Token</div>
+            <div class="dlgSub">
+              Paste a valid JWT (Bearer token) to load secured winners data.
+            </div>
+          </div>
+          <button class="iconBtn" value="cancel" aria-label="Close">✕</button>
+        </div>
+        <label class="field">
+          <span class="fieldLabel">Token</span>
+          <textarea
+            id="tokenInput"
+            rows="4"
+            placeholder="eyJhbGciOiJIUzI1NiIsInR5cCI6…"
+          ></textarea>
+          <span class="hint"
+            >Stored in localStorage as <code>cf_admin_token</code>.</span
+          >
+        </label>
+        <div class="dlgActions">
+          <button id="btnClearToken" class="btn btnGhost" type="button">
+            Clear
+          </button>
+          <button
+            id="btnSaveToken"
+            class="btn btnPrimary"
+            value="ok"
+            type="button"
+          >
+            Save
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <dialog id="instantDetailsDlg" class="dlg">
+      <form method="dialog" class="dlgInner wide">
+        <div class="dlgHead">
+          <div>
+            <div id="iwDlgTitle" class="dlgTitle">Instant Wins</div>
+            <div id="iwDlgSub" class="dlgSub"></div>
+          </div>
+          <button class="iconBtn" value="cancel" aria-label="Close">✕</button>
+        </div>
+
+        <div class="iwDlgTop">
+          <div class="iwKpis">
+            <article class="iwKpiCard">
+              <div class="iwKpiVal" id="iwKpiConfigured">—</div>
+              <div class="iwKpiLbl">Configured Prizes</div>
+            </article>
+            <article class="iwKpiCard">
+              <div class="iwKpiVal" id="iwKpiClaimed">—</div>
+              <div class="iwKpiLbl">Instant Wins Claimed</div>
+            </article>
+            <article class="iwKpiCard">
+              <div class="iwKpiVal" id="iwKpiTotalWon">—</div>
+              <div class="iwKpiLbl">Total Amount Won</div>
+            </article>
+          </div>
+          <div class="iwDlgActions">
+            <button id="btnIwExport" class="btn btnPrimary" type="button">
+              <span class="btnIcon" aria-hidden="true">⭳</span>
+              Export All Instant Wins CSV
+            </button>
+          </div>
+        </div>
+
+        <section class="iwSection">
+          <div class="iwSectionHead">
+            <div class="iwSectionTitle">Configured Instant Win Prizes</div>
+          </div>
+          <div class="tableWrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Prize Name</th>
+                  <th class="num">Amount</th>
+                  <th>Wallet Type</th>
+                  <th>Ticket Numbers</th>
+                  <th class="num">Max Claims</th>
+                  <th class="num">Current Claims</th>
+                  <th>Status</th>
+                </tr>
+              </thead>
+              <tbody id="iwConfiguredTbody">
+                <tr>
+                  <td colspan="7" class="empty">Loading…</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="iwSection">
+          <div class="iwSectionHead">
+            <div class="iwSectionTitle">Instant Win Winners</div>
+          </div>
+          <div class="tableWrap">
+            <table class="table">
+              <thead>
+                <tr>
+                  <th>Ticket Number</th>
+                  <th>Winner</th>
+                  <th>Email</th>
+                  <th>Prize</th>
+                  <th class="num">Amount</th>
+                  <th>Date Won</th>
+                </tr>
+              </thead>
+              <tbody id="iwWinnersTbody">
+                <tr>
+                  <td colspan="6" class="empty">Loading…</td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </section>
+      </form>
+    </dialog>
+
+    <dialog id="instantAnalyticsDlg" class="dlg">
+      <form method="dialog" class="dlgInner wide">
+        <div class="dlgHead">
+          <div>
+            <div class="dlgTitle">Instant Win Analytics</div>
+            <div class="dlgSub">Competition performance and participation.</div>
+          </div>
+          <button class="iconBtn" value="cancel" aria-label="Close">✕</button>
+        </div>
+        <div class="chartGrid">
+          <section class="chartCard">
+            <div class="chartTitle">Entries Over Time (Last Week)</div>
+            <canvas id="iwChartEntries" height="110"></canvas>
+          </section>
+          <section class="chartCard">
+            <div class="chartTitle">
+              Top Competitions by Participation (This Month)
+            </div>
+            <canvas id="iwChartTop" height="120"></canvas>
+          </section>
+          <section class="chartCard">
+            <div class="chartTitle">Instant Win Statistics</div>
+            <canvas id="iwChartStats" height="160"></canvas>
+          </section>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/admin-ui/winners-circle.js" defer></script>
+  </body>
+</html>

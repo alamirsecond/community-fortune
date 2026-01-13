@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width,initial-scale=1" />
+    <title>FAQ Management</title>
+    <link rel="stylesheet" href="/admin-ui/faqs.css" />
+  </head>
+  <body>
+    <div class="bg" aria-hidden="true"></div>
+
+    <header class="top">
+      <div class="wrap">
+        <div class="titleRow">
+          <div>
+            <div class="title">Frequently Asked Questions</div>
+            <div class="sub">
+              Create and manage all frequently asked questions
+            </div>
+          </div>
+          <div class="actions">
+            <button id="btnToken" class="btn btnGhost" type="button">
+              Token
+            </button>
+            <button id="btnCreate" class="btn btnPrimary" type="button">
+              <span class="btnIcon" aria-hidden="true">＋</span>
+              Create New FAQ
+            </button>
+          </div>
+        </div>
+
+        <nav class="tabs" aria-label="FAQ scopes">
+          <button id="tabHome" class="tab active" type="button">
+            HOME PAGE FAQ
+          </button>
+          <button id="tabSub" class="tab" type="button">
+            SUBSCRIPTION PAGE FAQ
+          </button>
+        </nav>
+      </div>
+    </header>
+
+    <main class="wrap">
+      <section class="panel">
+        <div class="panelInner">
+          <div class="panelMeta">
+            <div id="metaTitle" class="metaTitle">Home Page FAQ</div>
+            <div id="metaSub" class="metaSub"></div>
+          </div>
+
+          <div id="status" class="status" role="status"></div>
+
+          <div id="list" class="list" aria-label="FAQ list"></div>
+
+          <div class="footerRow">
+            <button id="btnAddBottom" class="btn btnAccent" type="button">
+              Add New FAQ
+            </button>
+          </div>
+        </div>
+      </section>
+    </main>
+
+    <!-- Token Dialog -->
+    <dialog id="tokenDlg" class="dlg">
+      <form method="dialog" class="dlgInner">
+        <div class="dlgHead">
+          <div>
+            <div class="dlgTitle">Admin Token</div>
+            <div class="dlgSub">Stored in your browser (localStorage).</div>
+          </div>
+          <button class="iconBtn" value="cancel" aria-label="Close">✕</button>
+        </div>
+
+        <label class="field">
+          <div class="fieldLbl">Bearer token</div>
+          <textarea
+            id="tokenInput"
+            class="input"
+            rows="4"
+            placeholder="Paste JWT here"
+          ></textarea>
+        </label>
+
+        <div class="dlgActions">
+          <button id="btnClearToken" class="btn btnDanger" type="button">
+            Clear
+          </button>
+          <button
+            id="btnSaveToken"
+            class="btn btnPrimary"
+            value="ok"
+            type="button"
+          >
+            Save
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <!-- Create/Edit Dialog -->
+    <dialog id="editDlg" class="dlg">
+      <form method="dialog" class="dlgInner wide">
+        <div class="dlgHead">
+          <div>
+            <div id="editTitle" class="dlgTitle">Create FAQ</div>
+            <div id="editSub" class="dlgSub"></div>
+          </div>
+          <button class="iconBtn" value="cancel" aria-label="Close">✕</button>
+        </div>
+
+        <div class="grid">
+          <label class="field">
+            <div class="fieldLbl">Scope</div>
+            <select id="editScope" class="input">
+              <option value="HOME">HOME</option>
+              <option value="SUBSCRIPTION">SUBSCRIPTION</option>
+            </select>
+          </label>
+
+          <label class="field">
+            <div class="fieldLbl">Published</div>
+            <div class="switchRow">
+              <input id="editPublished" type="checkbox" class="switch" />
+              <span class="switchLbl">Visible on site</span>
+            </div>
+          </label>
+        </div>
+
+        <label class="field">
+          <div class="fieldLbl">Question <span class="req">*</span></div>
+          <input
+            id="editQuestion"
+            class="input"
+            type="text"
+            maxlength="500"
+            placeholder="Type the question"
+          />
+        </label>
+
+        <label class="field">
+          <div class="fieldLbl">Answer <span class="req">*</span></div>
+          <textarea
+            id="editAnswer"
+            class="input"
+            rows="5"
+            placeholder="Type the answer"
+          ></textarea>
+        </label>
+
+        <div class="dlgActions">
+          <button id="btnDelete" class="btn btnDanger" type="button" hidden>
+            Delete
+          </button>
+          <button id="btnSave" class="btn btnPrimary" value="ok" type="button">
+            Save
+          </button>
+        </div>
+      </form>
+    </dialog>
+
+    <script src="/admin-ui/faqs.js" defer></script>
+  </body>
+</html>
