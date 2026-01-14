@@ -463,32 +463,34 @@ export const validateGameStructure = (gameDir) => {
     throw new Error(`Invalid file types found: ${invalidFiles.join(', ')}. Only HTML, CSS, JS, images, fonts, and audio files are allowed.`);
   }
   
-  // Check index.html for security
+//Check index.html for security
   const indexPath = path.join(gameDir, 'index.html');
   const indexContent = fs.readFileSync(indexPath, 'utf8');
-  
-  const dangerousPatterns = [
-    /<script\s+[^>]*src\s*=\s*["'](https?:)?\/\//i, // External scripts
-    /<iframe/i, // iframes
-    /eval\(/i, // eval calls
-    /document\.write/i, // document.write
-    /innerHTML\s*=/i, // innerHTML assignments
-    /outerHTML\s*=/i, // outerHTML assignments
-    /<object/i, // object tags
-    /<embed/i, // embed tags
-  ];
-  
-  const dangerousMatches = [];
-  dangerousPatterns.forEach(pattern => {
-    if (pattern.test(indexContent)) {
-      dangerousMatches.push(pattern.toString());
-    }
-  });
-  
-  if (dangerousMatches.length > 0) {
-    throw new Error('Game contains potentially dangerous code patterns');
+const dangerousPatterns = [
+  /<script\s+[^>]*src\s*=\s*["'](https?:)?\/\//i,
+  /<iframe/i,
+  /(^|\W)eval\s*\(/i,
+  /document\.write\s*\(/i,
+  /<object/i,
+  /<embed/i,
+];
+
+const dangerousMatches = [];
+
+dangerousPatterns.forEach(pattern => {
+  const match = indexContent.match(pattern);
+  if (match) {
+    console.error("Blocked:", pattern, "Match:", match[0]);
+    dangerousMatches.push(pattern.toString());
   }
- 
+});
+
+if (dangerousMatches.length > 0) {
+  throw new Error(
+    'Game contains potentially dangerous code patterns: ' +
+    dangerousMatches.join(', ')
+  );
+}
   return true;
 };
 
