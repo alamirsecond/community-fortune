@@ -628,8 +628,7 @@ const walletController = {
         });
       }
 
-      // In a real implementation, you would integrate with a payment gateway here
-      // For now, we'll simulate a successful payment
+
 
       await connection.beginTransaction();
 

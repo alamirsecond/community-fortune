@@ -197,9 +197,9 @@ app.use(
 const initialize = async () => {
   try {
     await initializeSuperadmins(pool);
-    console.log("✅ Server initialization complete");
+    console.log("Server initialization complete");
   } catch (error) {
-    console.error("❌ Server initialization failed:", error);
+    console.error("Server initialization failed:", error);
   }
 };
 
@@ -527,7 +527,6 @@ app.use((err, req, res, next) => {
   });
 });
 
-// Cleanup uploads on start if configured
 if (
   process.env.NODE_ENV === "development" &&
   process.env.CLEANUP_UPLOADS_ON_START === "true"
@@ -556,17 +555,14 @@ process.on("SIGINT", async () => {
   console.log(" Server is shutting down gracefully...");
   process.exit(0);
 });
-
 process.on("SIGTERM", async () => {
   console.log(" Server is shutting down gracefully...");
   process.exit(0);
 });
-
 process.on("uncaughtException", (error) => {
   console.error("Uncaught Exception:", error);
   process.exit(1);
 });
-
 process.on("unhandledRejection", (reason, promise) => {
   console.error("Unhandled Rejection at:", promise, "reason:", reason);
   process.exit(1);
@@ -578,9 +574,7 @@ const HOST = process.env.HOST || "0.0.0.0";
 
 const startServer = async () => {
   try {
-    // Initialize upload directories
     initUploadDirectories();
-    // Check for required packages
        // Start server
     app.listen(PORT, HOST, () => {
       console.log(`

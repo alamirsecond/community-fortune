@@ -1147,6 +1147,10 @@ CREATE TABLE system_alerts (
   dismissed_at DATETIME NULL
 );
 
+
+ALTER TABLE withdrawals ADD COLUMN is_payment_method BOOLEAN DEFAULT FALSE;
+
+
 CREATE INDEX idx_alert_dedupe 
 ON system_alerts (type, title, created_at);
 

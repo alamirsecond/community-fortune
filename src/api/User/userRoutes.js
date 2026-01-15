@@ -19,15 +19,24 @@ router.post("/oauth/google",loginLimiter,userController.signInWithGoogle);
 router.post("/password-reset/request",loginLimiter,userController.requestPasswordReset);
 router.post("/password-reset/confirm",loginLimiter,userController.confirmPasswordReset);
 
-// Email verification routes
+//Email verification routes
 router.post("/verify-email/send",loginLimiter,userController.sendVerificationEmail);
 router.post("/verify-email/confirm", loginLimiter, userController.verifyEmail);
 
-// Protected routes
+//Protected routes
 router.get("/profile", authenticate(), apiLimiter, userController.getProfile);
 router.put("/profile",authenticate(),apiLimiter,userController.updateProfile);
 router.put("/password",authenticate(),strictLimiter,userController.changePassword);
 router.get("/kyc-status",authenticate(),apiLimiter,userController.getKycStatus);
+
+// Payment Method Routes
+router.post("/payment-methods", authenticate(), apiLimiter, userController.addPaymentMethod);
+router.get("/payment-methods", authenticate(), apiLimiter, userController.getPaymentMethods);
+router.get("/payment-methods/:id", authenticate(), apiLimiter, userController.getPaymentMethodById);
+router.put("/payment-methods/:id", authenticate(), apiLimiter, userController.updatePaymentMethod);
+router.delete("/payment-methods/:id", authenticate(), apiLimiter, userController.deletePaymentMethod);
+
+
 router.post("/kyc/submit",authenticate(),apiLimiter,
   kycDocumentsUpload,
   handleKycUploadError,
