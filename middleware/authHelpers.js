@@ -5,7 +5,7 @@ import dotenv from 'dotenv';
 dotenv.config();
 const SECRET_KEY = process.env.JWT_SECRET;
 
-export const generateToken = (user) => {
+export const generateToken = (user,rememberMe = false) => {
   return jwt.sign(
     {
       userId: user.id,
@@ -15,7 +15,7 @@ export const generateToken = (user) => {
       ageVerified: user.age_verified
     },
     SECRET_KEY,
-    { expiresIn: '24h' }
+    { expiresIn: rememberMe ? '24h': '4h' }
   );
 };
 

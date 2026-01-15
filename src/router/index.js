@@ -15,6 +15,7 @@ import gameRouter from "../api/game/gameRoutes.js";
 import instantWinsRouter from "../api/INSTANT WINS/instantWins_route.js";
 import voucherRouter from "../api/Vouchers/voucher_routes.js";
 import faqRouter from "../api/FAQ/faq_routes.js";
+
 const appRouter = Router();
 
 appRouter.use("/checkout", checkoutRouter);
