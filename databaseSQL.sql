@@ -884,9 +884,6 @@ CREATE TABLE user_missions (
     INDEX idx_user_completed (user_id, completed)
 );
 
--- ===========================================
--- REFERRAL SYSTEM - BINARY(16) UUIDs
--- ===========================================
 
 CREATE TABLE referral_settings (
   id INT PRIMARY KEY AUTO_INCREMENT,
@@ -901,7 +898,7 @@ CREATE TABLE referral_settings (
   amount_left DECIMAL(10,2) DEFAULT 2000.00,
   is_active BOOLEAN DEFAULT TRUE,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-  updated_by INT REFERENCES users(id)
+  updated_by BINARY(16) REFERENCES users(id)
 );
 
 -- Referral Tiers
@@ -918,8 +915,8 @@ CREATE TABLE referral_tiers (
 
 -- Referral Links
 CREATE TABLE referral_links (
-  id VARCHAR(50) PRIMARY KEY,
-  user_id INT NOT NULL REFERENCES users(id),
+  id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+  user_id BINARY(16) NOT NULL REFERENCES users(id),
   referral_code VARCHAR(50) UNIQUE NOT NULL,
   total_clicks INT DEFAULT 0,
   total_signups INT DEFAULT 0,
@@ -932,10 +929,10 @@ CREATE TABLE referral_links (
 
 -- Referral Events
 CREATE TABLE referral_events (
-  id INT PRIMARY KEY AUTO_INCREMENT,
-  referrer_id INT REFERENCES users(id),
-  referred_user_id INT REFERENCES users(id),
-  referral_link_id VARCHAR(50) REFERENCES referral_links(id),
+  id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+  referrer_id BINARY(16) REFERENCES users(id),
+  referred_user_id BINARY(16) REFERENCES users(id),
+  referral_link_id BINARY(16) REFERENCES referral_links(id),
   event_type ENUM('CLICK', 'SIGNUP', 'KYC_VERIFIED', 'SPEND_REQUIRED', 'REWARD_PENDING', 'REWARD_PAID', 'REWARD_FAILED'),
   amount DECIMAL(10,2),
   reward_type ENUM('CASH', 'SITE_CREDIT', 'POINTS'),
@@ -950,7 +947,7 @@ CREATE TABLE referral_events (
 
 -- User Referral Stats
 CREATE TABLE user_referral_stats (
-  user_id INT PRIMARY KEY REFERENCES users(id),
+  user_id BINARY(16) PRIMARY KEY REFERENCES users(id),
   current_tier_id INT REFERENCES referral_tiers(id),
   total_referrals INT DEFAULT 0,
   successful_referrals INT DEFAULT 0,
