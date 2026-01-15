@@ -11,6 +11,7 @@ import sendEmail, { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEm
 const generateOTP = () => {
   return Math.floor(100000 + Math.random() * 900000).toString();
 };
+
 // Helper function to format payment method
 function formatPaymentMethod(method, includeFullDetails = false) {
   let details = {};
@@ -100,12 +101,84 @@ function maskEmail(email) {
   return `${local[0]}***${local.slice(-1)}@${domain}`;
 }
 
+async function processReferralRegistration(connection, referredUserId, referralCode) {
+  try {
+    // 1. Find referrer by referral code
+    const [referrers] = await connection.query(
+      `SELECT 
+        BIN_TO_UUID(u.id) as user_id, 
+        u.username, 
+        BIN_TO_UUID(rl.id) as referral_link_id
+       FROM users u
+       JOIN referral_links rl ON u.id = rl.user_id
+       WHERE rl.referral_code = ?`,
+      [referralCode]
+    );
+
+    if (referrers.length === 0) {
+      throw new Error('Invalid referral code');
+    }
+
+    const referrer = referrers[0];
+
+    // 2. Check if user is referring themselves
+    if (referrer.user_id === referredUserId) {
+      throw new Error('Cannot refer yourself');
+    }
+
+    // 3. Get referral settings to check limits
+    const [settings] = await connection.query(
+      `SELECT * FROM referral_settings WHERE is_active = TRUE ORDER BY id DESC LIMIT 1`
+    );
+
+    if (settings.length === 0) {
+      throw new Error('Referral system is not configured');
+    }
+
+    const setting = settings[0];
+
+    // 4. Check if referral system has available funds
+    if (setting.amount_left < setting.reward_per_referral) {
+      throw new Error('Referral system has insufficient funds');
+    }
+
+    // 5. Record SIGNUP event
+    await connection.query(
+      `INSERT INTO referral_events (
+        referrer_id, referred_user_id, referral_link_id, 
+        event_type, status, created_at
+      ) VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), UUID_TO_BIN(?), 'SIGNUP', 'PENDING', NOW())`,
+      [referrer.user_id, referredUserId, referrer.referral_link_id]
+    );
+
+    // 6. Update referrer's stats
+    await connection.query(
+      `UPDATE user_referral_stats 
+       SET total_referrals = total_referrals + 1
+       WHERE user_id = UUID_TO_BIN(?)`,
+      [referrer.user_id]
+    );
+
+    // 7. Update referral link stats
+    await connection.query(
+      `UPDATE referral_links 
+       SET total_signups = total_signups + 1
+       WHERE id = UUID_TO_BIN(?)`,
+      [referrer.referral_link_id]
+    );
+
+    console.log(`Referral recorded: ${referrer.username} referred user ${referredUserId}`);
+    return true;
+  } catch (error) {
+    console.error('Error processing referral:', error.message);
+    throw error;
+  }
+}
 // Helper function to mask phone
 function maskPhone(phone) {
   if (!phone) return '';
   return phone.replace(/\d(?=\d{4})/g, '*');
 }
-
 
 const generateUniqueReferralCode = async (username) => {
   let referralCode;
@@ -381,7 +454,7 @@ registerUser: async (req, res) => {
     const saltRounds = 12;
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
-    const userId = uuidv4();
+    const userId = uuidv4(); // This returns a string UUID
     const connection = await pool.getConnection();
 
     await connection.beginTransaction();
@@ -423,7 +496,7 @@ registerUser: async (req, res) => {
         `INSERT INTO referral_links (
           id, user_id, referral_code, total_clicks, total_signups, 
           total_successful, total_earned, created_at
-        ) VALUES (?, ?, ?, 0, 0, 0, 0.00, NOW())`,
+        ) VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, 0, 0, 0, 0.00, NOW())`,
         [referralLinkId, userId, referralCodeForUser]
       );
 
@@ -432,7 +505,7 @@ registerUser: async (req, res) => {
         `INSERT INTO user_referral_stats (
           user_id, current_tier_id, total_referrals, 
           successful_referrals, total_earned, this_month_earned
-        ) VALUES (?, ?, ?, 0, 0.00, 0.00)`,
+        ) VALUES (UUID_TO_BIN(?), ?, ?, 0, 0.00, 0.00)`,
         [userId, defaultTierId, 0]
       );
 
@@ -526,8 +599,13 @@ registerUser: async (req, res) => {
 
       // 11. Get referral link info
       const [referralLinks] = await pool.query(
-        `SELECT id, referral_code, total_clicks, total_signups, total_earned 
-         FROM referral_links WHERE user_id = ?`,
+        `SELECT 
+          BIN_TO_UUID(id) as id, 
+          referral_code, 
+          total_clicks, 
+          total_signups, 
+          total_earned 
+         FROM referral_links WHERE user_id = UUID_TO_BIN(?)`,
         [userId]
       );
 
@@ -542,7 +620,7 @@ registerUser: async (req, res) => {
           rt.color as tier_color
          FROM user_referral_stats rs
          LEFT JOIN referral_tiers rt ON rs.current_tier_id = rt.id
-         WHERE rs.user_id = ?`,
+         WHERE rs.user_id = UUID_TO_BIN(?)`,
         [userId]
       );
 
