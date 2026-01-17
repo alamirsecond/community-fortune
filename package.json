@@ -15,6 +15,7 @@
     "express-validator": "^7.3.1",
     "helmet": "^8.1.0",
     "joi": "^17.8.3",
+    "fs": "^0.0.1-security",
     "jsonwebtoken": "^9.0.2",
     "jszip": "^3.10.1",
     "multer": "^2.0.2",
