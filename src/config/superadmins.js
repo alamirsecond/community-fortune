@@ -1,4 +1,4 @@
-import { uuidv4 } from "zod";
+import { v4 as uuidv4 } from "uuid"; // <-- standard uuid library
 
 export const HARDCODED_SUPERADMINS = [
   {
@@ -18,39 +18,30 @@ export async function initializeSuperadmins(pool) {
     const bcrypt = await import("bcryptjs");
 
     for (const superadmin of HARDCODED_SUPERADMINS) {
-      if (!superadmin.email || !superadmin.password_hash) {
-        console.error(
-          `Skipping superadmin: Missing email or password for ${superadmin.username}`
-        );
-        continue;
-      }
+      if (!superadmin.email || !superadmin.password_hash) continue;
 
-      // Check if superadmin already exists
+      // Check if superadmin exists
       const [existing] = await pool.query(
         `SELECT id FROM users WHERE email = ? AND role = 'SUPERADMIN'`,
         [superadmin.email]
       );
-
-      if (existing.length > 0) {
-        console.log(
-          `Superadmin already exists: ${superadmin.email} (skipping)`
-        );
-        continue;
-      }
+      if (existing.length > 0) continue;
 
       // Hash password
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(superadmin.password_hash, salt);
-       const Id = uuidv4();
-      // Correct INSERT with all 8 columns
+
+      // Generate UUID in JS
+      const id = uuidv4();
+
+      // Insert superadmin
       await pool.query(
         `INSERT INTO users (
           id, email, username, password_hash, first_name, last_name,
-          role, is_active,email_verified
-        ) VALUES (
-          UUID_TO_BIN(UUID()), ?, ?, ?, ?, ?, ?, ?,?
-        )`,
+          role, is_active, email_verified
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
+          id,
           superadmin.email,
           superadmin.username,
           hashedPassword,
@@ -58,7 +49,7 @@ export async function initializeSuperadmins(pool) {
           superadmin.last_name,
           superadmin.role,
           superadmin.is_active,
-          superadmin.email_verified
+          superadmin.email_verified,
         ]
       );
 
