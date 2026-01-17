@@ -39,7 +39,7 @@ const initUploadDirectories = () => {
 const allowedOrigins = process.env.ALLOWED_ORIGINS
   ? process.env.ALLOWED_ORIGINS.split(",")
   : ["http://localhost:5173", "http://localhost:3000", "http://localhost:8080"];
-
+//edghjfhgc
 const corsOptions = {
   origin: function (origin, callback) {
     if (!origin) return callback(null, true);
