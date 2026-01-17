@@ -71,6 +71,25 @@ CREATE TABLE users (
 );
 
 -- ===========================================
+-- USERS Activities TABLE - BINARY(16) UUIDs
+-- ===========================================
+CREATE TABLE user_activities (
+    id BINARY(16) PRIMARY KEY,
+    user_id BINARY(16),
+    action VARCHAR(255) NOT NULL,
+    target_id VARCHAR(255),
+    module VARCHAR(100),
+    ip_address VARCHAR(50),
+    user_agent VARCHAR(255),
+    details JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    INDEX idx_user_activities_user (user_id),
+    INDEX idx_user_activities_module (module),
+    INDEX idx_user_activities_action (action)
+);
+-- ===========================================
 -- EMAIL VERIFICATION TOKENS TABLE - BINARY(16) UUIDs
 -- ===========================================
 CREATE TABLE email_verification_tokens (
@@ -1078,6 +1097,7 @@ CREATE TABLE admin_activities (
     INDEX idx_admin_activities_module (module)
 );
 
+
 -- ===========================================
 -- PARTNER APPLICATIONS - BINARY(16) UUIDs
 -- ===========================================
@@ -1145,6 +1165,53 @@ CREATE TABLE system_alerts (
 );
 
 
+-- Check if we need to add any missing revenue-related tables
+
+CREATE TABLE IF NOT EXISTS revenue_summary (
+    id BINARY(16) PRIMARY KEY,
+    date DATE NOT NULL,
+    total_revenue DECIMAL(15, 2) DEFAULT 0.00,
+    total_deposits DECIMAL(15, 2) DEFAULT 0.00,
+    total_withdrawals DECIMAL(15, 2) DEFAULT 0.00,
+    total_fees DECIMAL(15, 2) DEFAULT 0.00,
+    total_commission DECIMAL(15, 2) DEFAULT 0.00,
+    competition_revenue DECIMAL(15, 2) DEFAULT 0.00,
+    subscription_revenue DECIMAL(15, 2) DEFAULT 0.00,
+    instant_win_payouts DECIMAL(15, 2) DEFAULT 0.00,
+    transaction_count INT DEFAULT 0,
+    user_count INT DEFAULT 0,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    UNIQUE KEY unique_date (date),
+    INDEX idx_revenue_summary_date (date)
+);
+
+-- Add a transactions table for better revenue tracking
+CREATE TABLE IF NOT EXISTS transactions (
+    id BINARY(16) PRIMARY KEY,
+    user_id BINARY(16),
+    type ENUM('deposit', 'withdrawal', 'transfer', 'commission', 'bonus', 'fee', 'purchase', 'subscription', 'competition_entry', 'instant_win', 'referral_payout') NOT NULL,
+    amount DECIMAL(15, 2) NOT NULL,
+    currency VARCHAR(10) DEFAULT 'USD',
+    status ENUM('pending', 'completed', 'failed', 'cancelled') DEFAULT 'pending',
+    description TEXT,
+    reference_table VARCHAR(50), 
+    reference_id BINARY(16), 
+    gateway VARCHAR(100),
+    fee DECIMAL(15, 2) DEFAULT 0.00,
+    net_amount DECIMAL(15, 2),
+    admin_notes TEXT,
+    ip_address VARCHAR(50),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP NULL,
+    FOREIGN KEY (user_id) REFERENCES users(id),
+    INDEX idx_transactions_user (user_id),
+    INDEX idx_transactions_type (type),
+    INDEX idx_transactions_status (status),
+    INDEX idx_transactions_created (created_at),
+    INDEX idx_transactions_reference (reference_table, reference_id)
+);
+
 ALTER TABLE withdrawals ADD COLUMN is_payment_method BOOLEAN DEFAULT FALSE;
 
 
@@ -1166,65 +1233,65 @@ ADD COLUMN suspension_ends_at DATETIME DEFAULT NULL;
 
 
 -- Insert referral tiers
-INSERT IGNORE INTO referral_tiers (id, tier_level, tier_name, min_referrals, reward_type, reward_value, perks) VALUES
-(UUID_TO_BIN(UUID()), 1, 'Starter', 0, 'CREDIT', 10.00, '{"bonus": "10% extra credit on referrals"}'),
-(UUID_TO_BIN(UUID()), 2, 'Ambassador', 5, 'CREDIT', 25.00, '{"bonus": "15% extra credit on referrals", "badge": "Ambassador"}'),
-(UUID_TO_BIN(UUID()), 3, 'Champion', 15, 'CASH', 50.00, '{"bonus": "20% extra credit on referrals", "badge": "Champion", "priority_support": true}'),
-(UUID_TO_BIN(UUID()), 4, 'Elite', 30, 'CASH', 100.00, '{"bonus": "25% extra credit on referrals", "badge": "Elite", "priority_support": true, "early_access": true}');
+-- INSERT IGNORE INTO referral_tiers (id, tier_level, tier_name, min_referrals, reward_type, reward_value, perks) VALUES
+-- (UUID_TO_BIN(UUID()), 1, 'Starter', 0, 'CREDIT', 10.00, '{"bonus": "10% extra credit on referrals"}'),
+-- (UUID_TO_BIN(UUID()), 2, 'Ambassador', 5, 'CREDIT', 25.00, '{"bonus": "15% extra credit on referrals", "badge": "Ambassador"}'),
+-- (UUID_TO_BIN(UUID()), 3, 'Champion', 15, 'CASH', 50.00, '{"bonus": "20% extra credit on referrals", "badge": "Champion", "priority_support": true}'),
+-- (UUID_TO_BIN(UUID()), 4, 'Elite', 30, 'CASH', 100.00, '{"bonus": "25% extra credit on referrals", "badge": "Elite", "priority_support": true, "early_access": true}');
 
 -- Insert user levels
-INSERT IGNORE INTO user_levels (level, level_name, xp_required, perks) VALUES
-(1, 'Beginner', 0, '{"credit": 0, "discount": 0, "tickets": 0, "description": "Welcome to Community Fortune!"}'),
-(2, 'Explorer', 1000, '{"credit": 25, "discount": 5, "tickets": 1, "description": "5% discount on all purchases"}'),
-(3, 'Regular', 5000, '{"credit": 50, "discount": 10, "tickets": 2, "description": "10% discount + extra tickets"}'),
-(4, 'Enthusiast', 15000, '{"credit": 100, "discount": 15, "tickets": 5, "description": "15% discount + bonus credits"}'),
-(5, 'VIP', 30000, '{"credit": 200, "discount": 20, "tickets": 10, "description": "20% discount + VIP rewards"}'),
-(6, 'Elite', 60000, '{"credit": 500, "discount": 25, "tickets": 20, "description": "25% discount + Elite status"}');
+-- INSERT IGNORE INTO user_levels (level, level_name, xp_required, perks) VALUES
+-- (1, 'Beginner', 0, '{"credit": 0, "discount": 0, "tickets": 0, "description": "Welcome to Community Fortune!"}'),
+-- (2, 'Explorer', 1000, '{"credit": 25, "discount": 5, "tickets": 1, "description": "5% discount on all purchases"}'),
+-- (3, 'Regular', 5000, '{"credit": 50, "discount": 10, "tickets": 2, "description": "10% discount + extra tickets"}'),
+-- (4, 'Enthusiast', 15000, '{"credit": 100, "discount": 15, "tickets": 5, "description": "15% discount + bonus credits"}'),
+-- (5, 'VIP', 30000, '{"credit": 200, "discount": 20, "tickets": 10, "description": "20% discount + VIP rewards"}'),
+-- (6, 'Elite', 60000, '{"credit": 500, "discount": 25, "tickets": 20, "description": "25% discount + Elite status"}');
 
 -- Insert daily rewards config
-INSERT IGNORE INTO daily_rewards_config (id, day_number, reward_type, reward_value, streak_required) VALUES
-(UUID_TO_BIN(UUID()), 1, 'POINTS', 10, FALSE),
-(UUID_TO_BIN(UUID()), 2, 'POINTS', 15, FALSE),
-(UUID_TO_BIN(UUID()), 3, 'SITE_CREDIT', 5.00, FALSE),
-(UUID_TO_BIN(UUID()), 4, 'POINTS', 20, FALSE),
-(UUID_TO_BIN(UUID()), 5, 'FREE_TICKETS', 1, FALSE),
-(UUID_TO_BIN(UUID()), 6, 'SITE_CREDIT', 10.00, FALSE),
-(UUID_TO_BIN(UUID()), 7, 'CASH', 2.00, TRUE);
+-- INSERT IGNORE INTO daily_rewards_config (id, day_number, reward_type, reward_value, streak_required) VALUES
+-- (UUID_TO_BIN(UUID()), 1, 'POINTS', 10, FALSE),
+-- (UUID_TO_BIN(UUID()), 2, 'POINTS', 15, FALSE),
+-- (UUID_TO_BIN(UUID()), 3, 'SITE_CREDIT', 5.00, FALSE),
+-- (UUID_TO_BIN(UUID()), 4, 'POINTS', 20, FALSE),
+-- (UUID_TO_BIN(UUID()), 5, 'FREE_TICKETS', 1, FALSE),
+-- (UUID_TO_BIN(UUID()), 6, 'SITE_CREDIT', 10.00, FALSE),
+-- (UUID_TO_BIN(UUID()), 7, 'CASH', 2.00, TRUE);
 
 -- Insert share limits
-INSERT IGNORE INTO share_limits (id, platform, points_per_share, daily_limit, weekly_limit) VALUES
-(UUID_TO_BIN(UUID()), 'FACEBOOK', 5, 3, 10),
-(UUID_TO_BIN(UUID()), 'TWITTER', 5, 3, 10),
-(UUID_TO_BIN(UUID()), 'WHATSAPP', 5, 3, 10),
-(UUID_TO_BIN(UUID()), 'TELEGRAM', 5, 3, 10),
-(UUID_TO_BIN(UUID()), 'INSTAGRAM', 5, 3, 10);
+-- INSERT IGNORE INTO share_limits (id, platform, points_per_share, daily_limit, weekly_limit) VALUES
+-- (UUID_TO_BIN(UUID()), 'FACEBOOK', 5, 3, 10),
+-- (UUID_TO_BIN(UUID()), 'TWITTER', 5, 3, 10),
+-- (UUID_TO_BIN(UUID()), 'WHATSAPP', 5, 3, 10),
+-- (UUID_TO_BIN(UUID()), 'TELEGRAM', 5, 3, 10),
+-- (UUID_TO_BIN(UUID()), 'INSTAGRAM', 5, 3, 10);
 
 -- Insert legal documents
-INSERT IGNORE INTO legal_documents (id, type, content, version, effective_date) VALUES
-(UUID_TO_BIN(UUID()), 'TERMS', 'Terms and conditions content...', 1, CURDATE()),
-(UUID_TO_BIN(UUID()), 'PRIVACY', 'Privacy policy content...', 1, CURDATE()),
-(UUID_TO_BIN(UUID()), 'RESPONSIBLE_PLAY', 'Responsible play guidelines...', 1, CURDATE());
+-- INSERT IGNORE INTO legal_documents (id, type, content, version, effective_date) VALUES
+-- (UUID_TO_BIN(UUID()), 'TERMS', 'Terms and conditions content...', 1, CURDATE()),
+-- (UUID_TO_BIN(UUID()), 'PRIVACY', 'Privacy policy content...', 1, CURDATE()),
+-- (UUID_TO_BIN(UUID()), 'RESPONSIBLE_PLAY', 'Responsible play guidelines...', 1, CURDATE());
 
 -- Insert spin prizes
-INSERT IGNORE INTO spin_prizes (id, name, type, value, drop_rate, stock) VALUES
-(UUID_TO_BIN(UUID()), '10 Points', 'POINTS', 10, 30.00, NULL),
-(UUID_TO_BIN(UUID()), '25 Points', 'POINTS', 25, 20.00, NULL),
-(UUID_TO_BIN(UUID()), '£2 Credit', 'SITE_CREDIT', 2.00, 15.00, NULL),
-(UUID_TO_BIN(UUID()), '£5 Credit', 'SITE_CREDIT', 5.00, 10.00, NULL),
-(UUID_TO_BIN(UUID()), 'Free Ticket', 'FREE_TICKETS', 1.00, 15.00, 100),
-(UUID_TO_BIN(UUID()), '£1 Cash', 'CASH', 1.00, 5.00, NULL),
-(UUID_TO_BIN(UUID()), '£10 Cash', 'CASH', 10.00, 2.00, NULL),
-(UUID_TO_BIN(UUID()), 'Jackpot £50', 'CASH', 50.00, 0.50, NULL);
+-- INSERT IGNORE INTO spin_prizes (id, name, type, value, drop_rate, stock) VALUES
+-- (UUID_TO_BIN(UUID()), '10 Points', 'POINTS', 10, 30.00, NULL),
+-- (UUID_TO_BIN(UUID()), '25 Points', 'POINTS', 25, 20.00, NULL),
+-- (UUID_TO_BIN(UUID()), '£2 Credit', 'SITE_CREDIT', 2.00, 15.00, NULL),
+-- (UUID_TO_BIN(UUID()), '£5 Credit', 'SITE_CREDIT', 5.00, 10.00, NULL),
+-- (UUID_TO_BIN(UUID()), 'Free Ticket', 'FREE_TICKETS', 1.00, 15.00, 100),
+-- (UUID_TO_BIN(UUID()), '£1 Cash', 'CASH', 1.00, 5.00, NULL),
+-- (UUID_TO_BIN(UUID()), '£10 Cash', 'CASH', 10.00, 2.00, NULL),
+-- (UUID_TO_BIN(UUID()), 'Jackpot £50', 'CASH', 50.00, 0.50, NULL);
 
 -- Insert game categories
-INSERT IGNORE INTO game_categories (id, name, description, sort_order) VALUES
-(UUID_TO_BIN(UUID()), 'ARCADE', 'Classic arcade-style games', 1),
-(UUID_TO_BIN(UUID()), 'PUZZLE', 'Brain teasers and puzzles', 2),
-(UUID_TO_BIN(UUID()), 'ACTION', 'Fast-paced action games', 3),
-(UUID_TO_BIN(UUID()), 'STRATEGY', 'Strategic thinking games', 4),
-(UUID_TO_BIN(UUID()), 'CASUAL', 'Simple and relaxing games', 5),
-(UUID_TO_BIN(UUID()), 'MULTIPLAYER', 'Games for multiple players', 6),
-(UUID_TO_BIN(UUID()), 'EDUCATIONAL', 'Learning and educational games', 7);
+-- INSERT IGNORE INTO game_categories (id, name, description, sort_order) VALUES
+-- (UUID_TO_BIN(UUID()), 'ARCADE', 'Classic arcade-style games', 1),
+-- (UUID_TO_BIN(UUID()), 'PUZZLE', 'Brain teasers and puzzles', 2),
+-- (UUID_TO_BIN(UUID()), 'ACTION', 'Fast-paced action games', 3),
+-- (UUID_TO_BIN(UUID()), 'STRATEGY', 'Strategic thinking games', 4),
+-- (UUID_TO_BIN(UUID()), 'CASUAL', 'Simple and relaxing games', 5),
+-- (UUID_TO_BIN(UUID()), 'MULTIPLAYER', 'Games for multiple players', 6),
+-- (UUID_TO_BIN(UUID()), 'EDUCATIONAL', 'Learning and educational games', 7);
 
 -- ===========================================
 -- FIXED TRIGGER WITHOUT TABLE UPDATE CONFLICT
@@ -1293,21 +1360,21 @@ BEGIN
     -- We'll create all other records but skip updating users table
     
     -- Create referral record
-    INSERT INTO referrals (id, user_id, code, current_tier, status)
-    VALUES (UUID_TO_BIN(UUID()), NEW.id, user_referral_code, 1, 'ACTIVE');
+    -- INSERT INTO referrals (id, user_id, code, current_tier, status)
+    -- VALUES (UUID_TO_BIN(UUID()), NEW.id, user_referral_code, 1, 'ACTIVE');
     
-    -- Create user points record
-    INSERT INTO user_points (id, user_id, total_points, earned_points)
-    VALUES (UUID_TO_BIN(UUID()), NEW.id, 0, 0);
+    -- -- Create user points record
+    -- INSERT INTO user_points (id, user_id, total_points, earned_points)
+    -- VALUES (UUID_TO_BIN(UUID()), NEW.id, 0, 0);
     
-    -- Create user streaks record
-    INSERT INTO user_streaks (id, user_id, current_streak, longest_streak, last_login_date)
-    VALUES (UUID_TO_BIN(UUID()), NEW.id, 0, 0, NULL);
+    -- -- Create user streaks record
+    -- INSERT INTO user_streaks (id, user_id, current_streak, longest_streak, last_login_date)
+    -- VALUES (UUID_TO_BIN(UUID()), NEW.id, 0, 0, NULL);
     
-    -- Create wallet records
-    INSERT INTO wallets (id, user_id, type, balance) VALUES
-    (UUID_TO_BIN(UUID()), NEW.id, 'CASH', 0),
-    (UUID_TO_BIN(UUID()), NEW.id, 'CREDIT', 0);
+    -- -- Create wallet records
+    -- INSERT INTO wallets (id, user_id, type, balance) VALUES
+    -- (UUID_TO_BIN(UUID()), NEW.id, 'CASH', 0),
+    -- (UUID_TO_BIN(UUID()), NEW.id, 'CREDIT', 0);
     
     -- Create spending limits record
     INSERT INTO spending_limits (id, user_id) VALUES (UUID_TO_BIN(UUID()), NEW.id);

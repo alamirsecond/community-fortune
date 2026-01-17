@@ -141,12 +141,21 @@ getAllUsers: async ({ page, limit, search, role, status }) => {
         u.last_login,
         wc.balance AS cash_balance,
         wcr.balance AS credit_balance,
+        st.tier_name,
+        st.tier_level,
+        st.badge_name,
+        st.monthly_price,
+        st.benefits,
+        us.status AS subscription_status,
+        us.start_date AS subscription_start,
+        us.end_date AS subscription_end,
+        us.auto_renew,
+        us.next_payment_date,
         (
           SELECT COUNT(*)
           FROM purchases p
           WHERE p.user_id = u.id AND p.status = 'PAID'
         ) AS total_purchases,
-
         (
           SELECT COUNT(*)
           FROM tickets t
@@ -157,6 +166,12 @@ getAllUsers: async ({ page, limit, search, role, status }) => {
         ON u.id = wc.user_id AND wc.type = 'CASH'
       LEFT JOIN wallets wcr 
         ON u.id = wcr.user_id AND wcr.type = 'CREDIT'
+      LEFT JOIN user_subscriptions us 
+        ON u.id = us.user_id 
+        AND us.status = 'ACTIVE' 
+        AND us.end_date >= CURDATE()
+      LEFT JOIN subscription_tiers st 
+        ON us.tier_id = st.id
     `;
 
     let countQuery = `SELECT COUNT(*) AS total FROM users u`;
@@ -165,7 +180,7 @@ getAllUsers: async ({ page, limit, search, role, status }) => {
     const countParams = [];
     const conditions = [];
 
-    //Search
+    // Search
     if (search) {
       conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
       params.push(`%${search}%`, `%${search}%`);
@@ -179,14 +194,14 @@ getAllUsers: async ({ page, limit, search, role, status }) => {
       countParams.push(role);
     }
 
-    //Verification status
+    // Verification status
     if (status === "verified") {
       conditions.push(`u.age_verified = TRUE`);
     } else if (status === "unverified") {
       conditions.push(`u.age_verified = FALSE`);
     }
 
-    //Apply WHERE clause
+    // Apply WHERE clause
     if (conditions.length > 0) {
       const whereClause = ` WHERE ${conditions.join(" AND ")}`;
       query += whereClause;
@@ -199,8 +214,42 @@ getAllUsers: async ({ page, limit, search, role, status }) => {
 
     const [users] = await pool.query(query, params);
     const [totalResult] = await pool.query(countQuery, countParams);
+
+    // Parse benefits JSON and format subscription data
+    const formattedUsers = users.map(user => {
+      let benefits = {};
+      try {
+        if (user.benefits) {
+          benefits = typeof user.benefits === 'string' 
+            ? JSON.parse(user.benefits) 
+            : user.benefits;
+        }
+      } catch (error) {
+        console.error('Error parsing benefits:', error);
+      }
+
+      return {
+        ...user,
+        subscription: user.tier_name ? {
+          tier_name: user.tier_name,
+          tier_level: user.tier_level,
+          badge_name: user.badge_name,
+          monthly_price: user.monthly_price,
+          benefits: benefits,
+          status: user.subscription_status,
+          start_date: user.subscription_start,
+          end_date: user.subscription_end,
+          auto_renew: user.auto_renew,
+          next_payment_date: user.next_payment_date,
+          is_active: user.subscription_status === 'ACTIVE' && 
+                    user.subscription_end && 
+                    new Date(user.subscription_end) >= new Date()
+        } : null
+      };
+    });
+
     return {
-      users,
+      users: formattedUsers,
       pagination: {
         page: parseInt(page),
         limit: parseInt(limit),
@@ -747,22 +796,22 @@ getUserDetails: async (user_id) => {
 
 
 // Get user statistics for dashboard
-// Get user statistics for dashboard
 getUserStats: async () => {
   try {
-    // Run all queries in parallel for better performance
     const [
       totalUsersResult,
       activeUsersTodayResult,
       pendingVerificationResult,
       suspendedUsersResult,
       monthlyGrowthResult,
-      newUsersTodayResult // Optional: count new users today
+      newUsersTodayResult,
+      recentActivitiesResult,
+      activitySummaryResult  
     ] = await Promise.all([
-      // 1. Total Users
+      //aklilu:Total Users
       pool.query('SELECT COUNT(*) as total FROM users'),
-      
-      // 2. Active Users Today (users who logged in today) - USING last_login
+
+      //aklilu:Active Users Today - users who logged in today - USING last_login
       pool.query(`
         SELECT COUNT(*) as active_today 
         FROM users 
@@ -770,7 +819,7 @@ getUserStats: async () => {
         AND is_active = TRUE
       `),
       
-      // 3. Pending Verification Review (age verification)
+      //aklilu:Pending Verification Review -age verification
       pool.query(`
         SELECT COUNT(*) as pending_verification 
         FROM users 
@@ -778,14 +827,14 @@ getUserStats: async () => {
         AND is_active = TRUE
       `),
       
-      // 4. Suspended Users (is_active = false)
+      //aklilu:Suspended Users -is_active = false
       pool.query(`
         SELECT COUNT(*) as suspended 
         FROM users 
         WHERE is_active = FALSE
       `),
       
-      // 5. Monthly growth percentage
+      // aklillu:Monthly growth percentage
       pool.query(`
         WITH monthly_stats AS (
           SELECT 
@@ -807,14 +856,48 @@ getUserStats: async () => {
         FROM monthly_stats
       `),
       
-      // 6. New users today (optional)
+      //aklilu:New users today
       pool.query(`
         SELECT COUNT(*) as new_users_today 
         FROM users 
         WHERE DATE(created_at) = CURDATE()
+      `),
+
+      // aklilu:Recent user activities (last 10 activities)
+      pool.query(`
+        SELECT 
+          BIN_TO_UUID(ua.id) as activity_id,
+          BIN_TO_UUID(ua.user_id) as user_id,
+          u.username,
+          u.email,
+          u.profile_photo,
+          ua.action,
+          ua.module,
+          ua.target_id,
+          ua.ip_address,
+          ua.details,
+          ua.created_at,
+          TIMESTAMPDIFF(MINUTE, ua.created_at, NOW()) as minutes_ago
+        FROM user_activities ua
+        LEFT JOIN users u ON ua.user_id = u.id
+        WHERE ua.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY) -- Last 7 days
+        ORDER BY ua.created_at DESC
+        LIMIT 10
+      `),
+
+      // aklilu:Activity summary for last 7 days
+      pool.query(`
+        SELECT 
+          DATE(ua.created_at) as activity_date,
+          COUNT(*) as activity_count,
+          COUNT(DISTINCT ua.user_id) as unique_users
+        FROM user_activities ua
+        WHERE ua.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+        GROUP BY DATE(ua.created_at)
+        ORDER BY activity_date DESC
       `)
     ]);
-
+  
     // Extract data from results
     const totalUsers = totalUsersResult[0][0]?.total || 0;
     const activeUsersToday = activeUsersTodayResult[0][0]?.active_today || 0;
@@ -822,13 +905,109 @@ getUserStats: async () => {
     const suspendedUsers = suspendedUsersResult[0][0]?.suspended || 0;
     const monthlyGrowth = monthlyGrowthResult[0][0]?.growth_percentage || 0;
     const newUsersToday = newUsersTodayResult[0][0]?.new_users_today || 0;
+    const recentActivities = recentActivitiesResult[0] || [];
+    const activitySummary = activitySummaryResult[0] || [];
     
     // Calculate percentage of active users vs total
     const activePercentage = totalUsers > 0 
       ? ((activeUsersToday / totalUsers) * 100).toFixed(1) 
       : '0.0';
 
+    //akilu:Calculate total activities in last 7 days
+    const totalActivities7Days = activitySummary.reduce((sum, day) => sum + (day.activity_count || 0), 0);
+    const avgActivitiesPerDay = activitySummary.length > 0 
+      ? (totalActivities7Days / activitySummary.length).toFixed(1) 
+      : 0;
+
+    //aklilu:Parse activity details and format time
+    const formattedRecentActivities = recentActivities.map(activity => {
+      let timeAgo = '';
+      const minutes = activity.minutes_ago || 0;
+      
+      if (minutes < 1) {
+        timeAgo = 'Just now';
+      } else if (minutes < 60) {
+        timeAgo = `${minutes} min${minutes === 1 ? '' : 's'} ago`;
+      } else if (minutes < 1440) {
+        const hours = Math.floor(minutes / 60);
+        timeAgo = `${hours} hour${hours === 1 ? '' : 's'} ago`;
+      } else {
+        const days = Math.floor(minutes / 1440);
+        timeAgo = `${days} day${days === 1 ? '' : 's'} ago`;
+      }
+
+      //aklilu:Parse JSON details if exists
+      let parsedDetails = {};
+      try {
+        if (activity.details) {
+          parsedDetails = typeof activity.details === 'string' 
+            ? JSON.parse(activity.details) 
+            : activity.details;
+        }
+      } catch (error) {
+        console.error('Error parsing activity details:', error);
+      }
+
+      // // Determine icon based on module/action
+      // let icon = 'default';
+      // let color = 'gray';
+      
+      // const module = activity.module?.toLowerCase() || '';
+      // const action = activity.action?.toLowerCase() || '';
+      
+      // if (module.includes('auth') || action.includes('login') || action.includes('register')) {
+      //   icon = 'user';
+      //   color = 'blue';
+      // } else if (module.includes('game') || module.includes('competition')) {
+      //   icon = 'game';
+      //   color = 'green';
+      // } else if (module.includes('payment') || module.includes('purchase') || module.includes('deposit')) {
+      //   icon = 'payment';
+      //   color = 'purple';
+      // } else if (module.includes('referral')) {
+      //   icon = 'referral';
+      //   color = 'orange';
+      // } else if (module.includes('profile')) {
+      //   icon = 'profile';
+      //   color = 'pink';
+      // } else if (action.includes('update') || action.includes('edit')) {
+      //   icon = 'edit';
+      //   color = 'yellow';
+      // }
+
+      // Format action text for display
+      let displayAction = activity.action || 'Unknown Action';
+      if (displayAction.includes('_')) {
+        displayAction = displayAction.replace(/_/g, ' ').replace(/\b\w/g, l => l.toUpperCase());
+      }
+
+      return {
+        id: activity.activity_id,
+        userId: activity.user_id,
+        username: activity.username || 'Unknown User',
+        email: activity.email || '',
+        profilePhoto: activity.profile_photo,
+        action: displayAction,
+        module: activity.module || 'Unknown Module',
+        targetId: activity.target_id,
+        ipAddress: activity.ip_address,
+        details: parsedDetails,
+        timestamp: activity.created_at,
+        timeAgo: timeAgo,
+        // icon: icon,
+        // color: color,
+        formattedDate: new Date(activity.created_at).toLocaleString('en-GB', {
+          day: '2-digit',
+          month: 'short',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit'
+        })
+      };
+    });
+
     return {
+      // Basic user stats
       total_users: totalUsers,
       total_users_formatted: totalUsers.toLocaleString(),
       monthly_growth: `${monthlyGrowth}%`,
@@ -841,7 +1020,86 @@ getUserStats: async () => {
       suspended_users: suspendedUsers,
       suspended_users_formatted: suspendedUsers.toLocaleString(),
       new_users_today: newUsersToday,
-      new_users_today_formatted: newUsersToday.toLocaleString()
+      new_users_today_formatted: newUsersToday.toLocaleString(),
+
+      //aklilu:Activity statistics
+      activity_stats: {
+        total_last_7_days: totalActivities7Days,
+        total_last_7_days_formatted: totalActivities7Days.toLocaleString(),
+        average_daily_activities: parseFloat(avgActivitiesPerDay),
+        unique_users_last_7_days: activitySummary.reduce((sum, day) => sum + (day.unique_users || 0), 0),
+        daily_breakdown: activitySummary.map(day => ({
+          date: day.activity_date,
+          date_formatted: new Date(day.activity_date).toLocaleDateString('en-GB', {
+            weekday: 'short',
+            day: '2-digit',
+            month: 'short'
+          }),
+          activity_count: day.activity_count,
+          unique_users: day.unique_users
+        })),
+        recent_activities_count: recentActivities.length
+      },
+
+      //aklilu:Recent activities
+      recent_activities: formattedRecentActivities,
+
+      // aklilu:Activity by module (if needed)
+      activity_by_module: await (async () => {
+        try {
+          const [moduleResult] = await pool.query(`
+            SELECT 
+              ua.module,
+              COUNT(*) as count
+            FROM user_activities ua
+            WHERE ua.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+            GROUP BY ua.module
+            ORDER BY count DESC
+            LIMIT 5
+          `);
+          return moduleResult;
+        } catch (error) {
+          console.error('Error getting activity by module:', error);
+          return [];
+        }
+      })(),
+
+      // aklilu:Most active users
+      most_active_users: await (async () => {
+        try {
+          const [activeUsersResult] = await pool.query(`
+            SELECT 
+              BIN_TO_UUID(u.id) as user_id,
+              u.username,
+              u.email,
+              u.profile_photo,
+              COUNT(ua.id) as activity_count,
+              MAX(ua.created_at) as last_activity
+            FROM users u
+            LEFT JOIN user_activities ua ON u.id = ua.user_id
+            WHERE ua.created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)
+              AND u.role = 'USER'
+            GROUP BY u.id, u.username, u.email, u.profile_photo
+            ORDER BY activity_count DESC
+            LIMIT 5
+          `);
+          
+          return activeUsersResult.map(user => ({
+            ...user,
+            last_activity_formatted: user.last_activity 
+              ? new Date(user.last_activity).toLocaleString('en-GB', {
+                  day: '2-digit',
+                  month: 'short',
+                  hour: '2-digit',
+                  minute: '2-digit'
+                })
+              : 'No activity'
+          }));
+        } catch (error) {
+          console.error('Error getting most active users:', error);
+          return [];
+        }
+      })()
     };
   } catch (error) {
     console.error("Error getting user stats:", error);
