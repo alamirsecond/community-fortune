@@ -18,6 +18,7 @@ adminRouter.put("/users/:user_id/deactivate", adminController.softDeleteUser);
 adminRouter.put("/users/:user_id/suspend", adminController.suspendUser);
 adminRouter.put("/users/:user_id/activate", adminController.activateUser);
 adminRouter.get("/users/stats", adminController.getUserStats);
+
 // Competition Management
 adminRouter.get("/competitions", adminController.getAllCompetitions);
 adminRouter.post("/competitions", adminController.createCompetition);

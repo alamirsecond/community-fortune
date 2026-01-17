@@ -179,7 +179,44 @@ function maskPhone(phone) {
   if (!phone) return '';
   return phone.replace(/\d(?=\d{4})/g, '*');
 }
+// Helper function to log user activity
+const logUserActivity = async (connection, activityData) => {
+  try {
+    const {
+      userId,
+      action,
+      targetId = null,
+      module = 'authentication',
+      ipAddress,
+      userAgent,
+      details = {}
+    } = activityData;
 
+    const activityId = uuidv4();
+    
+    await connection.query(
+      `INSERT INTO user_activities (
+        id, user_id, action, target_id, module, 
+        ip_address, user_agent, details, created_at
+      ) VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        activityId,
+        userId,
+        action,
+        targetId,
+        module,
+        ipAddress,
+        userAgent,
+        JSON.stringify(details)
+      ]
+    );
+    
+    return activityId;
+  } catch (error) {
+    console.error('Error logging user activity:', error);
+    // Don't throw error, just log it
+  }
+};
 const generateUniqueReferralCode = async (username) => {
   let referralCode;
   let attempts = 0;
@@ -413,7 +450,9 @@ const userController = {
       return res.status(500).json({ success: false, message: "Internal server error" });
     }
   },
+
 registerUser: async (req, res) => {
+  let connection;
   try {
     const { error, value } = userSchemas.registerSchema.validate(req.body);
     if (error) {
@@ -455,7 +494,7 @@ registerUser: async (req, res) => {
     const passwordHash = await bcrypt.hash(password, saltRounds);
 
     const userId = uuidv4(); // This returns a string UUID
-    const connection = await pool.getConnection();
+    connection = await pool.getConnection();
 
     await connection.beginTransaction();
 
@@ -484,13 +523,29 @@ registerUser: async (req, res) => {
         ]
       );
 
-      // 3. Get default referral tier (usually Bronze)
+      // 3. Log registration activity
+      await logUserActivity(connection, {
+        userId: userId,
+        action: 'USER_REGISTERED',
+        module: 'authentication',
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent') || null,
+        details: {
+          method: 'email',
+          email: email,
+          username: username,
+          referralCodeUsed: effectiveReferralCode,
+          country: country
+        }
+      });
+
+      // 4. Get default referral tier (usually Bronze)
       const [tiers] = await connection.query(
         `SELECT id FROM referral_tiers WHERE min_referrals = 0 ORDER BY min_referrals LIMIT 1`
       );
       const defaultTierId = tiers.length > 0 ? tiers[0].id : null;
 
-      // 4. Create referral link for the new user
+      // 5. Create referral link for the new user
       const referralLinkId = uuidv4();
       await connection.query(
         `INSERT INTO referral_links (
@@ -500,7 +555,20 @@ registerUser: async (req, res) => {
         [referralLinkId, userId, referralCodeForUser]
       );
 
-      // 5. Initialize user referral stats with default tier
+      // 6. Log referral link creation
+      await logUserActivity(connection, {
+        userId: userId,
+        action: 'REFERRAL_LINK_CREATED',
+        module: 'referral',
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent') || null,
+        details: {
+          referralCode: referralCodeForUser,
+          linkId: referralLinkId
+        }
+      });
+
+      // 7. Initialize user referral stats with default tier
       await connection.query(
         `INSERT INTO user_referral_stats (
           user_id, current_tier_id, total_referrals, 
@@ -509,7 +577,7 @@ registerUser: async (req, res) => {
         [userId, defaultTierId, 0]
       );
 
-      // 6. Generate verification OTP (6-digit code)
+      // 8. Generate verification OTP (6-digit code)
       const verificationToken = generateOTP();
       const expiresAt = new Date(Date.now() + 15 * 60 * 1000); // 15 minutes
 
@@ -520,9 +588,22 @@ registerUser: async (req, res) => {
         [uuidv4(), userId, verificationToken, expiresAt]
       );
 
+      // 9. Log verification token creation
+      await logUserActivity(connection, {
+        userId: userId,
+        action: 'VERIFICATION_TOKEN_CREATED',
+        module: 'authentication',
+        ipAddress: req.ip || req.connection.remoteAddress,
+        userAgent: req.get('User-Agent') || null,
+        details: {
+          tokenType: 'email_verification',
+          expiresAt: expiresAt
+        }
+      });
+
       await connection.commit();
 
-      // 7. Send verification email (outside transaction)
+      // 10. Send verification email (outside transaction)
       let emailSent = false;
       let emailError = null;
 
@@ -536,6 +617,19 @@ registerUser: async (req, res) => {
         if (emailResult.success) {
           console.log(`Verification email sent successfully to ${email}`);
           emailSent = true;
+          
+          // Log email sent activity
+          await logUserActivity(connection, {
+            userId: userId,
+            action: 'VERIFICATION_EMAIL_SENT',
+            module: 'authentication',
+            ipAddress: req.ip || req.connection.remoteAddress,
+            userAgent: req.get('User-Agent') || null,
+            details: {
+              email: email,
+              status: 'success'
+            }
+          });
         } else {
           console.error("Verification email failed:", {
             to: email,
@@ -543,6 +637,20 @@ registerUser: async (req, res) => {
             technicalError: emailResult.technicalError,
           });
           emailError = emailResult.message;
+          
+          // Log email failure
+          await logUserActivity(connection, {
+            userId: userId,
+            action: 'VERIFICATION_EMAIL_FAILED',
+            module: 'authentication',
+            ipAddress: req.ip || req.connection.remoteAddress,
+            userAgent: req.get('User-Agent') || null,
+            details: {
+              email: email,
+              error: emailResult.message,
+              status: 'failed'
+            }
+          });
         }
       } catch (emailErr) {
         console.error("Email sending error:", {
@@ -552,7 +660,7 @@ registerUser: async (req, res) => {
         emailError = emailErr.message;
       }
 
-      // 8. Send welcome email if verification email succeeded
+      // 11. Send welcome email if verification email succeeded
       let welcomeEmailSent = false;
       if (emailSent) {
         try {
@@ -560,29 +668,69 @@ registerUser: async (req, res) => {
           if (welcomeResult.success) {
             console.log(`✅ Welcome email sent successfully to ${email}`);
             welcomeEmailSent = true;
+            
+            // Log welcome email sent
+            await logUserActivity(connection, {
+              userId: userId,
+              action: 'WELCOME_EMAIL_SENT',
+              module: 'communication',
+              ipAddress: req.ip || req.connection.remoteAddress,
+              userAgent: req.get('User-Agent') || null,
+              details: {
+                email: email,
+                status: 'success'
+              }
+            });
           }
         } catch (welcomeError) {
           console.error("❌ Welcome email failed:", welcomeError.message);
         }
       }
 
-      // 9. Process referral if code was provided (body or link)
+      // 12. Process referral if code was provided (body or link)
       if (effectiveReferralCode) {
         try {
           await processReferralRegistration(connection, userId, effectiveReferralCode);
           console.log(
             `✅ Referral processed successfully for user ${username}`
           );
+          
+          // Log referral processing
+          await logUserActivity(connection, {
+            userId: userId,
+            action: 'REFERRAL_PROCESSED',
+            module: 'referral',
+            ipAddress: req.ip || req.connection.remoteAddress,
+            userAgent: req.get('User-Agent') || null,
+            details: {
+              referralCode: effectiveReferralCode,
+              status: 'success'
+            }
+          });
         } catch (referralError) {
           console.error(
             "❌ Referral processing failed:",
             referralError.message
           );
           // Don't fail registration if referral processing fails
+          
+          // Log referral failure
+          await logUserActivity(connection, {
+            userId: userId,
+            action: 'REFERRAL_PROCESSING_FAILED',
+            module: 'referral',
+            ipAddress: req.ip || req.connection.remoteAddress,
+            userAgent: req.get('User-Agent') || null,
+            details: {
+              referralCode: effectiveReferralCode,
+              error: referralError.message,
+              status: 'failed'
+            }
+          });
         }
       }
 
-      // 10. Get created user data
+      // 13. Get created user data
       const [users] = await pool.query(
         `SELECT 
           BIN_TO_UUID(id) as id, 
@@ -597,7 +745,7 @@ registerUser: async (req, res) => {
       );
       const user = users[0];
 
-      // 11. Get referral link info
+      // 14. Get referral link info
       const [referralLinks] = await pool.query(
         `SELECT 
           BIN_TO_UUID(id) as id, 
@@ -609,7 +757,7 @@ registerUser: async (req, res) => {
         [userId]
       );
 
-      // 12. Get referral stats
+      // 15. Get referral stats
       const [referralStats] = await pool.query(
         `SELECT 
           rs.total_referrals,
@@ -624,7 +772,7 @@ registerUser: async (req, res) => {
         [userId]
       );
 
-      // 13. Prepare response based on email sending status
+      // 16. Prepare response based on email sending status
       let responseMessage =
         "Registration submitted. Please check your email to verify your account.";
       let responseNotes = [];
@@ -664,6 +812,23 @@ registerUser: async (req, res) => {
       });
     } catch (error) {
       await connection.rollback();
+      
+      // Log registration failure
+      if (userId) {
+        await logUserActivity(connection, {
+          userId: userId,
+          action: 'REGISTRATION_FAILED',
+          module: 'authentication',
+          ipAddress: req.ip || req.connection.remoteAddress,
+          userAgent: req.get('User-Agent') || null,
+          details: {
+            error: error.message,
+            errorCode: error.code,
+            step: 'transaction'
+          }
+        });
+      }
+      
       // Clean up uploaded files on error
       if (req.files) {
         Object.values(req.files)
@@ -689,7 +854,9 @@ registerUser: async (req, res) => {
 
       throw error;
     } finally {
-      connection.release();
+      if (connection) {
+        connection.release();
+      }
     }
   } catch (error) {
     console.error("Registration error:", error);

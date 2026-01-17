@@ -10,6 +10,70 @@ import {
 import { sendAdminCreationEmail } from "../../Utils/emailService.js";
 import SystemAlertService from "./SystemAlertService.js";
 
+
+
+// Helper function to format time ago
+// Helper function to create revenue transaction records
+const createRevenueTransaction = async (transactionData) => {
+  try {
+    const {
+      userId,
+      type,
+      amount,
+      status = 'completed',
+      description,
+      referenceTable,
+      referenceId,
+      metadata = {},
+      gateway = null,
+      fee = 0.00,
+      ipAddress = null
+    } = transactionData;
+
+    const transactionId = uuidv4();
+    
+    await pool.query(
+      `INSERT INTO transactions (
+        id, user_id, type, amount, currency, status, description,
+        reference_table, reference_id, metadata, gateway, fee,
+        net_amount, ip_address, created_at
+      ) VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, 'GBP', ?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())`,
+      [
+        transactionId,
+        userId,
+        type,
+        amount,
+        status,
+        description,
+        referenceTable,
+        referenceId,
+        JSON.stringify(metadata),
+        gateway,
+        fee,
+        amount - fee,
+        ipAddress
+      ]
+    );
+    
+    // Update daily revenue summary
+    const today = new Date().toISOString().split('T')[0];
+    
+    await pool.query(
+      `INSERT INTO revenue_summary (id, date, total_revenue, transaction_count, updated_at)
+       VALUES (UUID_TO_BIN(?), ?, ?, 1, NOW())
+       ON DUPLICATE KEY UPDATE
+       total_revenue = total_revenue + ?,
+       transaction_count = transaction_count + 1,
+       updated_at = NOW()`,
+      [uuidv4(), today, amount, amount]
+    );
+    
+    return transactionId;
+  } catch (error) {
+    console.error('Error creating revenue transaction:', error);
+    // Don't throw, just log
+  }
+};
 const superAdminController = {
   // Create new admin
   createAdmin: async (req, res) => {
@@ -609,12 +673,43 @@ getActivityLogs: async (req, res) => {
 },
 
 //aklilu:Get superadmin dashboard stats
-  getDashboardStats: async (req, res) => {
-    try {
-      // Get stats from last 30 days
-      const thirtyDaysAgo = new Date();
-      thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      const [totalStats] = await pool.query(
+getDashboardStats: async (req, res) => {
+  try {
+    // Get time ranges
+    const thirtyDaysAgo = new Date();
+    thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+
+    const sevenDaysAgo = new Date();
+    sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+    
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
+    
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+    
+    const thisMonthStart = new Date(today.getFullYear(), today.getMonth(), 1);
+    const lastMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+    const lastMonthEnd = new Date(today.getFullYear(), today.getMonth(), 0);
+
+    // Execute all queries in parallel for performance
+    const [
+      totalStats,
+      adminStats,
+      revenueStats,
+      purchasesRevenue,
+      creditPurchasesRevenue,
+      subscriptionsRevenue,
+      withdrawalsStats,
+      referralRevenue,
+      dailyRevenue,
+      recentAdminActivities,
+      recentUserActivities,
+      activityByModule,
+      topActiveUsers
+    ] = await Promise.all([
+      // Total stats query (from your existing query)
+      pool.query(
         `SELECT 
            (SELECT COUNT(*) FROM users WHERE role = 'ADMIN' AND is_active = TRUE) as active_admins,
            (SELECT COUNT(*) FROM users WHERE role = 'ADMIN') as total_admins,
@@ -625,9 +720,10 @@ getActivityLogs: async (req, res) => {
            (SELECT COUNT(*) FROM competitions WHERE created_at >= ?) as recent_competitions
          FROM dual`,
         [thirtyDaysAgo]
-      );
-      // Get admin activity stats
-      const [adminStats] = await pool.query(
+      ),
+      
+      // Admin stats query (from your existing query)
+      pool.query(
         `SELECT 
            COUNT(DISTINCT admin_id) as active_admins_30d,
            COUNT(*) as total_activities_30d,
@@ -635,42 +731,488 @@ getActivityLogs: async (req, res) => {
          FROM admin_activity_logs 
          WHERE created_at >= ?`,
         [thirtyDaysAgo]
-      );
-      const [recentActivities] = await pool.query(
-            `SELECT 
-            BIN_TO_UUID(a.id)        AS id,
-            BIN_TO_UUID(a.admin_id) AS Sup_admin_id,
-            BIN_TO_UUID(a.entity_id) AS entity_id,
-            a.action,
-            a.entity_type,
-            a.ip_address,
-            a.user_agent,
-            a.details,
-            a.created_at,
-            u.email AS sup_admin_email
-            FROM admin_activity_logs a
-            JOIN users u ON a.admin_id = u.id
-            ORDER BY a.created_at DESC
-            LIMIT 5`
-      );
-      res.status(200).json({
-        success: true,
-        data: {
-          stats: {
-            ...totalStats[0],
-            ...adminStats[0],
+      ),
+      
+      // General revenue stats from transactions table (if exists)
+      pool.query(`
+        SELECT 
+          -- All time totals from transactions table
+          COALESCE(SUM(CASE 
+            WHEN type IN ('deposit', 'commission', 'fee', 'purchase', 'subscription', 'competition_entry') THEN amount
+            WHEN type IN ('withdrawal', 'instant_win', 'referral_payout') THEN -amount
+            ELSE 0
+          END), 0) as total_revenue_all_time,
+          
+          -- This month
+          COALESCE(SUM(CASE 
+            WHEN type IN ('deposit', 'commission', 'fee', 'purchase', 'subscription', 'competition_entry') THEN amount
+            WHEN type IN ('withdrawal', 'instant_win', 'referral_payout') THEN -amount
+            ELSE 0
+          END), 0) as total_revenue_this_month,
+          
+          -- Today
+          COALESCE(SUM(CASE 
+            WHEN type IN ('deposit', 'commission', 'fee', 'purchase', 'subscription', 'competition_entry') THEN amount
+            WHEN type IN ('withdrawal', 'instant_win', 'referral_payout') THEN -amount
+            ELSE 0
+          END), 0) as total_revenue_today,
+          
+          -- Yesterday
+          COALESCE(SUM(CASE 
+            WHEN type IN ('deposit', 'commission', 'fee', 'purchase', 'subscription', 'competition_entry') THEN amount
+            WHEN type IN ('withdrawal', 'instant_win', 'referral_payout') THEN -amount
+            ELSE 0
+          END), 0) as total_revenue_yesterday,
+          
+          -- Transaction counts
+          COUNT(*) as total_transactions,
+          SUM(CASE WHEN status = 'pending' THEN 1 ELSE 0 END) as pending_count,
+          COALESCE(AVG(CASE WHEN status = 'completed' THEN amount ELSE NULL END), 0) as avg_transaction_value
+        FROM transactions 
+        WHERE 1=1`,
+        [] // No parameters since we're checking table existence
+      ).catch(() => ({ [0]: [{
+        total_revenue_all_time: 0,
+        total_revenue_this_month: 0,
+        total_revenue_today: 0,
+        total_revenue_yesterday: 0,
+        total_transactions: 0,
+        pending_count: 0,
+        avg_transaction_value: 0
+      }] })),
+      
+      // Revenue from purchases table (competition entries)
+      pool.query(
+        `SELECT 
+           COALESCE(SUM(total_amount), 0) as total_purchase_revenue,
+           COALESCE(SUM(CASE WHEN created_at >= ? THEN total_amount ELSE 0 END), 0) as recent_purchase_revenue,
+           COALESCE(SUM(CASE WHEN DATE(created_at) = CURDATE() THEN total_amount ELSE 0 END), 0) as today_purchase_revenue,
+           COUNT(*) as total_purchases,
+           SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending_purchases,
+           COALESCE(AVG(total_amount), 0) as avg_purchase_value
+         FROM purchases 
+         WHERE status IN ('PAID', 'PENDING')`,
+        [thirtyDaysAgo]
+      ),
+      
+      // Revenue from credit purchases (deposits)
+      pool.query(
+        `SELECT 
+           COALESCE(SUM(amount), 0) as total_deposit_revenue,
+           COALESCE(SUM(CASE WHEN created_at >= ? THEN amount ELSE 0 END), 0) as recent_deposit_revenue,
+           COALESCE(SUM(CASE WHEN DATE(created_at) = CURDATE() THEN amount ELSE 0 END), 0) as today_deposit_revenue,
+           COUNT(*) as total_deposits,
+           SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending_deposits,
+           COALESCE(AVG(amount), 0) as avg_deposit_value
+         FROM credit_purchases 
+         WHERE status IN ('COMPLETED', 'PENDING')`,
+        [thirtyDaysAgo]
+      ),
+      
+      // Subscription revenue
+      pool.query(
+        `SELECT 
+           COALESCE(SUM(st.monthly_price), 0) as total_subscription_revenue,
+           COUNT(DISTINCT us.user_id) as active_subscribers,
+           COUNT(*) as total_subscriptions
+         FROM user_subscriptions us
+         JOIN subscription_tiers st ON us.tier_id = st.id
+         WHERE us.status = 'ACTIVE' 
+           AND us.end_date >= CURDATE()`
+      ),
+      
+      // Withdrawals (outgoing)
+      pool.query(
+        `SELECT 
+           COALESCE(SUM(amount), 0) as total_withdrawals_requested,
+           COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN amount ELSE 0 END), 0) as total_withdrawals_paid,
+           COALESCE(SUM(CASE WHEN status = 'PENDING' THEN amount ELSE 0 END), 0) as pending_withdrawals,
+           COUNT(*) as total_withdrawal_requests,
+           SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending_withdrawal_count
+         FROM withdrawals`
+      ),
+      
+      // Referral revenue (payouts)
+      pool.query(
+        `SELECT 
+           COALESCE(SUM(amount), 0) as total_referral_payouts,
+           COUNT(*) as total_referral_events
+         FROM referral_events 
+         WHERE event_type = 'REWARD_PAID' 
+           AND status = 'COMPLETED'`
+      ),
+      
+      // Daily revenue breakdown (for chart)
+      pool.query(
+        `SELECT 
+           DATE(p.created_at) as date,
+           COALESCE(SUM(p.total_amount), 0) as purchase_revenue,
+           COALESCE(SUM(cp.amount), 0) as deposit_revenue,
+           COALESCE(SUM(w.amount), 0) as withdrawal_amount
+         FROM (
+           SELECT created_at, total_amount FROM purchases WHERE status IN ('PAID', 'PENDING') AND created_at >= ?
+           UNION ALL
+           SELECT NULL as created_at, 0 as total_amount WHERE 1=0
+         ) p
+         LEFT JOIN (
+           SELECT DATE(created_at) as cp_date, SUM(amount) as amount 
+           FROM credit_purchases 
+           WHERE status IN ('COMPLETED', 'PENDING') AND created_at >= ?
+           GROUP BY DATE(created_at)
+         ) cp ON DATE(p.created_at) = cp.cp_date
+         LEFT JOIN (
+           SELECT DATE(requested_at) as w_date, SUM(amount) as amount 
+           FROM withdrawals 
+           WHERE status IN ('COMPLETED', 'PENDING') AND requested_at >= ?
+           GROUP BY DATE(requested_at)
+         ) w ON DATE(p.created_at) = w.w_date
+         WHERE p.created_at IS NOT NULL
+         GROUP BY DATE(p.created_at)
+         ORDER BY date DESC
+         LIMIT 7`,
+        [sevenDaysAgo, sevenDaysAgo, sevenDaysAgo]
+      ),
+      
+      // Recent admin activities (from your existing query)
+      pool.query(
+        `SELECT 
+           BIN_TO_UUID(a.id) AS id,
+           BIN_TO_UUID(a.admin_id) AS admin_id,
+           BIN_TO_UUID(a.entity_id) AS entity_id,
+           a.action,
+           a.entity_type,
+           a.ip_address,
+           a.user_agent,
+           a.details,
+           a.created_at,
+           u.email AS admin_email,
+           u.username AS admin_username
+         FROM admin_activity_logs a
+         LEFT JOIN users u ON a.admin_id = u.id
+         ORDER BY a.created_at DESC
+         LIMIT 5`
+      ),
+      
+      // Recent user activities (from your existing query)
+      pool.query(
+        `SELECT 
+           BIN_TO_UUID(ua.id) AS id,
+           BIN_TO_UUID(ua.user_id) AS user_id,
+           ua.action,
+           ua.module,
+           ua.target_id,
+           ua.ip_address,
+           ua.user_agent,
+           ua.details,
+           ua.created_at,
+           u.email AS user_email,
+           u.username AS user_username,
+           u.first_name AS user_first_name,
+           u.last_name AS user_last_name
+         FROM user_activities ua
+         LEFT JOIN users u ON ua.user_id = u.id
+         ORDER BY ua.created_at DESC
+         LIMIT 5`
+      ),
+      
+      // Activity by module (from your existing query)
+      pool.query(
+        `SELECT 
+           module,
+           COUNT(*) as activity_count
+         FROM user_activities 
+         WHERE created_at >= ?
+         GROUP BY module
+         ORDER BY activity_count DESC`,
+        [thirtyDaysAgo]
+      ),
+      
+      // Top active users (from your existing query)
+      pool.query(
+        `SELECT 
+           BIN_TO_UUID(u.id) as user_id,
+           u.username,
+           u.email,
+           COUNT(ua.id) as activity_count,
+           MAX(ua.created_at) as last_activity
+         FROM users u
+         LEFT JOIN user_activities ua ON u.id = ua.user_id
+         WHERE u.role = 'USER'
+           AND ua.created_at >= ?
+         GROUP BY u.id, u.username, u.email
+         ORDER BY activity_count DESC
+         LIMIT 5`,
+        [thirtyDaysAgo]
+      )
+    ]);
+
+    // Parse the results
+    const stats = totalStats[0][0];
+    const adminActivityStats = adminStats[0][0];
+    const generalRevenue = revenueStats[0][0] || {};
+    const purchaseRevenue = purchasesRevenue[0][0];
+    const creditPurchaseRevenue = creditPurchasesRevenue[0][0];
+    const subscriptionRevenue = subscriptionsRevenue[0][0];
+    const withdrawals = withdrawalsStats[0][0];
+    const referralPayouts = referralRevenue[0][0];
+    const dailyRevenueData = dailyRevenue[0];
+
+    // Calculate total revenue from all sources
+    const calculateTotalRevenue = () => {
+      let total = 0;
+      
+      // From general transactions table
+      total += parseFloat(generalRevenue.total_revenue_all_time || 0);
+      
+      // If no transactions table, calculate from other tables
+      if (total === 0) {
+        // Purchase revenue (competition entries)
+        total += parseFloat(purchaseRevenue.total_purchase_revenue || 0);
+        
+        // Credit purchases (deposits)
+        total += parseFloat(creditPurchaseRevenue.total_deposit_revenue || 0);
+        
+        // Subtract withdrawals
+        total -= parseFloat(withdrawals.total_withdrawals_paid || 0);
+        
+        // Subtract referral payouts
+        total -= parseFloat(referralPayouts.total_referral_payouts || 0);
+      }
+      
+      return total;
+    };
+
+    const calculateThisMonthRevenue = () => {
+      let total = 0;
+      
+      // From general transactions table
+      total += parseFloat(generalRevenue.total_revenue_this_month || 0);
+      
+      // If no transactions table, calculate from other tables
+      if (total === 0) {
+        total += parseFloat(purchaseRevenue.recent_purchase_revenue || 0);
+        total += parseFloat(creditPurchaseRevenue.recent_deposit_revenue || 0);
+      }
+      
+      return total;
+    };
+
+    const calculateTodayRevenue = () => {
+      let total = 0;
+      
+      // From general transactions table
+      total += parseFloat(generalRevenue.total_revenue_today || 0);
+      
+      // If no transactions table, calculate from other tables
+      if (total === 0) {
+        total += parseFloat(purchaseRevenue.today_purchase_revenue || 0);
+        total += parseFloat(creditPurchaseRevenue.today_deposit_revenue || 0);
+      }
+      
+      return total;
+    };
+
+    const totalRevenueAllTime = calculateTotalRevenue();
+    const totalRevenueThisMonth = calculateThisMonthRevenue();
+    const totalRevenueToday = calculateTodayRevenue();
+    const totalRevenueYesterday = parseFloat(generalRevenue.total_revenue_yesterday || 0);
+
+    // Calculate growth percentages
+    const calculateMonthOverMonthGrowth = async () => {
+      try {
+        const [lastMonthRevenue] = await pool.query(
+          `SELECT 
+             COALESCE(SUM(p.total_amount), 0) as purchase_revenue,
+             COALESCE(SUM(cp.amount), 0) as deposit_revenue
+           FROM purchases p
+           LEFT JOIN credit_purchases cp ON DATE(p.created_at) = DATE(cp.created_at)
+           WHERE DATE(p.created_at) >= ? AND DATE(p.created_at) < ?`,
+          [lastMonthStart, thisMonthStart]
+        );
+        
+        const lastMonthTotal = parseFloat(lastMonthRevenue[0]?.purchase_revenue || 0) + 
+                              parseFloat(lastMonthRevenue[0]?.deposit_revenue || 0);
+        
+        if (lastMonthTotal > 0) {
+          return ((totalRevenueThisMonth - lastMonthTotal) / lastMonthTotal * 100).toFixed(2);
+        }
+        return totalRevenueThisMonth > 0 ? "100.00" : "0.00";
+      } catch (error) {
+        console.error("Error calculating MoM growth:", error);
+        return "0.00";
+      }
+    };
+
+    const momGrowth = await calculateMonthOverMonthGrowth();
+    const dodGrowth = totalRevenueYesterday > 0 
+      ? ((totalRevenueToday - totalRevenueYesterday) / totalRevenueYesterday * 100).toFixed(2)
+      : totalRevenueToday > 0 ? "100.00" : "0.00";
+
+    // Parse JSON details for activities
+    const parseActivityDetails = (activities) => {
+      return activities.map(activity => {
+        try {
+          if (activity.details) {
+            activity.details = typeof activity.details === 'string' 
+              ? JSON.parse(activity.details) 
+              : activity.details;
+          }
+          return activity;
+        } catch (error) {
+          console.error('Error parsing activity details:', error);
+          activity.details = {};
+          return activity;
+        }
+      });
+    };
+
+    const adminActivitiesParsed = parseActivityDetails(recentAdminActivities[0]);
+    const userActivitiesParsed = parseActivityDetails(recentUserActivities[0]);
+
+    // Format dates for better readability
+    const formatTimeAgo = (dateString) => {
+      const date = new Date(dateString);
+      const now = new Date();
+      const seconds = Math.floor((now - date) / 1000);
+      
+      let interval = Math.floor(seconds / 31536000);
+      if (interval >= 1) return interval + " year" + (interval === 1 ? "" : "s") + " ago";
+      interval = Math.floor(seconds / 2592000);
+      if (interval >= 1) return interval + " month" + (interval === 1 ? "" : "s") + " ago";
+      interval = Math.floor(seconds / 86400);
+      if (interval >= 1) return interval + " day" + (interval === 1 ? "" : "s") + " ago";
+      interval = Math.floor(seconds / 3600);
+      if (interval >= 1) return interval + " hour" + (interval === 1 ? "" : "s") + " ago";
+      interval = Math.floor(seconds / 60);
+      if (interval >= 1) return interval + " minute" + (interval === 1 ? "" : "s") + " ago";
+      return Math.floor(seconds) + " second" + (seconds === 1 ? "" : "s") + " ago";
+    };
+
+    const formatActivityDates = (activities) => {
+      return activities.map(activity => {
+        return {
+          ...activity,
+          time_ago: formatTimeAgo(activity.created_at),
+          formatted_date: new Date(activity.created_at).toLocaleString()
+        };
+      });
+    };
+
+    const formattedAdminActivities = formatActivityDates(adminActivitiesParsed);
+    const formattedUserActivities = formatActivityDates(userActivitiesParsed);
+
+    // Format currency
+    const formatCurrency = (amount) => {
+      return new Intl.NumberFormat('en-GB', {
+        style: 'currency',
+        currency: 'GBP',
+        minimumFractionDigits: 2,
+        maximumFractionDigits: 2
+      }).format(amount || 0);
+    };
+
+    res.status(200).json({
+      success: true,
+      data: {
+        summary: {
+          users: {
+            total: stats.total_users,
+            active: stats.active_users,
+            pending_kyc: stats.Pending_KYC_status,
+            total_admins: stats.total_admins,
+            active_admins: stats.active_admins
           },
-          recent_activities: recentActivities,
+          competitions: {
+            active: stats.active_competitions,
+            recent: stats.recent_competitions
+          },
+          admin_activities: {
+            ...adminActivityStats
+          }
         },
-      });
-    } catch (err) {
-      console.error("Get dashboard stats error:", err);
-      res.status(500).json({
-        success: false,
-        error: "Failed to fetch dashboard stats",
-      });
-    }
-  },
+        revenue: {
+          overview: {
+            total: {
+              value: totalRevenueAllTime,
+              formatted: formatCurrency(totalRevenueAllTime)
+            },
+            this_month: {
+              value: totalRevenueThisMonth,
+              formatted: formatCurrency(totalRevenueThisMonth),
+              growth: parseFloat(momGrowth)
+            },
+            today: {
+              value: totalRevenueToday,
+              formatted: formatCurrency(totalRevenueToday),
+              growth: parseFloat(dodGrowth)
+            },
+            yesterday: {
+              value: totalRevenueYesterday,
+              formatted: formatCurrency(totalRevenueYesterday)
+            }
+          },
+          breakdown: {
+            purchases: {
+              total: purchaseRevenue.total_purchase_revenue,
+              formatted: formatCurrency(purchaseRevenue.total_purchase_revenue),
+              count: purchaseRevenue.total_purchases,
+              pending: purchaseRevenue.pending_purchases,
+              average: formatCurrency(purchaseRevenue.avg_purchase_value)
+            },
+            deposits: {
+              total: creditPurchaseRevenue.total_deposit_revenue,
+              formatted: formatCurrency(creditPurchaseRevenue.total_deposit_revenue),
+              count: creditPurchaseRevenue.total_deposits,
+              pending: creditPurchaseRevenue.pending_deposits,
+              average: formatCurrency(creditPurchaseRevenue.avg_deposit_value)
+            },
+            subscriptions: {
+              total: subscriptionRevenue.total_subscription_revenue,
+              formatted: formatCurrency(subscriptionRevenue.total_subscription_revenue),
+              active_users: subscriptionRevenue.active_subscribers,
+              count: subscriptionRevenue.total_subscriptions
+            },
+            withdrawals: {
+              requested: withdrawals.total_withdrawals_requested,
+              formatted: formatCurrency(withdrawals.total_withdrawals_requested),
+              paid: withdrawals.total_withdrawals_paid,
+              pending: withdrawals.pending_withdrawals,
+              count: withdrawals.total_withdrawal_requests
+            },
+            referral_payouts: {
+              total: referralPayouts.total_referral_payouts,
+              formatted: formatCurrency(referralPayouts.total_referral_payouts),
+              count: referralPayouts.total_referral_events
+            }
+          },
+          metrics: {
+            net_revenue: formatCurrency(totalRevenueAllTime - withdrawals.total_withdrawals_paid),
+            average_daily_revenue: formatCurrency(totalRevenueThisMonth / new Date().getDate()),
+            conversion_rate: purchaseRevenue.total_purchases > 0 && creditPurchaseRevenue.total_deposits > 0 
+              ? ((purchaseRevenue.total_purchases / creditPurchaseRevenue.total_deposits) * 100).toFixed(2) + '%'
+              : '0%'
+          },
+          daily_trend: dailyRevenueData
+        },
+        recent_activities: {
+          admin: formattedAdminActivities,
+          user: formattedUserActivities
+        },
+        analytics: {
+          by_module: activityByModule[0],
+          top_active_users: topActiveUsers[0]
+        }
+      }
+    });
+  } catch (err) {
+    console.error("Get dashboard stats error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch dashboard stats",
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+    });
+  }
+},
    getAlerts:async(req, res)=> {
     try {
       const alerts = await SystemAlertService.getRecentAlerts(5);
