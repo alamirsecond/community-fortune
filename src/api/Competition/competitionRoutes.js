@@ -55,7 +55,7 @@ router.post('/mini-game/score', authenticate(), submitMiniGameScore);
 router.post('/instant-win/claim', authenticate(), claimInstantWin);
 
 // ==================== ADMIN ROUTES ====================
-// Create competition with featured images/videos
+//aklilu:Create competition with featured images/videos
 router.post('/', 
   authenticate(['ADMIN']), 
   competitionFeaturedUpload,
@@ -64,7 +64,7 @@ router.post('/',
   createCompetition
 );
 
-// Bulk create competitions from CSV
+//aklilu:Bulk create competitions from CSV
 router.post('/bulk', 
   authenticate(['admin']), 
   bulkUploadCompetitions,
@@ -73,7 +73,7 @@ router.post('/bulk',
   bulkCreateCompetitions
 );
 
-// Update competition with images
+//aklilu:Update competition with images
 router.put('/:id', 
   authenticate(['admin']), 
   competitionFeaturedUpload,
@@ -82,7 +82,7 @@ router.put('/:id',
   updateCompetition
 );
 
-// Upload competition gallery images
+//aklilu:Upload competition gallery images
 router.post('/:id/images', 
   authenticate(['admin']), 
   competitionImagesUpload,
@@ -97,7 +97,7 @@ router.post('/:id/images',
   }
 );
 
-// Upload competition documents
+//aklilu:Upload competition documents
 router.post('/:id/documents', 
   authenticate(['admin']), 
   competitionDocumentsUpload,
@@ -112,7 +112,7 @@ router.post('/:id/documents',
   }
 );
 
-// Other admin routes
+//aklilu:Other admin routes
 router.post('/:id/duplicate', authenticate(['admin']), duplicateCompetition);
 router.post('/:id/status', authenticate(['admin']), updateCompetitionStatus);
 router.post('/jackpot/start-countdown', authenticate(['admin']), startJackpotCountdown);
