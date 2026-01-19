@@ -101,68 +101,74 @@ const walletController = {
       }
     },
   // Get user wallet balances
-  getWalletBalances: async (req, res) => {
-    try {
-      const userId = req.user.id;
+getWalletBalances: async (req, res) => {
+  try {
+    const userId = req.user.id;
 
-      if (!validateUUID(userId)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid user ID format",
-        });
-      }
-
-      const [wallets] = await pool.query(
-        `SELECT 
-          type,
-          balance,
-          is_frozen as isFrozen,
-          created_at as createdAt,
-          updated_at as updatedAt
-         FROM wallets 
-         WHERE user_id = UUID_TO_BIN(?) AND type IN ('CASH', 'CREDIT', 'POINTS')`,
-        [userId]
-      );
-
-      // Get wallet statistics
-      const [stats] = await pool.query(
-        `SELECT 
-          COUNT(*) as totalTransactions,
-          COALESCE(SUM(CASE WHEN wt.type = 'CREDIT' THEN amount END), 0) as totalCredits,
-          COALESCE(SUM(CASE WHEN wt.type = 'DEBIT' THEN amount END), 0) as totalDebits
-         FROM wallet_transactions wt
-         JOIN wallets w ON wt.wallet_id = w.id
-         WHERE w.user_id = UUID_TO_BIN(?)`,
-        [userId]
-      );
-
-      // Get spending limits if any
-      const [limits] = await pool.query(
-        `SELECT 
-          daily_limit as dailyLimit,
-          weekly_limit as weeklyLimit,
-          monthly_limit as monthlyLimit,
-          daily_spent as dailySpent,
-          weekly_spent as weeklySpent,
-          monthly_spent as monthlySpent
-         FROM spending_limits 
-         WHERE user_id = UUID_TO_BIN(?)`,
-        [userId]
-      );
-
-      res.json({
-        success: true,
-        data: {
-          cashWallet: cashWallet || { type: 'CASH', balance: 0, isFrozen: false },
-          creditWallet: creditWallet || { type: 'CREDIT', balance: 0, isFrozen: false },
-          statistics: stats[0],
-          spendingLimits: limits[0] || null
-        }
+    if (!validateUUID(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format",
       });
-    } catch (error) {
-      handleDatabaseError(error, res, "Failed to retrieve wallet balances");
     }
-  },
+
+    const [wallets] = await pool.query(
+      `SELECT 
+        type,
+        balance,
+        is_frozen as isFrozen,
+        created_at as createdAt,
+        updated_at as updatedAt
+       FROM wallets 
+       WHERE user_id = UUID_TO_BIN(?) AND type IN ('CASH', 'CREDIT', 'POINTS')`,
+      [userId]
+    );
+
+    // Extract specific wallets from the results
+    const cashWallet = wallets.find(wallet => wallet.type === 'CASH');
+    const creditWallet = wallets.find(wallet => wallet.type === 'CREDIT');
+    const pointsWallet = wallets.find(wallet => wallet.type === 'POINTS'); // Added for completeness
+
+    // Get wallet statistics
+    const [stats] = await pool.query(
+      `SELECT 
+        COUNT(*) as totalTransactions,
+        COALESCE(SUM(CASE WHEN wt.type = 'CREDIT' THEN amount END), 0) as totalCredits,
+        COALESCE(SUM(CASE WHEN wt.type = 'DEBIT' THEN amount END), 0) as totalDebits
+       FROM wallet_transactions wt
+       JOIN wallets w ON wt.wallet_id = w.id
+       WHERE w.user_id = UUID_TO_BIN(?)`,
+      [userId]
+    );
+
+    // Get spending limits if any
+    const [limits] = await pool.query(
+      `SELECT 
+        daily_limit as dailyLimit,
+        weekly_limit as weeklyLimit,
+        monthly_limit as monthlyLimit,
+        daily_spent as dailySpent,
+        weekly_spent as weeklySpent,
+        monthly_spent as monthlySpent
+       FROM spending_limits 
+       WHERE user_id = UUID_TO_BIN(?)`,
+      [userId]
+    );
+
+    res.json({
+      success: true,
+      data: {
+        cashWallet: cashWallet || { type: 'CASH', balance: 0, isFrozen: false },
+        creditWallet: creditWallet || { type: 'CREDIT', balance: 0, isFrozen: false },
+        pointsWallet: pointsWallet || { type: 'POINTS', balance: 0, isFrozen: false }, // Added for completeness
+        statistics: stats[0],
+        spendingLimits: limits[0] || null
+      }
+    });
+  } catch (error) {
+    handleDatabaseError(error, res, "Failed to retrieve wallet balances");
+  }
+},
 
   // Get wallet transaction history
   getWalletTransactions: async (req, res) => {

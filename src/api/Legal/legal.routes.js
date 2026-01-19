@@ -1,6 +1,6 @@
 import { Router } from "express";
 import authenticate from "../../../../middleware/authenticate.js";
-import legalController from "./legal_controller.js";
+import legalController from "./legal.controller.js";
 
 const legalRouter = Router();
 
@@ -20,7 +20,7 @@ legalRouter.post(
 
 legalRouter.get(
   "/:id",
-  authenticate(["ADMIN", "LAWYER"]),
+  authenticate(["ADMIN", "SUPERADMIN"]),
   legalController.getById
 );
 
