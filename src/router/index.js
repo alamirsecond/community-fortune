@@ -41,7 +41,7 @@ appRouter.get("/", (req, res) => {
     success: true,
     message: process.env.APP_NAME
       ? `${process.env.APP_NAME} API`
-      : "🎰 Community Fortune API",
+      : "Community Fortune API",
     version: process.env.APP_VERSION || "1.0.0",
     timestamp: new Date().toISOString(),
     environment: process.env.NODE_ENV || "development",
@@ -75,8 +75,6 @@ appRouter.get("/health", async (req, res) => {
       (module) => module.default
     );
     const [result] = await pool.execute("SELECT 1 as db_status");
-
-    // Check game uploads directory
     const gamesUploadPath = process.env.GAMES_UPLOAD_PATH || "./uploads/games";
     const gamesDirExists = fs.existsSync(
       path.resolve(__dirname, "../../", gamesUploadPath)
@@ -84,19 +82,19 @@ appRouter.get("/health", async (req, res) => {
 
     res.json({
       success: true,
-      message: "✅ API is healthy",
+      message: "API is healthy",
       timestamp: new Date().toISOString(),
       appName: process.env.APP_NAME || "Community Fortune",
       version: process.env.APP_VERSION || "1.0.0",
       services: {
         database:
-          result[0].db_status === 1 ? "✅ Connected" : "❌ Disconnected",
+          result[0].db_status === 1 ? "Connected" : "Disconnected",
         environment: process.env.NODE_ENV || "development",
-        gamesSystem: gamesDirExists ? "✅ Ready" : "⚠️ Directory missing",
+        gamesSystem: gamesDirExists ? "Ready" : "Directory missing",
         uptime: `${process.uptime().toFixed(2)} seconds`,
       },
       uploads: {
-        games: gamesDirExists ? "✅ Configured" : "⚠️ Not configured",
+        games: gamesDirExists ? "Configured" : "Not configured",
         maxGameSize: "100MB",
         allowedTypes: "ZIP files only",
       },
@@ -116,7 +114,7 @@ appRouter.get("/health", async (req, res) => {
 appRouter.use((req, res) => {
   res.status(404).json({
     success: false,
-    message: `🔍 API endpoint ${req.originalUrl} not found`,
+    message: `API endpoint ${req.originalUrl} not found`,
     availableEndpoints: {
       // AUTH & USER MANAGEMENT
       "Authentication & Users": [

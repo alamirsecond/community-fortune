@@ -600,7 +600,6 @@ export const getCompetitionDetails = async (req, res) => {
 };
 
 // ==================== ENTRY & PARTICIPATION ====================
-
 export const answerSkillQuestion = async (req, res) => {
   try {
     const validationResult = validateRequest(skillQuestionAnswerSchema, req);

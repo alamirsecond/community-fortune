@@ -15,22 +15,26 @@ import {
   getGameCategories,
   updateGameFiles,
 } from "./gameController.js";
+
 import {
   gameZipUpload,
   validateUploadedFiles,
   handleUploadError,
-} from "../../../middleware/upload.js";
+} from "../../../middleware/upload.js"; 
+
 import authenticate from "../../../middleware/auth.js";
 
 const router = Router();
 
-//Admin leaderboard management
+//aklilu:Admin leaderboard management
 router.get("/admin/list", authenticate(["admin"]), getAdminGamesList);
+
 router.get(
   "/admin/:id/leaderboard",
   authenticate(["admin"]),
   getAdminGameLeaderboard
 );
+
 router.get(
   "/admin/:id/export",
   authenticate(["admin"]),

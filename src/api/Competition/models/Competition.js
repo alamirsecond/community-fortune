@@ -294,8 +294,8 @@ class Competition {
     query += ' LIMIT ? OFFSET ?';
     params.push(filters.limit, offset);
     
-    const [rows] = await pool.execute(query, params);
-    
+    const [rows] = await pool.query(query, params);
+
     // Add user eligibility to each row
     if (filters.user_id) {
       for (const row of rows) {
