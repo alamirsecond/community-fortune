@@ -42,4 +42,12 @@ superAdminRouter.put("/competitions/:id", adminController.updateCompetition);
 superAdminRouter.delete("/competitions/:id", adminController.deleteCompetition);
 superAdminRouter.post("/competitions/:id/draw", adminController.drawWinner);
 
+// User Verification Management
+superAdminRouter.get("/verifications/pending",adminController.getPendingVerifications);
+superAdminRouter.get("/verifications/:user_id", adminController.getUserVerification);
+superAdminRouter.put("/verifications/:user_id/status", adminController.updateVerificationStatus);
+superAdminRouter.get("/verifications", adminController.getAllVerifications);
+
+
+
 export default superAdminRouter;
