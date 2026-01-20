@@ -7,6 +7,23 @@ const validateWalletType = (type) =>
   ["CASH", "CREDIT", "POINTS"].includes(type);
 const validateTransactionType = (type) => ["CREDIT", "DEBIT"].includes(type);
 
+
+// Helper function to determine category from description
+function getCategoryFromDescription(description) {
+  const desc = description.toLowerCase();
+  
+  if (desc.includes('ticket') || desc.includes('competition')) {
+    return 'Competition Tickets';
+  } else if (desc.includes('withdrawal') || desc.includes('cashout')) {
+    return 'Withdrawals';
+  } else if (desc.includes('transfer')) {
+    return 'Wallet Transfers';
+  } else if (desc.includes('subscription')) {
+    return 'Subscriptions';
+  } else {
+    return 'Other Purchases';
+  }
+}
 // Helper functions
 const handleDatabaseError = (
   error,
@@ -733,164 +750,178 @@ getWalletBalances: async (req, res) => {
   },
 
   // Get spending history
-  getSpendingHistory: async (req, res) => {
-    try {
-      const userId = req.user.id;
-      const { page = 1, limit = 20, startDate, endDate, category } = req.query;
-      const offset = (page - 1) * limit;
+getSpendingHistory: async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { page = 1, limit = 20, startDate, endDate, category } = req.query;
+    const offset = (page - 1) * limit;
 
-      if (!validateUUID(userId)) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid user ID format",
-        });
-      }
-
-      // Validate pagination
-      const pageNum = parseInt(page);
-      const limitNum = parseInt(limit);
-
-      if (pageNum < 1 || limitNum < 1 || limitNum > 100) {
-        return res.status(400).json({
-          success: false,
-          message: "Invalid pagination parameters",
-        });
-      }
-
-      let query = `
-        SELECT 
-          wt.id,
-          wt.created_at as date,
-          wt.amount,
-          wt.description,
-          wt.type as transactionType,
-          w.type as walletType,
-          COALESCE(wt.category, 'Other') as category
-        FROM wallet_transactions wt
-        JOIN wallets w ON wt.wallet_id = w.id
-        WHERE w.user_id = UUID_TO_BIN(?) AND wt.type = 'DEBIT'
-      `;
-      const params = [userId];
-
-      if (startDate) {
-        query += ' AND DATE(wt.created_at) >= ?';
-        params.push(startDate);
-      }
-
-      if (endDate) {
-        query += ' AND DATE(wt.created_at) <= ?';
-        params.push(endDate);
-      }
-
-      if (category) {
-        query += " AND wt.category = ?";
-        params.push(category);
-      }
-
-      query += " ORDER BY wt.created_at DESC LIMIT ? OFFSET ?";
-      params.push(limitNum, offset);
-
-      const [spending] = await pool.query(query, params);
-
-      // Get total spent
-      let totalQuery = `
-        SELECT COALESCE(SUM(wt.amount), 0) as totalSpent
-        FROM wallet_transactions wt
-        JOIN wallets w ON wt.wallet_id = w.id
-        WHERE w.user_id = UUID_TO_BIN(?) AND wt.type = 'DEBIT'
-      `;
-      const totalParams = [userId];
-
-      if (startDate) {
-        totalQuery += ' AND DATE(wt.created_at) >= ?';
-        totalParams.push(startDate);
-      }
-
-      if (endDate) {
-        totalQuery += ' AND DATE(wt.created_at) <= ?';
-        totalParams.push(endDate);
-      }
-
-      const [totalResult] = await pool.query(totalQuery, totalParams);
-
-      // Get spending by category
-      // Get spending by category
-      const [categorySpending] = await pool.query(
-        `SELECT 
-          CASE 
-            WHEN wt.description LIKE '%ticket%' OR wt.description LIKE '%competition%' THEN 'Competition Tickets'
-            WHEN wt.description LIKE '%withdrawal%' OR wt.description LIKE '%cashout%' THEN 'Withdrawals'
-            WHEN wt.description LIKE '%transfer%' THEN 'Wallet Transfers'
-            WHEN wt.description LIKE '%subscription%' THEN 'Subscriptions'
-            ELSE 'Other Purchases'
-          END as category,
-          SUM(wt.amount) as amount,
-          COUNT(*) as count
-         FROM wallet_transactions wt
-         JOIN wallets w ON wt.wallet_id = w.id
-         WHERE w.user_id = UUID_TO_BIN(?) AND wt.type = 'DEBIT'
-         GROUP BY category
-         ORDER BY amount DESC`,
-        [userId]
-      );
-
-      // Get monthly spending trend
-      const [monthlyTrend] = await pool.query(
-        `SELECT 
-          DATE_FORMAT(wt.created_at, '%Y-%m') as month,
-          SUM(wt.amount) as total
-         FROM wallet_transactions wt
-         JOIN wallets w ON wt.wallet_id = w.id
-         WHERE w.user_id = UUID_TO_BIN(?) AND wt.type = 'DEBIT'
-         GROUP BY DATE_FORMAT(wt.created_at, '%Y-%m')
-         ORDER BY month DESC
-         LIMIT 6`,
-        [userId]
-      );
-
-      // Get total count for pagination
-      let countQuery = `
-        SELECT COUNT(*) as total
-        FROM wallet_transactions wt
-        JOIN wallets w ON wt.wallet_id = w.id
-        WHERE w.user_id = UUID_TO_BIN(?) AND wt.type = 'DEBIT'
-      `;
-      const countParams = [userId];
-
-      if (startDate) {
-        countQuery += " AND DATE(wt.created_at) >= ?";
-        countParams.push(startDate);
-      }
-
-      if (endDate) {
-        countQuery += " AND DATE(wt.created_at) <= ?";
-        countParams.push(endDate);
-      }
-
-      const [countResult] = await pool.query(countQuery, countParams);
-      const total = countResult[0]?.total || 0;
-
-      res.json({
-        success: true,
-        data: {
-          spending,
-          summary: {
-            totalSpent: totalResult[0].totalSpent,
-            categoryBreakdown: categorySpending,
-            monthlyTrend: monthlyTrend
-          },
-          pagination: {
-            page: pageNum,
-            limit: limitNum,
-            total,
-            pages: Math.ceil(total / limitNum),
-          },
-        },
+    if (!validateUUID(userId)) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid user ID format",
       });
-    } catch (error) {
-      handleDatabaseError(error, res, "Failed to retrieve spending history");
     }
-  },
+
+    // Validate pagination
+    const pageNum = parseInt(page);
+    const limitNum = parseInt(limit);
+
+    if (pageNum < 1 || limitNum < 1 || limitNum > 100) {
+      return res.status(400).json({
+        success: false,
+        message: "Invalid pagination parameters",
+      });
+    }
+
+    let query = `
+      SELECT 
+        wt.id,
+        wt.created_at as date,
+        wt.amount,
+        wt.description,
+        wt.type as transactionType,
+        w.type as walletType
+        -- Removed category field since it doesn't exist in the table
+      FROM wallet_transactions wt
+      JOIN wallets w ON wt.wallet_id = w.id
+      WHERE w.user_id = UUID_TO_BIN(?) AND wt.type = 'DEBIT'
+    `;
+    const params = [userId];
+
+    if (startDate) {
+      query += ' AND DATE(wt.created_at) >= ?';
+      params.push(startDate);
+    }
+
+    if (endDate) {
+      query += ' AND DATE(wt.created_at) <= ?';
+      params.push(endDate);
+    }
+
+    if (category) {
+      // If category filtering is needed, infer it from description
+      query += ` AND (
+        CASE 
+          WHEN wt.description LIKE '%ticket%' OR wt.description LIKE '%competition%' THEN 'Competition Tickets'
+          WHEN wt.description LIKE '%withdrawal%' OR wt.description LIKE '%cashout%' THEN 'Withdrawals'
+          WHEN wt.description LIKE '%transfer%' THEN 'Wallet Transfers'
+          WHEN wt.description LIKE '%subscription%' THEN 'Subscriptions'
+          ELSE 'Other Purchases'
+        END
+      ) = ?`;
+      params.push(category);
+    }
+
+    query += " ORDER BY wt.created_at DESC LIMIT ? OFFSET ?";
+    params.push(limitNum, offset);
+
+    const [spending] = await pool.query(query, params);
+
+    // Get total spent
+    let totalQuery = `
+      SELECT COALESCE(SUM(wt.amount), 0) as totalSpent
+      FROM wallet_transactions wt
+      JOIN wallets w ON wt.wallet_id = w.id
+      WHERE w.user_id = UUID_TO_BIN(?) AND wt.type = 'DEBIT'
+    `;
+    const totalParams = [userId];
+
+    if (startDate) {
+      totalQuery += ' AND DATE(wt.created_at) >= ?';
+      totalParams.push(startDate);
+    }
+
+    if (endDate) {
+      totalQuery += ' AND DATE(wt.created_at) <= ?';
+      totalParams.push(endDate);
+    }
+
+    const [totalResult] = await pool.query(totalQuery, totalParams);
+
+    // Get spending by category
+    const [categorySpending] = await pool.query(
+      `SELECT 
+        CASE 
+          WHEN wt.description LIKE '%ticket%' OR wt.description LIKE '%competition%' THEN 'Competition Tickets'
+          WHEN wt.description LIKE '%withdrawal%' OR wt.description LIKE '%cashout%' THEN 'Withdrawals'
+          WHEN wt.description LIKE '%transfer%' THEN 'Wallet Transfers'
+          WHEN wt.description LIKE '%subscription%' THEN 'Subscriptions'
+          ELSE 'Other Purchases'
+        END as category,
+        SUM(wt.amount) as amount,
+        COUNT(*) as count
+       FROM wallet_transactions wt
+       JOIN wallets w ON wt.wallet_id = w.id
+       WHERE w.user_id = UUID_TO_BIN(?) AND wt.type = 'DEBIT'
+       GROUP BY category
+       ORDER BY amount DESC`,
+      [userId]
+    );
+
+    // Get monthly spending trend
+    const [monthlyTrend] = await pool.query(
+      `SELECT 
+        DATE_FORMAT(wt.created_at, '%Y-%m') as month,
+        SUM(wt.amount) as total
+       FROM wallet_transactions wt
+       JOIN wallets w ON wt.wallet_id = w.id
+       WHERE w.user_id = UUID_TO_BIN(?) AND wt.type = 'DEBIT'
+       GROUP BY DATE_FORMAT(wt.created_at, '%Y-%m')
+       ORDER BY month DESC
+       LIMIT 6`,
+      [userId]
+    );
+
+    // Get total count for pagination
+    let countQuery = `
+      SELECT COUNT(*) as total
+      FROM wallet_transactions wt
+      JOIN wallets w ON wt.wallet_id = w.id
+      WHERE w.user_id = UUID_TO_BIN(?) AND wt.type = 'DEBIT'
+    `;
+    const countParams = [userId];
+
+    if (startDate) {
+      countQuery += " AND DATE(wt.created_at) >= ?";
+      countParams.push(startDate);
+    }
+
+    if (endDate) {
+      countQuery += " AND DATE(wt.created_at) <= ?";
+      countParams.push(endDate);
+    }
+
+    const [countResult] = await pool.query(countQuery, countParams);
+    const total = countResult[0]?.total || 0;
+
+    // Add category to each spending transaction for the response
+    const spendingWithCategories = spending.map(transaction => ({
+      ...transaction,
+      category: getCategoryFromDescription(transaction.description)
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        spending: spendingWithCategories,
+        summary: {
+          totalSpent: totalResult[0].totalSpent,
+          categoryBreakdown: categorySpending,
+          monthlyTrend: monthlyTrend
+        },
+        pagination: {
+          page: pageNum,
+          limit: limitNum,
+          total,
+          pages: Math.ceil(total / limitNum),
+        },
+      },
+    });
+  } catch (error) {
+    handleDatabaseError(error, res, "Failed to retrieve spending history");
+  }
+},
 
   // Admin: Get all wallets
   getAllWallets: async (req, res) => {

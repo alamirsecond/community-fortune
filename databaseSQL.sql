@@ -1054,16 +1054,51 @@ CREATE TABLE share_limits (
 -- ===========================================
 -- LEGAL MODULE - BINARY(16) UUIDs
 -- ===========================================
-CREATE TABLE legal_documents (
-    id BINARY(16) PRIMARY KEY,
-    type ENUM('TERMS', 'PRIVACY', 'RESPONSIBLE_PLAY') NOT NULL,
-    content TEXT NOT NULL,
-    version INT DEFAULT 1,
-    effective_date DATE,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
-    INDEX idx_legal_documents_type (type)
+-- First, backup your data if needed
+-- Final table structure
+CREATE TABLE IF NOT EXISTS legal_documents (
+  id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+  title VARCHAR(100) NOT NULL,
+  type ENUM('TERMS', 'PRIVACY', 'COOKIE', 'RESPONSIBLE_PLAY', 'WEBSITE_TERMS', 'OTHER') NOT NULL,
+  content LONGTEXT NOT NULL,
+  version VARCHAR(20) DEFAULT '1.0',
+  is_active BOOLEAN DEFAULT TRUE,
+  effective_date DATE,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  updated_by VARCHAR(100),
+  INDEX idx_legal_documents_type (type),
+  INDEX idx_legal_documents_active (type, is_active)
 );
+
+-- Triggers for managing active documents
+DELIMITER $$
+
+DROP TRIGGER IF EXISTS before_legal_documents_insert;
+CREATE TRIGGER before_legal_documents_insert
+BEFORE INSERT ON legal_documents
+FOR EACH ROW
+BEGIN
+    IF NEW.is_active = TRUE THEN
+        UPDATE legal_documents 
+        SET is_active = FALSE 
+        WHERE type = NEW.type AND is_active = TRUE;
+    END IF;
+END$$
+
+DROP TRIGGER IF EXISTS before_legal_documents_update;
+CREATE TRIGGER before_legal_documents_update
+BEFORE UPDATE ON legal_documents
+FOR EACH ROW
+BEGIN
+    IF NEW.is_active = TRUE AND OLD.is_active = FALSE THEN
+        UPDATE legal_documents 
+        SET is_active = FALSE 
+        WHERE type = NEW.type AND is_active = TRUE AND id != NEW.id;
+    END IF;
+END$$
+
+DELIMITER ;
 
 CREATE TABLE user_consents (
     id BINARY(16) PRIMARY KEY,
@@ -1184,7 +1219,47 @@ CREATE TABLE IF NOT EXISTS revenue_summary (
     UNIQUE KEY unique_date (date),
     INDEX idx_revenue_summary_date (date)
 );
+-- Update contact_messages table (remove subject column)
+CREATE TABLE IF NOT EXISTS contact_messages (
+  id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+  full_name VARCHAR(100) NOT NULL,
+  email VARCHAR(100) NOT NULL,
+  message TEXT NOT NULL,
+  status ENUM('NEW', 'IN_PROGRESS', 'RESOLVED', 'CLOSED') DEFAULT 'NEW',
+  priority ENUM('LOW', 'MEDIUM', 'HIGH', 'URGENT') DEFAULT 'MEDIUM',
+  category ENUM('GENERAL', 'SUPPORT', 'TECHNICAL', 'BILLING', 'FEEDBACK', 'COMPLAINT', 'OTHER') DEFAULT 'GENERAL',
+  admin_notes TEXT,
+  assigned_to VARCHAR(100),
+  response_sent BOOLEAN DEFAULT FALSE,
+  response_message TEXT,
+  response_sent_at TIMESTAMP NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  INDEX idx_contact_status (status),
+  INDEX idx_contact_email (email),
+  INDEX idx_contact_created (created_at)
+);
 
+CREATE TABLE IF NOT EXISTS contact_settings (
+  id INT PRIMARY KEY AUTO_INCREMENT,
+  setting_key VARCHAR(50) UNIQUE NOT NULL,
+  setting_value TEXT,
+  description VARCHAR(200),
+  updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
+);
+
+-- Insert default contact settings
+INSERT INTO contact_settings (setting_key, setting_value, description) VALUES
+('company_name', 'Community Fortune Limited', 'Company name'),
+('contact_email', 'contact@community-fortune.com', 'Primary contact email'),
+('website_url', 'www.community-fortune.com', 'Company website'),
+('address_line1', '194 Harrington Road', 'Address line 1'),
+('address_line2', 'Workington, Cumbria', 'Address line 2'),
+('address_line3', 'United Kingdom, CA14 3UJ', 'Address line 3'),
+('support_email', 'support@community-fortune.com', 'Support email'),
+('business_hours', 'Mon-Fri: 9:00 AM - 6:00 PM GMT', 'Business hours'),
+('phone_number', '+44 1234 567890', 'Phone number'),
+('response_time', '24-48 hours', 'Expected response time');
 -- Add a transactions table for better revenue tracking
 CREATE TABLE IF NOT EXISTS transactions (
     id BINARY(16) PRIMARY KEY,
