@@ -15,6 +15,8 @@ import gameRouter from "../api/game/gameRoutes.js";
 import instantWinsRouter from "../api/INSTANT WINS/instantWins_route.js";
 import voucherRouter from "../api/Vouchers/voucher_routes.js";
 import faqRouter from "../api/FAQ/faq_routes.js";
+import legalRouter from "../api/Legal/legal.routes.js";
+import contactRouter from "../api/Contact/contact.routes.js";
 
 const appRouter = Router();
 
@@ -28,6 +30,8 @@ appRouter.use("/withdrawals", withdrawalRoutes);
 appRouter.use("/wallet", walletRoutes);
 appRouter.use("/referrals", referralRouter);
 appRouter.use("/points", pointsRouter);
+appRouter.use("/legals", legalRouter);
+appRouter.use("/contact", contactRouter);
 appRouter.use("/competitions", competitionRouter);
 appRouter.use("/admin", adminRouter);
 appRouter.use("/superAdmin", superAdminRouter);

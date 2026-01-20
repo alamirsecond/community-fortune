@@ -9,11 +9,12 @@ const uuidValidator = z.string().refine(
   { message: "Incorrect ID Format" }
 );
 
-export const LegalSchema = z.object({
-  title: z.string().min(3, "Title too short"),
-  description: z.string().min(5, "Description too short"),
-  lawyer_id: uuidValidator,
-  status: z.enum(["OPEN", "IN_PROGRESS", "CLOSED"]),
+export const LegalDocumentSchema = z.object({
+  title: z.string().min(1).max(100),
+  type: z.enum(['TERMS', 'PRIVACY', 'COOKIE', 'RESPONSIBLE_PLAY', 'WEBSITE_TERMS', 'OTHER']),
+  content: z.string().min(1),
+  version: z.string().optional(),
+  isActive: z.boolean().optional()
 });
 
-export default LegalSchema;
+export default LegalDocumentSchema;

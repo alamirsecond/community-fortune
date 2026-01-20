@@ -1,39 +1,55 @@
 import { Router } from "express";
-import authenticate from "../../../../middleware/authenticate.js";
+import authenticate from "../../../middleware/auth.js";
 import legalController from "./legal.controller.js";
 
 const legalRouter = Router();
 
-legalRouter.get("/test", legalController.getTest);
 
+
+// Public endpoint to get active documents by type
+legalRouter.get("/public/:type", legalController.getByType);
+
+// Admin routes
 legalRouter.get(
   "/all",
-  authenticate(["ADMIN", "LAWYER"]),
+  authenticate(["ADMIN", "SUPERADMIN", "USER"]),
   legalController.getAll
 );
 
-legalRouter.post(
-  "/create",
-  authenticate(["ADMIN"]),
-  legalController.createLegalCase
+legalRouter.get(
+  "/types",
+  authenticate(["ADMIN", "SUPERADMIN", "USER"]),
+  legalController.getDocumentTypes
 );
 
 legalRouter.get(
   "/:id",
-  authenticate(["ADMIN", "SUPERADMIN"]),
+  authenticate(["ADMIN", "SUPERADMIN", "LAWYER"]),
   legalController.getById
+);
+
+legalRouter.post(
+  "/create",
+  authenticate(["ADMIN", "SUPERADMIN"]),
+  legalController.createLegalDocument
 );
 
 legalRouter.put(
   "/update/:id",
-  authenticate(["ADMIN"]),
-  legalController.updateLegalCase
+  authenticate(["ADMIN", "SUPERADMIN"]),
+  legalController.updateLegalDocument
+);
+
+legalRouter.patch(
+  "/activate/:id",
+  authenticate(["ADMIN", "SUPERADMIN"]),
+  legalController.setActiveDocument
 );
 
 legalRouter.delete(
   "/delete/:id",
-  authenticate(["ADMIN"]),
-  legalController.deleteLegalCase
+  authenticate(["ADMIN", "SUPERADMIN"]),
+  legalController.deleteLegalDocument
 );
 
 export default legalRouter;
