@@ -1532,7 +1532,6 @@ json
 }
 Response Format
 All endpoints return a CSV file with:
-
 Content-Type: text/csv
 
 Content-Disposition: attachment; filename="{export_type}_{timestamp}.csv"
