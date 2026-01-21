@@ -1521,7 +1521,6 @@ Flexible endpoint for complex KYC export scenarios.
 Endpoint: POST /api/export/kyc/bulk
 
 Request Body:
-
 json
 {
   "type": "all", // Required: "all", "pending", "approved", "rejected", "drivers_license", "passport", "national_id", "detailed"
