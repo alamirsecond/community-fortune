@@ -146,30 +146,34 @@ const superAdminController = {
       const newAdminId = newAdmin[0].id; 
 
       //Log admin creation activity
-      await connection.query(
-        `INSERT INTO admin_activity_logs (
-        id, admin_id, action, entity_type, entity_id, ip_address, user_agent, details
-      ) VALUES (
-        UUID_TO_BIN(UUID()), 
-        UUID_TO_BIN(?), 
-        ?, ?, 
-        ?, 
-        ?, ?, ?
-      )`,
-        [
-          superadminId,
-          "CREATE_ADMIN",
-          "user",
-          newAdminId,
-          req.ip,
-          req.headers["user-agent"],
-          JSON.stringify({
-            admin_email: email,
-            created_by: superadminId,
-            permissions: permissions || defaultPermissions,
-          }),
-        ]
-      );
+   await connection.query(
+  `INSERT INTO admin_activities (
+    id,
+    admin_id,
+    action,
+    target_id,
+    module,
+    ip_address,
+    user_agent
+  ) VALUES (
+    UUID_TO_BIN(UUID()),
+    UUID_TO_BIN(?),
+    ?,
+    ?,
+    ?,
+    ?,
+    ?
+  )`,
+  [
+    superadminId,          // admin_id
+    "CREATE_ADMIN",        // action
+    newAdminId.toString("hex"), // target_id (created admin)
+    "USER",                // module
+    req.ip,
+    req.headers["user-agent"]
+  ]
+);
+
       // Send welcome email with password
       await sendAdminCreationEmail({
         to: email,
@@ -728,7 +732,7 @@ getDashboardStats: async (req, res) => {
            COUNT(DISTINCT admin_id) as active_admins_30d,
            COUNT(*) as total_activities_30d,
            MAX(created_at) as last_activity
-         FROM admin_activity_logs 
+         FROM admin_activities
          WHERE created_at >= ?`,
         [thirtyDaysAgo]
       ),
@@ -878,16 +882,13 @@ getDashboardStats: async (req, res) => {
         `SELECT 
            BIN_TO_UUID(a.id) AS id,
            BIN_TO_UUID(a.admin_id) AS admin_id,
-           BIN_TO_UUID(a.entity_id) AS entity_id,
            a.action,
-           a.entity_type,
            a.ip_address,
            a.user_agent,
-           a.details,
            a.created_at,
            u.email AS admin_email,
            u.username AS admin_username
-         FROM admin_activity_logs a
+         FROM admin_activities a
          LEFT JOIN users u ON a.admin_id = u.id
          ORDER BY a.created_at DESC
          LIMIT 5`
@@ -1249,7 +1250,10 @@ getDashboardStats: async (req, res) => {
         error: error.message,
       });
     }
-  }
+  },
+
+
+  
 };
 
 export default superAdminController;

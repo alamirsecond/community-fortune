@@ -1159,3 +1159,405 @@ json
 ## Rate Limiting: API is rate-limited (100 requests per minute per user)
 
 ## Versioning: API version is included in the base URL (/api/v1/...)
+
+
+
+
+
+
+
+
+
+
+
+
+
+use `community_fortune`;
+
+-- ===========================================
+-- USER ADDRESSES TABLE - BINARY(16) UUIDs
+-- ===========================================
+CREATE TABLE IF NOT EXISTS user_addresses (
+    id BINARY(16) PRIMARY KEY,
+    user_id BINARY(16) NOT NULL,
+    address_type ENUM('HOME', 'WORK', 'BILLING', 'SHIPPING') DEFAULT 'HOME',
+    address_line1 VARCHAR(255) NOT NULL,
+    address_line2 VARCHAR(255),
+    city VARCHAR(100) NOT NULL,
+    state VARCHAR(100),
+    country CHAR(2) NOT NULL,
+    postal_code VARCHAR(20) NOT NULL,
+    is_primary BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_user_addresses_user (user_id),
+    INDEX idx_user_addresses_primary (user_id, is_primary),
+    INDEX idx_user_addresses_country (country)
+);
+
+-- ===========================================
+-- FIXED: ADMIN ACTIVITY LOGS TABLE
+-- ===========================================
+CREATE TABLE IF NOT EXISTS admin_activity_logs (
+    id BINARY(16) PRIMARY KEY,
+    admin_id BINARY(16) NOT NULL,
+    action VARCHAR(100) NOT NULL,
+    entity_type VARCHAR(50) NOT NULL,
+    entity_id BINARY(16),
+    ip_address VARCHAR(50),
+    user_agent TEXT,
+    details JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    FOREIGN KEY (admin_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_admin_activity_logs_admin (admin_id),
+    INDEX idx_admin_activity_logs_action (action),
+    INDEX idx_admin_activity_logs_entity (entity_type, entity_id),
+    INDEX idx_admin_activity_logs_created (created_at)
+);
+
+-- ===========================================
+-- UPDATE: LEGAL DOCUMENTS TABLE (FIXED VERSION)
+-- ===========================================
+CREATE TABLE IF NOT EXISTS legal_documents (
+    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+    title VARCHAR(200) NOT NULL,
+    type ENUM('TERMS', 'PRIVACY', 'COOKIE', 'RESPONSIBLE_PLAY', 'WEBSITE_TERMS', 'OTHER') NOT NULL,
+    content LONGTEXT NOT NULL,
+    version VARCHAR(20) DEFAULT '1.0',
+    is_active BOOLEAN DEFAULT TRUE,
+    effective_date DATE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_by VARCHAR(100),
+    INDEX idx_legal_documents_type (type),
+    INDEX idx_legal_documents_active (type, is_active)
+);
+
+-- ===========================================
+-- UPDATE: VERIFICATIONS TABLE (ENHANCED)
+-- ===========================================
+ALTER TABLE verifications 
+MODIFY COLUMN status ENUM('PENDING', 'APPROVED', 'REJECTED', 'EXPIRED', 'UNDER_REVIEW') DEFAULT 'PENDING',
+MODIFY COLUMN verification_type ENUM('KYC', 'AGE', 'ADDRESS', 'ID_VERIFICATION') DEFAULT 'KYC',
+MODIFY COLUMN document_type ENUM('PASSPORT', 'DRIVING_LICENSE', 'ID_CARD', 'UTILITY_BILL', 'BANK_STATEMENT', 'OTHER') DEFAULT 'PASSPORT';
+
+-- Add missing columns to verifications table
+ALTER TABLE verifications 
+ADD COLUMN  first_name VARCHAR(100),
+ADD COLUMN  last_name VARCHAR(100),
+ADD COLUMN  date_of_birth DATE,
+ADD COLUMN  nationality VARCHAR(100),
+ADD COLUMN  expiry_date DATE,
+ADD COLUMN  issue_date DATE,
+ADD COLUMN  issuing_country VARCHAR(100),
+ADD COLUMN  address_proof_type VARCHAR(50),
+ADD COLUMN  address_proof_url VARCHAR(500),
+ADD COLUMN  verification_score INT DEFAULT 0,
+ADD COLUMN  risk_level ENUM('LOW', 'MEDIUM', 'HIGH') DEFAULT 'LOW',
+ADD COLUMN  metadata JSON;
+
+-- ===========================================
+-- UPDATE: USER NOTES TABLE
+-- ===========================================
+ALTER TABLE user_notes
+ADD COLUMN  category ENUM('GENERAL', 'KYC_REVIEW', 'ACCOUNT_ISSUE', 'PAYMENT', 'COMPLAINT', 'PRAISE') DEFAULT 'GENERAL',
+ADD COLUMN  priority ENUM('LOW', 'MEDIUM', 'HIGH', 'CRITICAL') DEFAULT 'MEDIUM',
+ADD COLUMN  is_resolved BOOLEAN DEFAULT FALSE,
+ADD COLUMN  resolved_at DATETIME,
+ADD COLUMN  resolved_by BINARY(16);
+
+-- ===========================================
+-- CREATE: KYC VERIFICATION SUMMARY VIEW
+-- ===========================================
+CREATE OR REPLACE VIEW kyc_verification_summary AS
+SELECT 
+    COUNT(*) as total_verifications,
+    SUM(CASE WHEN status = 'PENDING' THEN 1 ELSE 0 END) as pending_count,
+    SUM(CASE WHEN status = 'APPROVED' THEN 1 ELSE 0 END) as approved_count,
+    SUM(CASE WHEN status = 'REJECTED' THEN 1 ELSE 0 END) as rejected_count,
+    SUM(CASE WHEN status = 'UNDER_REVIEW' THEN 1 ELSE 0 END) as under_review_count,
+    SUM(CASE WHEN DATE(created_at) = CURDATE() AND status = 'APPROVED' THEN 1 ELSE 0 END) as approved_today,
+    SUM(CASE WHEN DATE(created_at) = CURDATE() AND status = 'REJECTED' THEN 1 ELSE 0 END) as rejected_today,
+    COUNT(DISTINCT user_id) as unique_users
+FROM verifications;
+
+
+
+
+
+
+Available Export Types
+1. Export All Users
+Exports all users in the system with basic information.
+
+Endpoint: GET /api/users/export/all
+
+Query Parameters:
+
+Parameter	Type	Required	Description
+search	string	No	Search by username or email
+role	string	No	Filter by user role
+status	string	No	verified or unverified for age verification
+Response: CSV file download with columns:
+
+id, email, username, first_name, last_name, phone, role
+
+is_active, age_verified, created_at, last_login
+
+cash_balance, credit_balance, total_purchases, total_tickets
+
+Subscription details: tier_name, tier_level, subscription_status, etc.
+
+2. Export Active Users
+Exports only active (non-suspended) users.
+
+Endpoint: GET /api/users/export/active
+
+Query Parameters: Same as Export All Users
+
+3. Export Pending Users
+Exports users who haven't completed age verification.
+
+Endpoint: GET /api/users/export/pending
+
+Query Parameters:
+
+Parameter	Type	Required	Description
+search	string	No	Search by username or email
+role	string	No	Filter by user role
+4. Export Suspended Users
+Exports users who have been suspended (inactive).
+
+Endpoint: GET /api/users/export/suspended
+
+Query Parameters: Same as Export All Users
+
+5. Export by Date Range
+Exports users created within a specific date range.
+
+Endpoint: GET /api/users/export/date-range
+
+Query Parameters:
+
+Parameter	Type	Required	Description
+startDate	string	Yes	Start date (YYYY-MM-DD)
+endDate	string	Yes	End date (YYYY-MM-DD)
+search	string	No	Search by username or email
+role	string	No	Filter by user role
+status	string	No	verified or unverified
+6. Export Tier 1 Users
+Exports users with active Tier 1 subscription.
+
+Endpoint: GET /api/users/export/tier-1
+
+Query Parameters: Same as Export All Users
+
+7. Export Tier 2 Users
+Exports users with active Tier 2 subscription.
+
+Endpoint: GET /api/users/export/tier-2
+
+Query Parameters: Same as Export All Users
+
+8. Export Tier 3 Users
+Exports users with active Tier 3 subscription.
+
+Endpoint: GET /api/users/export/tier-3
+
+Query Parameters: Same as Export All Users
+
+9. Export Free Users
+Exports users without any active subscription.
+
+Endpoint: GET /api/users/export/free
+
+Query Parameters: Same as Export All Users
+
+10. Export Detailed Users
+Exports users with comprehensive details including competition stats, referral info, and transaction history.
+
+Endpoint: GET /api/users/export/detailed
+
+Query Parameters:
+
+Parameter	Type	Required	Description
+limit	number	No	Max users to export (default: 100)
+search	string	No	Search by username or email
+role	string	No	Filter by user role
+status	string	No	verified or unverified
+Includes: All data from getUserDetails function:
+
+Profile information
+
+Wallet balances and breakdown
+
+Competition statistics
+
+Transaction history
+
+Referral information
+
+Verification status
+
+Activity logs
+
+
+
+
+
+
+
+
+Available KYC Export Types
+1. Export All KYC
+Exports all KYC verification records in the system.
+
+Endpoint: GET /api/export/kyc/all
+
+Query Parameters:
+
+Parameter	Type	Required	Description
+search	string	No	Search by username or email
+status	string	No	Filter by verification status: PENDING, APPROVED, REJECTED
+documentType	string	No	Filter by document type: DRIVERS_LICENSE, PASSPORT, NATIONAL_ID
+Response: CSV file download with columns:
+
+verification_id, user_id, user_username, user_email
+
+verification_status, verification_type, document_type, document_number
+
+first_name, last_name, date_of_birth, government_id_type, government_id_number
+
+verified_by, verified_at, rejected_reason, created_at, updated_at
+
+Document URLs: document_front_url, document_back_url, selfie_url
+
+2. Export All Pending KYC
+Exports only KYC records that are pending review.
+
+Endpoint: GET /api/export/kyc/pending
+
+Query Parameters:
+
+Parameter	Type	Required	Description
+search	string	No	Search by username or email
+documentType	string	No	Filter by document type
+3. Export All Approved KYC
+Exports only KYC records that have been approved.
+
+Endpoint: GET /api/export/kyc/approved
+
+Query Parameters:
+
+Parameter	Type	Required	Description
+search	string	No	Search by username or email
+documentType	string	No	Filter by document type
+4. Export All Rejected KYC
+Exports only KYC records that have been rejected.
+
+Endpoint: GET /api/export/kyc/rejected
+
+Query Parameters:
+
+Parameter	Type	Required	Description
+search	string	No	Search by username or email
+documentType	string	No	Filter by document type
+5. Export by Document Type: Driver's License
+Exports KYC records where the document type is Driver's License.
+
+Endpoint: GET /api/export/kyc/drivers-license
+
+Query Parameters:
+
+Parameter	Type	Required	Description
+search	string	No	Search by username or email
+status	string	No	Filter by verification status
+6. Export by Document Type: Passport
+Exports KYC records where the document type is Passport.
+
+Endpoint: GET /api/export/kyc/passport
+
+Query Parameters:
+
+Parameter	Type	Required	Description
+search	string	No	Search by username or email
+status	string	No	Filter by verification status
+7. Export by Document Type: National ID
+Exports KYC records where the document type is National ID.
+
+Endpoint: GET /api/export/kyc/national-id
+
+Query Parameters:
+
+Parameter	Type	Required	Description
+search	string	No	Search by username or email
+status	string	No	Filter by verification status
+8. Export Detailed KYC
+Exports KYC records with comprehensive details including documents and review history.
+
+Endpoint: GET /api/export/kyc/detailed
+
+Query Parameters:
+
+Parameter	Type	Required	Description
+limit	number	No	Max records to export (default: 100)
+search	string	No	Search by username or email
+status	string	No	Filter by verification status
+documentType	string	No	Filter by document type
+Includes:
+
+All basic KYC information
+
+Document details: file names, types, status
+
+Review history with admin notes
+
+Review counts and last review information
+
+9. Bulk KYC Export (Flexible)
+Flexible endpoint for complex KYC export scenarios.
+
+Endpoint: POST /api/export/kyc/bulk
+
+Request Body:
+
+json
+{
+  "type": "all", // Required: "all", "pending", "approved", "rejected", "drivers_license", "passport", "national_id", "detailed"
+  "status": "PENDING", // Optional: For status-specific exports
+  "documentType": "PASSPORT", // Optional: For document type-specific exports
+  "search": "john",
+  "limit": 100 // For "detailed" type
+}
+Response Format
+All endpoints return a CSV file with:
+
+Content-Type: text/csv
+
+Content-Disposition: attachment; filename="{export_type}_{timestamp}.csv"
+
+File Naming: {export_type}_{YYYY-MM-DDTHH-mm-ss}.csv
+
+Error Responses
+400 Bad Request:
+
+json
+{
+  "success": false,
+  "error": "Invalid KYC export type"
+}
+404 Not Found:
+
+json
+{
+  "success": false,
+  "message": "No KYC records found to export"
+}
+500 Internal Server Error:
+
+json
+{
+  "success": false,
+  "error": "Internal server error"
+}
