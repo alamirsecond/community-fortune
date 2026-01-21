@@ -1,4 +1,5 @@
-CREATE DATABASE IF NOT EXISTS community_fortune;
+DROP DATABASE IF EXISTS community_fortune;
+CREATE DATABASE community_fortune;
 USE community_fortune;
 
 -- ===========================================
@@ -66,6 +67,17 @@ CREATE TABLE users (
     INDEX idx_users_role (role),
     INDEX idx_users_is_active (is_active),
     INDEX idx_users_created_by (created_by),
+    
+    -- For soft delete functionality
+    is_deleted BOOLEAN DEFAULT FALSE,
+    deleted_at DATETIME DEFAULT NULL,
+    
+    -- For suspension functionality
+    is_suspended BOOLEAN DEFAULT FALSE,
+    suspended_at DATETIME DEFAULT NULL,
+    suspension_reason TEXT DEFAULT NULL,
+    suspension_ends_at DATETIME DEFAULT NULL,
+    
     FOREIGN KEY (referred_by) REFERENCES users(id),
     FOREIGN KEY (created_by) REFERENCES users(id)
 );
@@ -89,6 +101,7 @@ CREATE TABLE user_activities (
     INDEX idx_user_activities_module (module),
     INDEX idx_user_activities_action (action)
 );
+
 -- ===========================================
 -- EMAIL VERIFICATION TOKENS TABLE - BINARY(16) UUIDs
 -- ===========================================
@@ -502,27 +515,10 @@ CREATE TABLE spin_wheels (
     background_image_url TEXT,
     animation_speed_ms INTEGER DEFAULT 4000,
     
-    -- Statusz
+    -- Status
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMP DEFAULT NOW()
 );
-
-
--- CREATE TABLE wheel_segments (
---     id BINARY(16) PRIMARY KEY,
---     competition_id BINARY(16) NOT NULL,
---     segment_index INT NOT NULL,
---     label VARCHAR(255) NOT NULL,
---     prize_type ENUM('POINTS', 'SITE_CREDIT', 'CASH', 'FREE_TICKETS', 'NO_WIN', 'BONUS_SPIN', 'FREE_ENTRY') NOT NULL,
---     amount DECIMAL(12,2),
---     color VARCHAR(7) DEFAULT '#FFFFFF',
---     probability DECIMAL(5,2) NOT NULL,
---     image_url VARCHAR(500),
---     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
---     FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
---     UNIQUE KEY unique_segment (competition_id, segment_index),
---     INDEX idx_wheel_segments_competition (competition_id)
--- );
 
 -- SPIN WHEEL SEGMENTS (Linked to Spin Wheel)
 CREATE TABLE spin_wheel_segments (
@@ -903,7 +899,6 @@ CREATE TABLE user_missions (
     INDEX idx_user_completed (user_id, completed)
 );
 
-
 CREATE TABLE referral_settings (
   id INT PRIMARY KEY AUTO_INCREMENT,
   total_referral_amount DECIMAL(10,2) DEFAULT 4000.00,
@@ -990,25 +985,54 @@ CREATE TABLE user_notes (
 );
 
 -- Create verifications table
+-- ===========================================
+-- VERIFICATIONS TABLE (UPDATED TO MATCH YOUR FUNCTION)
+-- ===========================================
+-- First, drop the existing table if it exists
+
+-- Recreate with correct enum values
 CREATE TABLE verifications (
   id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
   user_id BINARY(16) NOT NULL REFERENCES users(id),
   status ENUM('PENDING', 'APPROVED', 'REJECTED', 'EXPIRED') DEFAULT 'PENDING',
   verification_type ENUM('KYC', 'AGE', 'ADDRESS') DEFAULT 'KYC',
-  document_type ENUM('PASSPORT', 'DRIVING_LICENSE', 'ID_CARD', 'UTILITY_BILL') DEFAULT 'PASSPORT',
+  
+  -- Document info - Match users.government_id_type enum
+  document_type ENUM('passport', 'drivers_license', 'national_id') DEFAULT 'passport',
   document_number VARCHAR(100),
+  
+  -- Document references
+  government_id_doc_id BINARY(16) NULL,
+  selfie_doc_id BINARY(16) NULL,
+  additional_doc_ids JSON NULL,
+  
+  -- User info
+  first_name VARCHAR(50),
+  last_name VARCHAR(50),
+  date_of_birth DATE,
+  
+  -- Government ID info
+  government_id_type ENUM('passport', 'drivers_license', 'national_id'),
+  government_id_number VARCHAR(50),
+  
+  -- File URLs
   document_front_url VARCHAR(500),
   document_back_url VARCHAR(500),
   selfie_url VARCHAR(500),
+  
+  -- Admin fields
   verified_by BINARY(16) REFERENCES users(id),
   verified_at TIMESTAMP NULL,
   rejected_reason TEXT,
+  
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+  
   INDEX idx_user_id (user_id),
   INDEX idx_status (status),
   INDEX idx_created_at (created_at)
 );
+
 -- ===========================================
 -- USER LEVELS
 -- ===========================================
@@ -1054,8 +1078,6 @@ CREATE TABLE share_limits (
 -- ===========================================
 -- LEGAL MODULE - BINARY(16) UUIDs
 -- ===========================================
--- First, backup your data if needed
--- Final table structure
 CREATE TABLE IF NOT EXISTS legal_documents (
   id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
   title VARCHAR(100) NOT NULL,
@@ -1070,35 +1092,6 @@ CREATE TABLE IF NOT EXISTS legal_documents (
   INDEX idx_legal_documents_type (type),
   INDEX idx_legal_documents_active (type, is_active)
 );
-
--- Triggers for managing active documents
-DELIMITER $$
-
-DROP TRIGGER IF EXISTS before_legal_documents_insert;
-CREATE TRIGGER before_legal_documents_insert
-BEFORE INSERT ON legal_documents
-FOR EACH ROW
-BEGIN
-    IF NEW.is_active = TRUE THEN
-        UPDATE legal_documents 
-        SET is_active = FALSE 
-        WHERE type = NEW.type AND is_active = TRUE;
-    END IF;
-END$$
-
-DROP TRIGGER IF EXISTS before_legal_documents_update;
-CREATE TRIGGER before_legal_documents_update
-BEFORE UPDATE ON legal_documents
-FOR EACH ROW
-BEGIN
-    IF NEW.is_active = TRUE AND OLD.is_active = FALSE THEN
-        UPDATE legal_documents 
-        SET is_active = FALSE 
-        WHERE type = NEW.type AND is_active = TRUE AND id != NEW.id;
-    END IF;
-END$$
-
-DELIMITER ;
 
 CREATE TABLE user_consents (
     id BINARY(16) PRIMARY KEY,
@@ -1131,7 +1124,6 @@ CREATE TABLE admin_activities (
     INDEX idx_admin_activities_admin (admin_id),
     INDEX idx_admin_activities_module (module)
 );
-
 
 -- ===========================================
 -- PARTNER APPLICATIONS - BINARY(16) UUIDs
@@ -1172,6 +1164,7 @@ CREATE TABLE withdrawals (
     admin_id BINARY(16),
     requested_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    is_payment_method BOOLEAN DEFAULT FALSE,
     FOREIGN KEY (user_id) REFERENCES users(id),
     FOREIGN KEY (admin_id) REFERENCES users(id),
     INDEX idx_withdrawals_user_id (user_id),
@@ -1180,13 +1173,8 @@ CREATE TABLE withdrawals (
 );
 
 -- ===========================================
--- KYC ADMIN REVIEW TABLE - BINARY(16) UUIDs
+-- System alerts
 -- ===========================================
-
--- ===========================================
--- System alts
--- ===========================================
-
 CREATE TABLE system_alerts (
   id BINARY(16) PRIMARY KEY,
   type ENUM('INFO', 'WARNING', 'ERROR', 'CRITICAL') NOT NULL,
@@ -1199,9 +1187,12 @@ CREATE TABLE system_alerts (
   dismissed_at DATETIME NULL
 );
 
+-- Create index for alerts
+CREATE INDEX idx_alert_dedupe ON system_alerts (type, title, created_at);
 
--- Check if we need to add any missing revenue-related tables
-
+-- ===========================================
+-- REVENUE TABLES
+-- ===========================================
 CREATE TABLE IF NOT EXISTS revenue_summary (
     id BINARY(16) PRIMARY KEY,
     date DATE NOT NULL,
@@ -1219,7 +1210,10 @@ CREATE TABLE IF NOT EXISTS revenue_summary (
     UNIQUE KEY unique_date (date),
     INDEX idx_revenue_summary_date (date)
 );
--- Update contact_messages table (remove subject column)
+
+-- ===========================================
+-- CONTACT MESSAGES
+-- ===========================================
 CREATE TABLE IF NOT EXISTS contact_messages (
   id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
   full_name VARCHAR(100) NOT NULL,
@@ -1249,7 +1243,7 @@ CREATE TABLE IF NOT EXISTS contact_settings (
 );
 
 -- Insert default contact settings
-INSERT INTO contact_settings (setting_key, setting_value, description) VALUES
+INSERT IGNORE INTO contact_settings (setting_key, setting_value, description) VALUES
 ('company_name', 'Community Fortune Limited', 'Company name'),
 ('contact_email', 'contact@community-fortune.com', 'Primary contact email'),
 ('website_url', 'www.community-fortune.com', 'Company website'),
@@ -1260,7 +1254,10 @@ INSERT INTO contact_settings (setting_key, setting_value, description) VALUES
 ('business_hours', 'Mon-Fri: 9:00 AM - 6:00 PM GMT', 'Business hours'),
 ('phone_number', '+44 1234 567890', 'Phone number'),
 ('response_time', '24-48 hours', 'Expected response time');
--- Add a transactions table for better revenue tracking
+
+-- ===========================================
+-- TRANSACTIONS TABLE
+-- ===========================================
 CREATE TABLE IF NOT EXISTS transactions (
     id BINARY(16) PRIMARY KEY,
     user_id BINARY(16),
@@ -1287,93 +1284,48 @@ CREATE TABLE IF NOT EXISTS transactions (
     INDEX idx_transactions_reference (reference_table, reference_id)
 );
 
-ALTER TABLE withdrawals ADD COLUMN is_payment_method BOOLEAN DEFAULT FALSE;
+-- ===========================================
+-- FAQS (HOME + SUBSCRIPTION)
+-- ===========================================
+CREATE TABLE faqs (
+    id BINARY(16) PRIMARY KEY,
+    scope ENUM('HOME', 'SUBSCRIPTION') NOT NULL,
+    question VARCHAR(500) NOT NULL,
+    answer TEXT NOT NULL,
+    is_published BOOLEAN DEFAULT TRUE,
+    sort_order INT NOT NULL DEFAULT 1,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    INDEX idx_faqs_scope (scope),
+    INDEX idx_faqs_scope_published (scope, is_published),
+    INDEX idx_faqs_scope_sort (scope, sort_order)
+);
 
-
-CREATE INDEX idx_alert_dedupe 
-ON system_alerts (type, title, created_at);
-
--- For soft delete functionality
-ALTER TABLE users 
-ADD COLUMN is_deleted BOOLEAN DEFAULT FALSE,
-ADD COLUMN deleted_at DATETIME DEFAULT NULL;
-
--- For suspension functionality
-ALTER TABLE users 
-ADD COLUMN is_suspended BOOLEAN DEFAULT FALSE,
-ADD COLUMN suspended_at DATETIME DEFAULT NULL,
-ADD COLUMN suspension_reason TEXT DEFAULT NULL,
-ADD COLUMN suspension_ends_at DATETIME DEFAULT NULL;
-
-
-
--- Insert referral tiers
--- INSERT IGNORE INTO referral_tiers (id, tier_level, tier_name, min_referrals, reward_type, reward_value, perks) VALUES
--- (UUID_TO_BIN(UUID()), 1, 'Starter', 0, 'CREDIT', 10.00, '{"bonus": "10% extra credit on referrals"}'),
--- (UUID_TO_BIN(UUID()), 2, 'Ambassador', 5, 'CREDIT', 25.00, '{"bonus": "15% extra credit on referrals", "badge": "Ambassador"}'),
--- (UUID_TO_BIN(UUID()), 3, 'Champion', 15, 'CASH', 50.00, '{"bonus": "20% extra credit on referrals", "badge": "Champion", "priority_support": true}'),
--- (UUID_TO_BIN(UUID()), 4, 'Elite', 30, 'CASH', 100.00, '{"bonus": "25% extra credit on referrals", "badge": "Elite", "priority_support": true, "early_access": true}');
-
--- Insert user levels
--- INSERT IGNORE INTO user_levels (level, level_name, xp_required, perks) VALUES
--- (1, 'Beginner', 0, '{"credit": 0, "discount": 0, "tickets": 0, "description": "Welcome to Community Fortune!"}'),
--- (2, 'Explorer', 1000, '{"credit": 25, "discount": 5, "tickets": 1, "description": "5% discount on all purchases"}'),
--- (3, 'Regular', 5000, '{"credit": 50, "discount": 10, "tickets": 2, "description": "10% discount + extra tickets"}'),
--- (4, 'Enthusiast', 15000, '{"credit": 100, "discount": 15, "tickets": 5, "description": "15% discount + bonus credits"}'),
--- (5, 'VIP', 30000, '{"credit": 200, "discount": 20, "tickets": 10, "description": "20% discount + VIP rewards"}'),
--- (6, 'Elite', 60000, '{"credit": 500, "discount": 25, "tickets": 20, "description": "25% discount + Elite status"}');
-
--- Insert daily rewards config
--- INSERT IGNORE INTO daily_rewards_config (id, day_number, reward_type, reward_value, streak_required) VALUES
--- (UUID_TO_BIN(UUID()), 1, 'POINTS', 10, FALSE),
--- (UUID_TO_BIN(UUID()), 2, 'POINTS', 15, FALSE),
--- (UUID_TO_BIN(UUID()), 3, 'SITE_CREDIT', 5.00, FALSE),
--- (UUID_TO_BIN(UUID()), 4, 'POINTS', 20, FALSE),
--- (UUID_TO_BIN(UUID()), 5, 'FREE_TICKETS', 1, FALSE),
--- (UUID_TO_BIN(UUID()), 6, 'SITE_CREDIT', 10.00, FALSE),
--- (UUID_TO_BIN(UUID()), 7, 'CASH', 2.00, TRUE);
-
--- Insert share limits
--- INSERT IGNORE INTO share_limits (id, platform, points_per_share, daily_limit, weekly_limit) VALUES
--- (UUID_TO_BIN(UUID()), 'FACEBOOK', 5, 3, 10),
--- (UUID_TO_BIN(UUID()), 'TWITTER', 5, 3, 10),
--- (UUID_TO_BIN(UUID()), 'WHATSAPP', 5, 3, 10),
--- (UUID_TO_BIN(UUID()), 'TELEGRAM', 5, 3, 10),
--- (UUID_TO_BIN(UUID()), 'INSTAGRAM', 5, 3, 10);
-
--- Insert legal documents
--- INSERT IGNORE INTO legal_documents (id, type, content, version, effective_date) VALUES
--- (UUID_TO_BIN(UUID()), 'TERMS', 'Terms and conditions content...', 1, CURDATE()),
--- (UUID_TO_BIN(UUID()), 'PRIVACY', 'Privacy policy content...', 1, CURDATE()),
--- (UUID_TO_BIN(UUID()), 'RESPONSIBLE_PLAY', 'Responsible play guidelines...', 1, CURDATE());
-
--- Insert spin prizes
--- INSERT IGNORE INTO spin_prizes (id, name, type, value, drop_rate, stock) VALUES
--- (UUID_TO_BIN(UUID()), '10 Points', 'POINTS', 10, 30.00, NULL),
--- (UUID_TO_BIN(UUID()), '25 Points', 'POINTS', 25, 20.00, NULL),
--- (UUID_TO_BIN(UUID()), '£2 Credit', 'SITE_CREDIT', 2.00, 15.00, NULL),
--- (UUID_TO_BIN(UUID()), '£5 Credit', 'SITE_CREDIT', 5.00, 10.00, NULL),
--- (UUID_TO_BIN(UUID()), 'Free Ticket', 'FREE_TICKETS', 1.00, 15.00, 100),
--- (UUID_TO_BIN(UUID()), '£1 Cash', 'CASH', 1.00, 5.00, NULL),
--- (UUID_TO_BIN(UUID()), '£10 Cash', 'CASH', 10.00, 2.00, NULL),
--- (UUID_TO_BIN(UUID()), 'Jackpot £50', 'CASH', 50.00, 0.50, NULL);
-
--- Insert game categories
--- INSERT IGNORE INTO game_categories (id, name, description, sort_order) VALUES
--- (UUID_TO_BIN(UUID()), 'ARCADE', 'Classic arcade-style games', 1),
--- (UUID_TO_BIN(UUID()), 'PUZZLE', 'Brain teasers and puzzles', 2),
--- (UUID_TO_BIN(UUID()), 'ACTION', 'Fast-paced action games', 3),
--- (UUID_TO_BIN(UUID()), 'STRATEGY', 'Strategic thinking games', 4),
--- (UUID_TO_BIN(UUID()), 'CASUAL', 'Simple and relaxing games', 5),
--- (UUID_TO_BIN(UUID()), 'MULTIPLAYER', 'Games for multiple players', 6),
--- (UUID_TO_BIN(UUID()), 'EDUCATIONAL', 'Learning and educational games', 7);
+------
+-- Update the kyc_reviews table ENUM values
+ALTER TABLE kyc_reviews 
+MODIFY COLUMN old_status ENUM('PENDING', 'APPROVED', 'REJECTED', 'UNDER_REVIEW'),
+MODIFY COLUMN new_status ENUM('PENDING', 'APPROVED', 'REJECTED', 'UNDER_REVIEW');
+-- ===========================================
+-- GAME CATEGORIES (Moved to end to avoid reference issues)
+-- ===========================================
+-- Insert game categories (using static UUIDs for consistency)
+INSERT IGNORE INTO game_categories (id, name, description, sort_order) VALUES
+(UNHEX(REPLACE('11111111-1111-1111-1111-111111111111', '-', '')), 'ARCADE', 'Classic arcade-style games', 1),
+(UNHEX(REPLACE('22222222-2222-2222-2222-222222222222', '-', '')), 'PUZZLE', 'Brain teasers and puzzles', 2),
+(UNHEX(REPLACE('33333333-3333-3333-3333-333333333333', '-', '')), 'ACTION', 'Fast-paced action games', 3),
+(UNHEX(REPLACE('44444444-4444-4444-4444-444444444444', '-', '')), 'STRATEGY', 'Strategic thinking games', 4),
+(UNHEX(REPLACE('55555555-5555-5555-5555-555555555555', '-', '')), 'CASUAL', 'Simple and relaxing games', 5),
+(UNHEX(REPLACE('66666666-6666-6666-6666-666666666666', '-', '')), 'MULTIPLAYER', 'Games for multiple players', 6),
+(UNHEX(REPLACE('77777777-7777-7777-7777-777777777777', '-', '')), 'EDUCATIONAL', 'Learning and educational games', 7);
 
 -- ===========================================
--- FIXED TRIGGER WITHOUT TABLE UPDATE CONFLICT
+-- TRIGGERS AND PROCEDURES (Execute separately)
 -- ===========================================
+
+-- First, create the function
 DELIMITER //
 
--- Function to generate referral code
 CREATE FUNCTION generate_referral_code(base_string VARCHAR(255))
 RETURNS VARCHAR(50)
 READS SQL DATA
@@ -1393,73 +1345,25 @@ BEGIN
     RETURN CONCAT(clean_string, random_suffix);
 END //
 
--- Trigger to automatically create associated records when user is created
--- NOTE: We cannot update the users table from within this trigger
+DELIMITER ;
+
+-- Now create the trigger
+DELIMITER //
+
 CREATE TRIGGER after_user_insert
 AFTER INSERT ON users
 FOR EACH ROW
 BEGIN
-    DECLARE user_referral_code VARCHAR(50);
-    DECLARE counter INT DEFAULT 0;
-    DECLARE user_uuid CHAR(36);
-    DECLARE new_referral_code VARCHAR(50);
-    
-    -- Convert BINARY(16) to CHAR(36) for UUID functions
-    SET user_uuid = LOWER(CONCAT(
-        HEX(SUBSTRING(NEW.id, 1, 4)), '-',
-        HEX(SUBSTRING(NEW.id, 5, 2)), '-',
-        HEX(SUBSTRING(NEW.id, 7, 2)), '-',
-        HEX(SUBSTRING(NEW.id, 9, 2)), '-',
-        HEX(SUBSTRING(NEW.id, 11, 6))
-    ));
-    
-    -- Generate unique referral code from username
-    SET new_referral_code = generate_referral_code(NEW.username);
-    
-    -- Ensure uniqueness with a safety counter
-    WHILE EXISTS (SELECT 1 FROM referrals WHERE code = new_referral_code) AND counter < 10 DO
-        SET new_referral_code = generate_referral_code(CONCAT(NEW.username, FLOOR(RAND() * 1000)));
-        SET counter = counter + 1;
-    END WHILE;
-    
-    -- If still not unique, use UUID part
-    IF counter >= 10 THEN
-        SET new_referral_code = UPPER(SUBSTRING(REPLACE(user_uuid, '-', ''), 1, 10));
-    END IF;
-    
-    -- Store the generated referral code in a variable (we can't update users table here)
-    SET user_referral_code = new_referral_code;
-    
-    -- Update the users table with the generated referral code
-    -- This must be done outside the trigger in the application code
-    -- We'll create all other records but skip updating users table
-    
-    -- Create referral record
-    -- INSERT INTO referrals (id, user_id, code, current_tier, status)
-    -- VALUES (UUID_TO_BIN(UUID()), NEW.id, user_referral_code, 1, 'ACTIVE');
-    
-    -- -- Create user points record
-    -- INSERT INTO user_points (id, user_id, total_points, earned_points)
-    -- VALUES (UUID_TO_BIN(UUID()), NEW.id, 0, 0);
-    
-    -- -- Create user streaks record
-    -- INSERT INTO user_streaks (id, user_id, current_streak, longest_streak, last_login_date)
-    -- VALUES (UUID_TO_BIN(UUID()), NEW.id, 0, 0, NULL);
-    
-    -- -- Create wallet records
-    -- INSERT INTO wallets (id, user_id, type, balance) VALUES
-    -- (UUID_TO_BIN(UUID()), NEW.id, 'CASH', 0),
-    -- (UUID_TO_BIN(UUID()), NEW.id, 'CREDIT', 0);
-    
     -- Create spending limits record
     INSERT INTO spending_limits (id, user_id) VALUES (UUID_TO_BIN(UUID()), NEW.id);
+    
+    -- Note: The referral code update and other record creations should be handled
+    -- in your application code, not in triggers, to avoid circular dependencies
 END //
 
 DELIMITER ;
 
--- ===========================================
--- ADDITIONAL PROCEDURE FOR UPDATING USER REFERRAL CODE
--- ===========================================
+-- Create procedure for updating user referral code
 DELIMITER //
 
 CREATE PROCEDURE update_user_referral_code(
@@ -1474,23 +1378,32 @@ END //
 
 DELIMITER ;
 
--- ===========================================
--- FAQS (HOME + SUBSCRIPTION)
--- ===========================================
-CREATE TABLE faqs (
-    id BINARY(16) PRIMARY KEY,
-    scope ENUM('HOME', 'SUBSCRIPTION') NOT NULL,
-    question VARCHAR(500) NOT NULL,
-    answer TEXT NOT NULL,
-    is_published BOOLEAN DEFAULT TRUE,
-    sort_order INT NOT NULL DEFAULT 1,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+-- Now create the legal documents triggers separately
+DELIMITER //
 
-    INDEX idx_faqs_scope (scope),
-    INDEX idx_faqs_scope_published (scope, is_published),
-    INDEX idx_faqs_scope_sort (scope, sort_order)
-);
+CREATE TRIGGER before_legal_documents_insert
+BEFORE INSERT ON legal_documents
+FOR EACH ROW
+BEGIN
+    IF NEW.is_active = TRUE THEN
+        UPDATE legal_documents 
+        SET is_active = FALSE 
+        WHERE type = NEW.type AND is_active = TRUE;
+    END IF;
+END //
+
+CREATE TRIGGER before_legal_documents_update
+BEFORE UPDATE ON legal_documents
+FOR EACH ROW
+BEGIN
+    IF NEW.is_active = TRUE AND OLD.is_active = FALSE THEN
+        UPDATE legal_documents 
+        SET is_active = FALSE 
+        WHERE type = NEW.type AND is_active = TRUE AND id != NEW.id;
+    END IF;
+END //
+
+DELIMITER ;
 
 -- ===========================================
 -- END SCHEMA

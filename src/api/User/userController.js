@@ -100,7 +100,48 @@ function maskEmail(email) {
   if (local.length <= 2) return email;
   return `${local[0]}***${local.slice(-1)}@${domain}`;
 }
-
+// Add this helper function at the top of your controller file
+const notifyAdminsAboutKycSubmission = async (userId) => {
+  try {
+    // Get user info for notification
+    const [userRows] = await pool.query(
+      `SELECT username, email FROM users WHERE id = UUID_TO_BIN(?)`,
+      [userId]
+    );
+    
+    if (userRows.length > 0) {
+      const user = userRows[0];
+      
+      // Create system alert for admins
+      await pool.query(
+        `INSERT INTO system_alerts (
+          id, type, title, message, source
+        ) VALUES (
+          UUID_TO_BIN(UUID()),
+          'INFO',
+          'New KYC Submission',
+          ?,
+          'KYC'
+        )`,
+        [`User ${user.username} (${user.email}) has submitted KYC documents for review.`]
+      );
+      
+      // Get admin emails for email notification (optional)
+      const [adminRows] = await pool.query(
+        `SELECT email FROM users WHERE role IN ('SUPERADMIN', 'ADMIN') AND email_verified = TRUE`
+      );
+      
+      // You can add email sending logic here if needed
+      console.log(`KYC submitted by ${user.username} (${user.email}). Notified ${adminRows.length} admins.`);
+      
+      return true;
+    }
+    return false;
+  } catch (error) {
+    console.error("Failed to notify admins:", error);
+    return false;
+  }
+};
 async function processReferralRegistration(connection, referredUserId, referralCode) {
   try {
     // 1. Find referrer by referral code
@@ -1063,121 +1104,233 @@ registerUser: async (req, res) => {
   },
 
   // Submit KYC documents after registration
-  submitKycRequest: async (req, res) => {
-    try {
-      if (!req.files || !req.files.governmentId || !req.files.selfiePhoto) {
-        cleanupUploadedFiles(req.files);
-        return res.status(400).json({
-          success: false,
-          message: "Government ID and selfie photo are required",
-        });
-      }
+// user_controller.js - Updated submitKycRequest
 
-      const { error, value } = userSchemas.kycVerifySchema.validate(req.body);
-      if (error) {
-        cleanupUploadedFiles(req.files);
-        return res.status(400).json({
-          success: false,
-          message: error.details[0].message,
-        });
-      }
-
-      const { governmentIdType, governmentIdNumber, dateOfBirth } = value;
-
-      const connection = await pool.getConnection();
-      await connection.beginTransaction();
-
-      try {
-        // Reset existing KYC docs and update user status/metadata
-        await connection.query(
-          `DELETE FROM kyc_documents WHERE user_id = UUID_TO_BIN(?)`,
-          [req.user.id]
-        );
-
-        await connection.query(
-          `UPDATE users 
-           SET government_id_type = ?,
-               government_id_number = ?,
-               date_of_birth = ?,
-               kyc_status = 'under_review',
-               kyc_submitted_at = NOW(),
-               kyc_verified_at = NULL,
-               kyc_rejection_reason = NULL
-           WHERE id = UUID_TO_BIN(?)`,
-          [governmentIdType, governmentIdNumber, dateOfBirth, req.user.id]
-        );
-
-        const docs = [];
-
-        const governmentIdFile = req.files.governmentId?.[0];
-        if (governmentIdFile) {
-          docs.push({ type: "government_id", file: governmentIdFile });
-        }
-
-        const selfiePhotoFile = req.files.selfiePhoto?.[0];
-        if (selfiePhotoFile) {
-          docs.push({ type: "selfie_photo", file: selfiePhotoFile });
-        }
-
-        if (req.files.additionalDocuments) {
-          req.files.additionalDocuments.forEach((file) => {
-            docs.push({ type: "additional_document", file });
-          });
-        }
-
-        if (docs.length > 0) {
-          const values = docs
-            .map(
-              () =>
-                "(UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, ?, ?,?, 'pending')"
-            )
-            .join(", ");
-
-          const params = [];
-          docs.forEach((doc) => {
-            params.push(
-              uuidv4(),
-              req.user.id,
-              doc.type,
-              doc.file.path,
-              doc.file.originalname,
-              doc.file.mimetype,
-              doc.file.size
-            );
-          });
-
-          await connection.query(
-            `INSERT INTO kyc_documents (id, user_id, document_type, file_path, file_name, mime_type, file_size, status) VALUES ${values}`,
-            params
-          );
-        }
-
-        await connection.commit();
-
-        res.json({
-          success: true,
-          message: "KYC documents submitted successfully. Your verification is under review.",
-        });
-      } catch (error) {
-        await connection.rollback();
-        cleanupUploadedFiles(req.files);
-        console.error("Submit KYC error:", error);
-        return res.status(500).json({
-          success: false,
-          message: "Failed to submit KYC. Please try again.",
-        });
-      } finally {
-        connection.release();
-      }
-    } catch (error) {
+submitKycRequest: async (req, res) => {
+  try {
+    if (!req.files || !req.files.governmentId || !req.files.selfiePhoto) {
       cleanupUploadedFiles(req.files);
-      console.error("Submit KYC error:", error);
-      res.status(500).json({
+      return res.status(400).json({
         success: false,
-        message: "Internal server error",
+        message: "Government ID and selfie photo are required",
       });
     }
-  },
+
+    const { error, value } = userSchemas.kycVerifySchema.validate(req.body);
+    if (error) {
+      cleanupUploadedFiles(req.files);
+      return res.status(400).json({
+        success: false,
+        message: error.details[0].message,
+      });
+    }
+
+    const { governmentIdType, governmentIdNumber, dateOfBirth } = value;
+
+    const connection = await pool.getConnection();
+    await connection.beginTransaction();
+
+    try {
+      // 1. Reset existing KYC docs
+      await connection.query(
+        `DELETE FROM kyc_documents WHERE user_id = UUID_TO_BIN(?)`,
+        [req.user.id]
+      );
+
+      // 2. Update user info
+      await connection.query(
+        `UPDATE users 
+         SET government_id_type = ?,
+             government_id_number = ?,
+             date_of_birth = ?,
+             kyc_status = 'under_review',
+             kyc_submitted_at = NOW(),
+             kyc_verified_at = NULL,
+             kyc_rejection_reason = NULL
+         WHERE id = UUID_TO_BIN(?)`,
+        [governmentIdType, governmentIdNumber, dateOfBirth, req.user.id]
+      );
+
+      // 3. Upload documents and get their UUIDs
+      let governmentIdDocUUID = null;
+      let selfieDocUUID = null;
+      const additionalDocUUIDs = [];
+
+      // Upload government ID and get the generated UUID
+      const governmentIdFile = req.files.governmentId[0];
+      const governmentIdUUID = uuidv4(); // Generate UUID for the document
+      await connection.query(
+        `INSERT INTO kyc_documents 
+         (id, user_id, document_type, file_path, file_name, mime_type, file_size, status) 
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, ?, ?, ?, 'pending')`,
+        [
+          governmentIdUUID,
+          req.user.id,
+          'government_id',
+          governmentIdFile.path,
+          governmentIdFile.originalname,
+          governmentIdFile.mimetype,
+          governmentIdFile.size
+        ]
+      );
+      governmentIdDocUUID = governmentIdUUID;
+
+      // Upload selfie and get the generated UUID
+      const selfiePhotoFile = req.files.selfiePhoto[0];
+      const selfieUUID = uuidv4(); // Generate UUID for the document
+      await connection.query(
+        `INSERT INTO kyc_documents 
+         (id, user_id, document_type, file_path, file_name, mime_type, file_size, status) 
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, ?, ?, ?, 'pending')`,
+        [
+          selfieUUID,
+          req.user.id,
+          'selfie_photo',
+          selfiePhotoFile.path,
+          selfiePhotoFile.originalname,
+          selfiePhotoFile.mimetype,
+          selfiePhotoFile.size
+        ]
+      );
+      selfieDocUUID = selfieUUID;
+
+      // Upload additional documents
+      if (req.files.additionalDocuments) {
+        for (const file of req.files.additionalDocuments) {
+          const additionalUUID = uuidv4(); // Generate UUID for the document
+          await connection.query(
+            `INSERT INTO kyc_documents 
+             (id, user_id, document_type, file_path, file_name, mime_type, file_size, status) 
+             VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, ?, ?, ?, 'pending')`,
+            [
+              additionalUUID,
+              req.user.id,
+              'additional_document',
+              file.path,
+              file.originalname,
+              file.mimetype,
+              file.size
+            ]
+          );
+          additionalDocUUIDs.push(additionalUUID);
+        }
+      }
+
+      // 4. Create verification record
+      // First get user info for first_name, last_name
+      const [userRows] = await connection.query(
+        `SELECT first_name, last_name FROM users WHERE id = UUID_TO_BIN(?)`,
+        [req.user.id]
+      );
+      
+      const userInfo = userRows[0] || {};
+
+      await connection.query(
+        `INSERT INTO verifications (
+          id, user_id, status, verification_type,
+          document_type, document_number,
+          government_id_doc_id, selfie_doc_id, additional_doc_ids,
+          first_name, last_name, date_of_birth,
+          government_id_type, government_id_number,
+          created_at
+        ) VALUES (
+          UUID_TO_BIN(UUID()),
+          UUID_TO_BIN(?),
+          'PENDING',
+          'KYC',
+          ?,
+          ?,
+          UUID_TO_BIN(?),
+          UUID_TO_BIN(?),
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          NOW()
+        )`,
+        [
+          req.user.id,
+          governmentIdType,
+          governmentIdNumber,
+          governmentIdDocUUID,  // Use the actual UUID string
+          selfieDocUUID,        // Use the actual UUID string
+          JSON.stringify(additionalDocUUIDs),
+          userInfo.first_name || '',
+          userInfo.last_name || '',
+          dateOfBirth,
+          governmentIdType,
+          governmentIdNumber
+        ]
+      );
+
+      // 5. Create kyc_reviews record
+      await connection.query(
+        `INSERT INTO kyc_reviews (
+          id, user_id, old_status, new_status
+        ) VALUES (
+          UUID_TO_BIN(UUID()),
+          UUID_TO_BIN(?),
+          'pending',
+          'under_review'
+        )`,
+        [req.user.id]
+      );
+
+      await connection.commit();
+
+      // 6. Notify admins
+      try {
+        const [userRows] = await pool.query(
+          `SELECT username, email FROM users WHERE id = UUID_TO_BIN(?)`,
+          [req.user.id]
+        );
+        
+        if (userRows.length > 0) {
+          const user = userRows[0];
+          
+          await pool.query(
+            `INSERT INTO system_alerts (
+              id, type, title, message, source
+            ) VALUES (
+              UUID_TO_BIN(UUID()),
+              'INFO',
+              'New KYC Submission',
+              ?,
+              'KYC'
+            )`,
+            [`User ${user.username} (${user.email}) has submitted KYC documents for review.`]
+          );
+        }
+      } catch (notifyError) {
+        console.error("Failed to notify admins:", notifyError);
+      }
+
+      res.json({
+        success: true,
+        message: "KYC documents submitted successfully. Your verification is under review.",
+      });
+    } catch (error) {
+      await connection.rollback();
+      cleanupUploadedFiles(req.files);
+      console.error("Submit KYC error:", error);
+      return res.status(500).json({
+        success: false,
+        message: "Failed to submit KYC. Please try again.",
+      });
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    cleanupUploadedFiles(req.files);
+    console.error("Submit KYC error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+},
 
   // Add KYC status check method
   getKycStatus: async (req, res) => {

@@ -1204,219 +1204,689 @@ updateUserStatus: async (user_id, status, reason, admin_id) => {
     }
   },
  
-  getPendingVerifications: async ({ page, limit }) => {
-    try {
-      const offset = (page - 1) * limit;
+getPendingVerifications: async ({ page, limit }) => {
+  try {
+    const offset = (page - 1) * limit;
 
-      const [verifications] = await pool.query(
-        `SELECT 
-        uv.*,
+    const [verifications] = await pool.query(
+      `SELECT 
+        BIN_TO_UUID(v.id) as verification_id,
+        BIN_TO_UUID(v.user_id) as user_id,
+        v.status,
+        v.verification_type,
+        v.document_type,
+        v.document_number,
+        BIN_TO_UUID(v.government_id_doc_id) as government_id_doc_id,
+        BIN_TO_UUID(v.selfie_doc_id) as selfie_doc_id,
+        v.additional_doc_ids,
+        v.first_name,
+        v.last_name,
+        v.date_of_birth,
+        v.government_id_type,
+        v.government_id_number,
+        v.rejected_reason,
+        BIN_TO_UUID(v.verified_by) as verified_by,
+        v.verified_at,
+        v.created_at,
+        v.updated_at,
+        
+        -- User info
         u.username,
         u.email,
-        u.full_name,
-        u.date_of_birth,
+        u.first_name as user_first_name,
+        u.last_name as user_last_name,
+        u.kyc_status,
+        u.kyc_submitted_at,
+        u.kyc_verified_at,
+        u.kyc_rejection_reason,
+        BIN_TO_UUID(u.referred_by) as referred_by,
+        u.referral_code,
         u.created_at as user_joined,
-        ua.address_line1,
-        ua.city,
-        ua.country
-       FROM user_verifications uv
-       JOIN users u ON uv.user_id = u.id
-       LEFT JOIN user_addresses ua ON u.id = ua.user_id AND ua.is_primary = TRUE
-       WHERE uv.status = 'PENDING'
-       ORDER BY uv.created_at ASC
-       LIMIT ? OFFSET ?`,
-        [parseInt(limit), offset]
-      );
+        
+        -- Government ID document info
+        gd.file_path as gov_doc_file_path,
+        gd.file_name as gov_doc_file_name,
+        gd.mime_type as gov_doc_mime_type,
+        gd.status as gov_doc_status,
+        
+        -- Selfie document info
+        sd.file_path as selfie_file_path,
+        sd.file_name as selfie_file_name,
+        sd.mime_type as selfie_mime_type,
+        sd.status as selfie_status,
+        
+        -- Additional documents
+        (
+          SELECT JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'id', BIN_TO_UUID(ad.id),
+              'file_path', ad.file_path,
+              'file_name', ad.file_name,
+              'mime_type', ad.mime_type,
+              'status', ad.status,
+              'created_at', ad.created_at
+            )
+          )
+          FROM kyc_documents ad
+          WHERE ad.user_id = v.user_id 
+          AND ad.document_type = 'additional_document'
+          AND ad.status = 'pending'
+        ) as additional_documents
+        
+      FROM verifications v
+      JOIN users u ON v.user_id = u.id
+      LEFT JOIN kyc_documents gd ON v.government_id_doc_id = gd.id
+      LEFT JOIN kyc_documents sd ON v.selfie_doc_id = sd.id
+      WHERE v.status = 'PENDING'
+      ORDER BY v.created_at ASC
+      LIMIT ? OFFSET ?`,
+      [parseInt(limit), offset]
+    );
 
-      const [total] = await pool.query(
-        `SELECT COUNT(*) as total FROM user_verifications WHERE status = 'PENDING'`
-      );
+    const [total] = await pool.query(
+      `SELECT COUNT(*) as total FROM verifications WHERE status = 'PENDING'`
+    );
 
-      return {
-        verifications,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total: total[0].total,
-          pages: Math.ceil(total[0].total / limit),
-        },
-      };
-    } catch (error) {
-      console.error("Error getting pending verifications:", error);
-      throw new Error("Failed to get pending verifications");
-    }
-  },
+    return {
+      verifications,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: total[0].total,
+        pages: Math.ceil(total[0].total / limit),
+      },
+    };
+  } catch (error) {
+    console.error("Error getting pending verifications:", error);
+    throw new Error("Failed to get pending verifications");
+  }
+},
 
-  getUserVerification: async (user_id) => {
-    try {
-      const [verifications] = await pool.query(
-        `SELECT 
-        uv.*,
+getUserVerification: async (user_id) => {
+  try {
+    const [verifications] = await pool.query(
+      `SELECT 
+        BIN_TO_UUID(v.id) as verification_id,
+        BIN_TO_UUID(v.user_id) as user_id,
+        v.status,
+        v.verification_type,
+        v.document_type,
+        v.document_number,
+        BIN_TO_UUID(v.government_id_doc_id) as government_id_doc_id,
+        BIN_TO_UUID(v.selfie_doc_id) as selfie_doc_id,
+        v.additional_doc_ids,
+        v.first_name,
+        v.last_name,
+        v.date_of_birth,
+        v.government_id_type,
+        v.government_id_number,
+        v.document_front_url,
+        v.document_back_url,
+        v.selfie_url,
+        BIN_TO_UUID(v.verified_by) as verified_by,
+        v.verified_at,
+        v.rejected_reason,
+        v.created_at,
+        v.updated_at,
+        
         u.username,
         u.email,
-        u.full_name,
-        u.date_of_birth,
+        u.first_name as user_first_name,
+        u.last_name as user_last_name,
+        u.date_of_birth as user_date_of_birth,
         u.profile_photo,
         u.created_at as user_joined,
-        ua.address_line1,
-        ua.address_line2,
-        ua.city,
-        ua.state,
-        ua.postcode,
-        ua.country,
-        verifier.username as verified_by_name
-       FROM user_verifications uv
-       JOIN users u ON uv.user_id = u.id
-       LEFT JOIN user_addresses ua ON u.id = ua.user_id AND ua.is_primary = TRUE
-       LEFT JOIN users verifier ON uv.verified_by = verifier.id
-       WHERE uv.user_id = ?`,
-        [user_id]
-      );
+        
+        verifier.email as verified_by_email,
+        CONCAT(verifier.first_name, ' ', verifier.last_name) as verified_by_name
+        
+       FROM verifications v
+       JOIN users u ON v.user_id = u.id
+       LEFT JOIN users verifier ON v.verified_by = verifier.id
+       WHERE v.user_id = UUID_TO_BIN(?)
+       ORDER BY v.created_at DESC
+       LIMIT 1`,
+      [user_id]
+    );
 
-      if (verifications.length === 0) return null;
+    if (verifications.length === 0) return null;
 
-      // Get user's consent history
-      const [consents] = await pool.query(
-        `SELECT 
-        uc.*,
-        ld.type as document_type,
-        ld.version as document_version
-       FROM user_consents uc
-       JOIN legal_documents ld ON uc.document_id = ld.id
-       WHERE uc.user_id = ?
-       ORDER BY uc.consented_at DESC`,
-        [user_id]
-      );
+    // Get KYC documents
+    const [documents] = await pool.query(
+      `SELECT 
+        BIN_TO_UUID(kd.id) as id,
+        BIN_TO_UUID(kd.user_id) as user_id,
+        kd.document_type,
+        kd.file_path,
+        kd.file_name,
+        kd.mime_type,
+        kd.file_size,
+        kd.status,
+        kd.created_at
+       FROM kyc_documents kd
+       WHERE kd.user_id = UUID_TO_BIN(?)
+       ORDER BY kd.created_at DESC`,
+      [user_id]
+    );
 
-      return {
-        ...verifications[0],
-        consents,
-      };
-    } catch (error) {
-      console.error("Error getting user verification:", error);
-      throw new Error("Failed to get user verification");
+    // Get KYC review history
+    const [reviews] = await pool.query(
+      `SELECT 
+        BIN_TO_UUID(kr.id) as id,
+        BIN_TO_UUID(kr.user_id) as user_id,
+        BIN_TO_UUID(kr.admin_id) as admin_id,
+        kr.old_status,
+        kr.new_status,
+        kr.review_notes,
+        kr.reviewed_at,
+        admin.email as admin_email,
+        CONCAT(admin.first_name, ' ', admin.last_name) as admin_name
+       FROM kyc_reviews kr
+       LEFT JOIN users admin ON kr.admin_id = admin.id
+       WHERE kr.user_id = UUID_TO_BIN(?)
+       ORDER BY kr.reviewed_at DESC`,
+      [user_id]
+    );
+
+    return {
+      ...verifications[0],
+      documents,
+      reviews
+    };
+  } catch (error) {
+    console.error("Error getting user verification:", error);
+    throw new Error("Failed to get user verification");
+  }
+},
+
+  // FIXED: updateVerificationStatus to use correct table and fields
+updateVerificationStatus: async (
+  user_id,
+  status,
+  rejection_reason,
+  admin_id
+) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // Get current verification status first
+    const [currentVerifications] = await connection.query(
+      `SELECT status FROM verifications 
+       WHERE user_id = UUID_TO_BIN(?)
+       ORDER BY created_at DESC LIMIT 1`,
+      [user_id]
+    );
+
+    if (currentVerifications.length === 0) {
+      throw new Error("Verification not found for user");
     }
-  },
 
-  updateVerificationStatus: async (
-    user_id,
-    status,
-    rejection_reason,
-    admin_id
-  ) => {
-    const connection = await pool.getConnection();
-    try {
-      await connection.beginTransaction();
+    const oldStatus = currentVerifications[0].status;
 
-      // Update verification record
-      const updateData = {
+    // Update verification record in 'verifications' table
+    // Using parameterized query with UUID_TO_BIN for verified_by
+    await connection.query(
+      `UPDATE verifications SET 
+        status = ?,
+        verified_by = UUID_TO_BIN(?),
+        verified_at = NOW(),
+        rejected_reason = ?
+       WHERE user_id = UUID_TO_BIN(?)`,
+      [
         status,
-        verified_by: admin_id,
-        verified_at: new Date(),
-      };
+        admin_id,
+        status === 'REJECTED' ? rejection_reason : null,
+        user_id
+      ]
+    );
 
-      if (status === "REJECTED" && rejection_reason) {
-        updateData.rejection_reason = rejection_reason;
-      }
+    // Also update user's kyc_status in users table
+    let userKycStatus;
+    if (status === 'APPROVED') {
+      userKycStatus = 'verified';
+    } else if (status === 'REJECTED') {
+      userKycStatus = 'rejected';
+    } else if (status === 'PENDING') {
+      userKycStatus = 'under_review';
+    } else {
+      userKycStatus = status.toLowerCase();
+    }
 
+    await connection.query(
+      `UPDATE users SET 
+        kyc_status = ?,
+        kyc_verified_at = CASE WHEN ? = 'APPROVED' THEN NOW() ELSE kyc_verified_at END,
+        kyc_rejection_reason = CASE WHEN ? = 'REJECTED' THEN ? ELSE kyc_rejection_reason END,
+        age_verified = CASE WHEN ? = 'APPROVED' THEN TRUE ELSE age_verified END
+       WHERE id = UUID_TO_BIN(?)`,
+      [
+        userKycStatus,
+        status,
+        status,
+        rejection_reason || null,
+        status,
+        user_id
+      ]
+    );
+
+    // Record KYC review
+    await connection.query(
+      `INSERT INTO kyc_reviews (
+        id, user_id, admin_id, old_status, new_status, review_notes, reviewed_at
+      ) VALUES (
+        UUID_TO_BIN(UUID()), 
+        UUID_TO_BIN(?), 
+        UUID_TO_BIN(?), 
+        ?,
+        ?,
+        ?,
+        NOW()
+      )`,
+      [user_id, admin_id, oldStatus, status, rejection_reason || '']
+    );
+
+    // Log admin activity
+    try {
       await connection.query(
-        `UPDATE user_verifications SET ? WHERE user_id = ?`,
-        [updateData, user_id]
-      );
-
-      // Update user's verification status and age_verified flag
-      const userUpdateData = {
-        verification_status: status,
-      };
-
-      if (status === "APPROVED") {
-        userUpdateData.age_verified = true;
-        userUpdateData.verification_status = "APPROVED";
-      } else if (status === "REJECTED") {
-        userUpdateData.age_verified = false;
-        userUpdateData.verification_status = "REJECTED";
-      }
-
-      await connection.query(`UPDATE users SET ? WHERE id = ?`, [
-        userUpdateData,
-        user_id,
-      ]);
-
-      // Log admin activity
-      await connection.query(
-        `INSERT INTO admin_activities (id, admin_id, action, resource_type, resource_id, ip_address)
-       VALUES (UUID(), ?, ?, 'USER_VERIFICATION', ?, ?)`,
+        `INSERT INTO admin_activities (
+          id, admin_id, action, target_id, module, created_at
+        ) VALUES (
+          UUID_TO_BIN(UUID()), 
+          UUID_TO_BIN(?), 
+          ?, 
+          ?, 
+          'KYC',
+          NOW()
+        )`,
         [
           admin_id,
-          `Updated verification status to ${status}`,
-          user_id,
-          "127.0.0.1",
+          `KYC_${status}`,
+          user_id
         ]
       );
-
-      await connection.commit();
-
-      // If approved, activate user wallets and send welcome email
-      if (status === "APPROVED") {
-        await activateUserAccount(user_id);
-      }
-    } catch (error) {
-      await connection.rollback();
-      console.error("Error updating verification status:", error);
-      throw new Error("Failed to update verification status");
-    } finally {
-      connection.release();
+    } catch (logError) {
+      console.log("Could not log admin activity:", logError.message);
+      // Fallback to system_alerts
+      await connection.query(
+        `INSERT INTO system_alerts (
+          id, type, title, message, source, created_at
+        ) VALUES (
+          UUID_TO_BIN(UUID()),
+          'INFO',
+          'KYC Status Updated',
+          ?,
+          'ADMIN',
+          NOW()
+        )`,
+        [`Admin updated KYC status for user ${user_id} to ${status}`]
+      );
     }
-  },
 
-  getAllVerifications: async ({ page, limit, status }) => {
-    try {
-      const offset = (page - 1) * limit;
+    await connection.commit();
 
-      let query = `
+    // If approved, update document statuses
+    if (status === 'APPROVED') {
+      try {
+        await connection.query(
+          `UPDATE kyc_documents SET status = 'approved' 
+           WHERE user_id = UUID_TO_BIN(?)`,
+          [user_id]
+        );
+
+        // Send notification to user
+        const [userRows] = await pool.query(
+          `SELECT email, username FROM users WHERE id = UUID_TO_BIN(?)`,
+          [user_id]
+        );
+        
+        if (userRows.length > 0) {
+          const user = userRows[0];
+          console.log(`KYC approved for user ${user.username} (${user.email})`);
+          
+          // Create notification for user
+          await pool.query(
+            `INSERT INTO system_alerts (
+              id, type, title, message, source, created_at
+            ) VALUES (
+              UUID_TO_BIN(UUID()),
+              'INFO',
+              'KYC Approved',
+              ?,
+              'KYC',
+              NOW()
+            )`,
+            [`Your KYC verification has been approved! You can now access all features.`]
+          );
+        }
+      } catch (activationError) {
+        console.error("Error in post-approval actions:", activationError);
+      }
+    } else if (status === 'REJECTED') {
+      // Send rejection notification
+      const [userRows] = await pool.query(
+        `SELECT email, username FROM users WHERE id = UUID_TO_BIN(?)`,
+        [user_id]
+      );
+      
+      if (userRows.length > 0) {
+        const user = userRows[0];
+        console.log(`KYC rejected for user ${user.username} (${user.email})`);
+        
+        await pool.query(
+          `INSERT INTO system_alerts (
+            id, type, title, message, source, created_at
+          ) VALUES (
+            UUID_TO_BIN(UUID()),
+            'WARNING',
+            'KYC Rejected',
+            ?,
+            'KYC',
+            NOW()
+          )`,
+          [`Your KYC verification was rejected. Reason: ${rejection_reason || 'No reason provided'}`]
+        );
+      }
+    }
+
+    // Get updated verification data
+    const [updatedVerification] = await connection.query(
+      `SELECT 
+        BIN_TO_UUID(id) as verification_id,
+        BIN_TO_UUID(user_id) as user_id,
+        status,
+        BIN_TO_UUID(verified_by) as verified_by,
+        verified_at,
+        rejected_reason
+       FROM verifications 
+       WHERE user_id = UUID_TO_BIN(?)
+       ORDER BY created_at DESC LIMIT 1`,
+      [user_id]
+    );
+
+    return {
+      success: true,
+      user_id,
+      status,
+      kyc_status: userKycStatus,
+      verified_at: updatedVerification[0]?.verified_at || new Date(),
+      verified_by: updatedVerification[0]?.verified_by || admin_id,
+      verification: updatedVerification[0]
+    };
+  } catch (error) {
+    await connection.rollback();
+    console.error("Error updating verification status:", error);
+    throw new Error("Failed to update verification status: " + error.message);
+  } finally {
+    connection.release();
+  }
+},
+
+  // FIXED: getAllVerifications to use correct table
+ getAllVerifications: async ({ page, limit, status }) => {
+  try {
+    const offset = (page - 1) * limit;
+
+    let query = `
       SELECT 
-        uv.*,
+        -- Convert all BINARY(16) UUIDs to readable strings
+        BIN_TO_UUID(v.id) as verification_id,
+        BIN_TO_UUID(v.user_id) as user_id,
+        v.status,
+        v.verification_type,
+        v.document_type,
+        v.document_number,
+        BIN_TO_UUID(v.government_id_doc_id) as government_id_doc_id,
+        BIN_TO_UUID(v.selfie_doc_id) as selfie_doc_id,
+        v.additional_doc_ids,
+        v.first_name,
+        v.last_name,
+        v.date_of_birth,
+        v.government_id_type,
+        v.government_id_number,
+        v.document_front_url,
+        v.document_back_url,
+        v.selfie_url,
+        BIN_TO_UUID(v.verified_by) as verified_by,
+        v.verified_at,
+        v.rejected_reason,
+        v.created_at,
+        v.updated_at,
+        
+        -- User info
         u.username,
         u.email,
-        u.full_name,
-        u.date_of_birth,
-        verifier.username as verified_by_name
-      FROM user_verifications uv
-      JOIN users u ON uv.user_id = u.id
-      LEFT JOIN users verifier ON uv.verified_by = verifier.id
+        u.first_name as user_first_name,
+        u.last_name as user_last_name,
+        
+        -- Verifier info
+        verifier.email as verified_by_email,
+        CONCAT(verifier.first_name, ' ', verifier.last_name) as verified_by_name
+      FROM verifications v
+      JOIN users u ON v.user_id = u.id
+      LEFT JOIN users verifier ON v.verified_by = verifier.id
     `;
 
-      let countQuery = `SELECT COUNT(*) as total FROM user_verifications uv`;
-      const params = [];
-      const countParams = [];
+    let countQuery = `SELECT COUNT(*) as total FROM verifications v`;
+    const params = [];
+    const countParams = [];
 
-      if (status) {
-        query += ` WHERE uv.status = ?`;
-        countQuery += ` WHERE uv.status = ?`;
-        params.push(status);
-        countParams.push(status);
-      }
-
-      query += ` ORDER BY uv.created_at DESC LIMIT ? OFFSET ?`;
-      params.push(parseInt(limit), offset);
-
-      const [verifications] = await pool.query(query, params);
-      const [total] = await pool.query(countQuery, countParams);
-
-      return {
-        verifications,
-        pagination: {
-          page: parseInt(page),
-          limit: parseInt(limit),
-          total: total[0].total,
-          pages: Math.ceil(total[0].total / limit),
-        },
-      };
-    } catch (error) {
-      console.error("Error getting all verifications:", error);
-      throw new Error("Failed to get verifications");
+    if (status) {
+      query += ` WHERE v.status = ?`;
+      countQuery += ` WHERE v.status = ?`;
+      params.push(status);
+      countParams.push(status);
     }
-  },
+
+    query += ` ORDER BY v.created_at DESC LIMIT ? OFFSET ?`;
+    params.push(parseInt(limit), offset);
+
+    const [verifications] = await pool.query(query, params);
+    const [total] = await pool.query(countQuery, countParams);
+
+    return {
+      verifications,
+      pagination: {
+        page: parseInt(page),
+        limit: parseInt(limit),
+        total: total[0].total,
+        pages: Math.ceil(total[0].total / limit),
+      },
+    };
+  } catch (error) {
+    console.error("Error getting all verifications:", error);
+    throw new Error("Failed to get verifications");
+  }
+},
+
+  // NEW: Get KYC dashboard statistics
+ getKycDashboardStats: async () => {
+  try {
+    const [stats] = await pool.query(`
+      SELECT 
+        (SELECT COUNT(*) FROM verifications WHERE status = 'PENDING') as pending_review,
+        (SELECT COUNT(*) FROM verifications WHERE status = 'APPROVED' AND DATE(verified_at) = CURDATE()) as approved_today,
+        (SELECT COUNT(*) FROM verifications WHERE status = 'REJECTED' AND DATE(verified_at) = CURDATE()) as rejected_today,
+        (SELECT COUNT(*) FROM verifications WHERE status = 'APPROVED') as total_verified,
+        (SELECT COUNT(DISTINCT user_id) FROM verifications WHERE status = 'APPROVED') as unique_verified_users,
+        (SELECT AVG(TIMESTAMPDIFF(HOUR, created_at, verified_at)) FROM verifications WHERE status = 'APPROVED') as avg_verification_time_hours
+      FROM DUAL
+    `);
+
+    // Get recent verification activity with UUID conversion
+    const [recentActivity] = await pool.query(`
+      SELECT 
+        BIN_TO_UUID(v.id) as verification_id,
+        BIN_TO_UUID(v.user_id) as user_id,
+        v.status,
+        v.verification_type,
+        v.document_type,
+        BIN_TO_UUID(v.verified_by) as verified_by,
+        v.verified_at,
+        v.created_at,
+        v.updated_at,
+        
+        u.username,
+        u.email,
+        u.profile_photo,
+        
+        verifier.email as verified_by_email,
+        CONCAT(verifier.first_name, ' ', verifier.last_name) as verified_by_name
+      FROM verifications v
+      JOIN users u ON v.user_id = u.id
+      LEFT JOIN users verifier ON v.verified_by = verifier.id
+      ORDER BY v.updated_at DESC
+      LIMIT 5
+    `);
+
+    // Get verification trends (last 7 days)
+    const [trends] = await pool.query(`
+      SELECT 
+        DATE(created_at) as date,
+        COUNT(*) as total_submitted,
+        SUM(CASE WHEN status = 'APPROVED' THEN 1 ELSE 0 END) as approved,
+        SUM(CASE WHEN status = 'REJECTED' THEN 1 ELSE 0 END) as rejected
+      FROM verifications
+      WHERE created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)
+      GROUP BY DATE(created_at)
+      ORDER BY date
+    `);
+
+    return {
+      summary: stats[0],
+      recent_activity: recentActivity,
+      trends: trends
+    };
+  } catch (error) {
+    console.error("Error getting KYC dashboard stats:", error);
+    throw new Error("Failed to get KYC dashboard statistics");
+  }
+},
+
+  // NEW: Bulk verification actions
+bulkUpdateVerifications: async (userIds, status, adminId, rejectionReason = null) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    // Validate and prepare user IDs for query
+    if (!Array.isArray(userIds) || userIds.length === 0) {
+      throw new Error("User IDs array is required and cannot be empty");
+    }
+
+    // Create parameter placeholders and values
+    const placeholders = userIds.map(() => 'UUID_TO_BIN(?)').join(', ');
+    
+    // Update verifications table
+    await connection.query(`
+      UPDATE verifications 
+      SET status = ?, 
+          verified_by = UUID_TO_BIN(?), 
+          verified_at = NOW(),
+          rejected_reason = ?
+      WHERE user_id IN (${placeholders})
+    `, [status, adminId, rejectionReason, ...userIds]);
+
+    // Update users table
+    let userKycStatus = 'pending';
+    if (status === 'APPROVED') userKycStatus = 'verified';
+    else if (status === 'REJECTED') userKycStatus = 'rejected';
+
+    await connection.query(`
+      UPDATE users 
+      SET kyc_status = ?,
+          kyc_verified_at = CASE WHEN ? = 'APPROVED' THEN NOW() ELSE NULL END,
+          kyc_rejection_reason = CASE WHEN ? = 'REJECTED' THEN ? ELSE kyc_rejection_reason END,
+          age_verified = CASE WHEN ? = 'APPROVED' THEN TRUE ELSE FALSE END
+      WHERE id IN (${placeholders})
+    `, [userKycStatus, status, status, rejectionReason, status, ...userIds]);
+
+    // Create kyc_reviews for each user
+    for (const userId of userIds) {
+      // Get current status before update
+      const [currentStatus] = await connection.query(
+        `SELECT status FROM verifications WHERE user_id = UUID_TO_BIN(?)`,
+        [userId]
+      );
+      
+      const oldStatus = currentStatus.length > 0 ? currentStatus[0].status : 'PENDING';
+      
+      // Map status for kyc_reviews table
+      const statusMapping = {
+        'APPROVED': 'verified',
+        'REJECTED': 'rejected', 
+        'PENDING': 'pending',
+        'UNDER_REVIEW': 'under_review'
+      };
+      
+      const mappedNewStatus = statusMapping[status] || status.toLowerCase();
+      const mappedOldStatus = statusMapping[oldStatus] || oldStatus.toLowerCase();
+      
+      await connection.query(
+        `INSERT INTO kyc_reviews (
+          id, user_id, admin_id, old_status, new_status, review_notes, reviewed_at
+        ) VALUES (
+          UUID_TO_BIN(UUID()), 
+          UUID_TO_BIN(?), 
+          UUID_TO_BIN(?), 
+          ?,
+          ?,
+          ?,
+          NOW()
+        )`,
+        [userId, adminId, mappedOldStatus, mappedNewStatus, rejectionReason || '']
+      );
+    }
+
+    // Log admin activity - use admin_activities table instead of admin_activity_logs
+    await connection.query(
+      `INSERT INTO admin_activities (
+        id, admin_id, action, target_id, module, details, created_at
+      ) VALUES (
+        UUID_TO_BIN(UUID()),
+        UUID_TO_BIN(?),
+        ?,
+        ?,
+        'KYC',
+        ?,
+        NOW()
+      )`,
+      [
+        adminId,
+        'BULK_KYC_UPDATE',
+        userIds[0], // Use first user ID as target
+        JSON.stringify({
+          count: userIds.length,
+          status: status,
+          rejection_reason: rejectionReason,
+          user_ids: userIds
+        })
+      ]
+    );
+
+    await connection.commit();
+
+    // Get updated verification count
+    const [updatedCount] = await connection.query(
+      `SELECT COUNT(*) as count FROM verifications 
+       WHERE user_id IN (${placeholders}) AND status = ?`,
+      [...userIds, status]
+    );
+
+    return {
+      success: true,
+      message: `Updated ${userIds.length} verifications to ${status}`,
+      count: updatedCount[0].count || userIds.length,
+      updated_ids: userIds
+    };
+  } catch (error) {
+    await connection.rollback();
+    console.error("Error in bulk update:", error);
+    throw new Error("Failed to update verifications: " + error.message);
+  } finally {
+    connection.release();
+  }
+},
 
   getUserConsents: async ({ page, limit }) => {
     try {
@@ -1611,6 +2081,2008 @@ activateUser: async ({ user_id }) => {
   } catch (error) {
     console.error("Error activating user:", error);
     throw new Error("Failed to activate user");
+  }
+},
+
+
+
+
+// Export all Users
+exportAllUsers: async ({ search, role, status }) => {
+  try {
+    let query = `
+      SELECT
+        BIN_TO_UUID(u.id) AS id,
+        u.email,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.role,
+        u.is_active,
+        u.age_verified,
+        u.created_at,
+        u.last_login,
+        wc.balance AS cash_balance,
+        wcr.balance AS credit_balance,
+        st.tier_name,
+        st.tier_level,
+        st.badge_name,
+        st.monthly_price,
+        st.benefits,
+        us.status AS subscription_status,
+        us.start_date AS subscription_start,
+        us.end_date AS subscription_end,
+        us.auto_renew,
+        us.next_payment_date,
+        (
+          SELECT COUNT(*)
+          FROM purchases p
+          WHERE p.user_id = u.id AND p.status = 'PAID'
+        ) AS total_purchases,
+        (
+          SELECT COUNT(*)
+          FROM tickets t
+          WHERE t.user_id = u.id
+        ) AS total_tickets
+      FROM users u
+      LEFT JOIN wallets wc 
+        ON u.id = wc.user_id AND wc.type = 'CASH'
+      LEFT JOIN wallets wcr 
+        ON u.id = wcr.user_id AND wcr.type = 'CREDIT'
+      LEFT JOIN user_subscriptions us 
+        ON u.id = us.user_id 
+        AND us.status = 'ACTIVE' 
+        AND us.end_date >= CURDATE()
+      LEFT JOIN subscription_tiers st 
+        ON us.tier_id = st.id
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Role
+    if (role) {
+      conditions.push(`u.role = ?`);
+      params.push(role);
+    }
+
+    // Verification status
+    if (status === "verified") {
+      conditions.push(`u.age_verified = TRUE`);
+    } else if (status === "unverified") {
+      conditions.push(`u.age_verified = FALSE`);
+    }
+
+    // Apply WHERE clause
+    if (conditions.length > 0) {
+      const whereClause = ` WHERE ${conditions.join(" AND ")}`;
+      query += whereClause;
+    }
+
+    // No pagination for export
+    query += ` ORDER BY u.created_at DESC`;
+
+    const [users] = await pool.query(query, params);
+
+    // Parse benefits JSON and format subscription data
+    const formattedUsers = users.map(user => {
+      let benefits = {};
+      try {
+        if (user.benefits) {
+          benefits = typeof user.benefits === 'string' 
+            ? JSON.parse(user.benefits) 
+            : user.benefits;
+        }
+      } catch (error) {
+        console.error('Error parsing benefits:', error);
+      }
+
+      return {
+        ...user,
+        subscription: user.tier_name ? {
+          tier_name: user.tier_name,
+          tier_level: user.tier_level,
+          badge_name: user.badge_name,
+          monthly_price: user.monthly_price,
+          benefits: benefits,
+          status: user.subscription_status,
+          start_date: user.subscription_start,
+          end_date: user.subscription_end,
+          auto_renew: user.auto_renew,
+          next_payment_date: user.next_payment_date,
+          is_active: user.subscription_status === 'ACTIVE' && 
+                    user.subscription_end && 
+                    new Date(user.subscription_end) >= new Date()
+        } : null
+      };
+    });
+
+    return formattedUsers;
+  } catch (error) {
+    console.error("Error exporting all users:", error);
+    throw new Error("Failed to export all users");
+  }
+},
+
+// Export all Active Users
+exportAllActiveUsers: async ({ search, role, status }) => {
+  try {
+    let query = `
+      SELECT
+        BIN_TO_UUID(u.id) AS id,
+        u.email,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.role,
+        u.is_active,
+        u.age_verified,
+        u.created_at,
+        u.last_login,
+        wc.balance AS cash_balance,
+        wcr.balance AS credit_balance,
+        st.tier_name,
+        st.tier_level,
+        st.badge_name,
+        st.monthly_price,
+        st.benefits,
+        us.status AS subscription_status,
+        us.start_date AS subscription_start,
+        us.end_date AS subscription_end,
+        us.auto_renew,
+        us.next_payment_date,
+        (
+          SELECT COUNT(*)
+          FROM purchases p
+          WHERE p.user_id = u.id AND p.status = 'PAID'
+        ) AS total_purchases,
+        (
+          SELECT COUNT(*)
+          FROM tickets t
+          WHERE t.user_id = u.id
+        ) AS total_tickets
+      FROM users u
+      LEFT JOIN wallets wc 
+        ON u.id = wc.user_id AND wc.type = 'CASH'
+      LEFT JOIN wallets wcr 
+        ON u.id = wcr.user_id AND wcr.type = 'CREDIT'
+      LEFT JOIN user_subscriptions us 
+        ON u.id = us.user_id 
+        AND us.status = 'ACTIVE' 
+        AND us.end_date >= CURDATE()
+      LEFT JOIN subscription_tiers st 
+        ON us.tier_id = st.id
+      WHERE u.is_active = TRUE
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Role
+    if (role) {
+      conditions.push(`u.role = ?`);
+      params.push(role);
+    }
+
+    // Verification status
+    if (status === "verified") {
+      conditions.push(`u.age_verified = TRUE`);
+    } else if (status === "unverified") {
+      conditions.push(`u.age_verified = FALSE`);
+    }
+
+    // Apply WHERE clause additional conditions
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY u.created_at DESC`;
+
+    const [users] = await pool.query(query, params);
+
+    // Format users
+    const formattedUsers = users.map(user => {
+      let benefits = {};
+      try {
+        if (user.benefits) {
+          benefits = typeof user.benefits === 'string' 
+            ? JSON.parse(user.benefits) 
+            : user.benefits;
+        }
+      } catch (error) {
+        console.error('Error parsing benefits:', error);
+      }
+
+      return {
+        ...user,
+        subscription: user.tier_name ? {
+          tier_name: user.tier_name,
+          tier_level: user.tier_level,
+          badge_name: user.badge_name,
+          monthly_price: user.monthly_price,
+          benefits: benefits,
+          status: user.subscription_status,
+          start_date: user.subscription_start,
+          end_date: user.subscription_end,
+          auto_renew: user.auto_renew,
+          next_payment_date: user.next_payment_date,
+          is_active: user.subscription_status === 'ACTIVE' && 
+                    user.subscription_end && 
+                    new Date(user.subscription_end) >= new Date()
+        } : null
+      };
+    });
+
+    return formattedUsers;
+  } catch (error) {
+    console.error("Error exporting active users:", error);
+    throw new Error("Failed to export active users");
+  }
+},
+
+// Export all Pending Users (unverified)
+exportAllPendingUsers: async ({ search, role }) => {
+  try {
+    let query = `
+      SELECT
+        BIN_TO_UUID(u.id) AS id,
+        u.email,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.role,
+        u.is_active,
+        u.age_verified,
+        u.created_at,
+        u.last_login,
+        wc.balance AS cash_balance,
+        wcr.balance AS credit_balance,
+        st.tier_name,
+        st.tier_level,
+        st.badge_name,
+        st.monthly_price,
+        st.benefits,
+        us.status AS subscription_status,
+        us.start_date AS subscription_start,
+        us.end_date AS subscription_end,
+        us.auto_renew,
+        us.next_payment_date,
+        (
+          SELECT COUNT(*)
+          FROM purchases p
+          WHERE p.user_id = u.id AND p.status = 'PAID'
+        ) AS total_purchases,
+        (
+          SELECT COUNT(*)
+          FROM tickets t
+          WHERE t.user_id = u.id
+        ) AS total_tickets
+      FROM users u
+      LEFT JOIN wallets wc 
+        ON u.id = wc.user_id AND wc.type = 'CASH'
+      LEFT JOIN wallets wcr 
+        ON u.id = wcr.user_id AND wcr.type = 'CREDIT'
+      LEFT JOIN user_subscriptions us 
+        ON u.id = us.user_id 
+        AND us.status = 'ACTIVE' 
+        AND us.end_date >= CURDATE()
+      LEFT JOIN subscription_tiers st 
+        ON us.tier_id = st.id
+      WHERE u.age_verified = FALSE
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Role
+    if (role) {
+      conditions.push(`u.role = ?`);
+      params.push(role);
+    }
+
+    // Apply WHERE clause additional conditions
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY u.created_at DESC`;
+
+    const [users] = await pool.query(query, params);
+
+    // Format users
+    const formattedUsers = users.map(user => {
+      let benefits = {};
+      try {
+        if (user.benefits) {
+          benefits = typeof user.benefits === 'string' 
+            ? JSON.parse(user.benefits) 
+            : user.benefits;
+        }
+      } catch (error) {
+        console.error('Error parsing benefits:', error);
+      }
+
+      return {
+        ...user,
+        subscription: user.tier_name ? {
+          tier_name: user.tier_name,
+          tier_level: user.tier_level,
+          badge_name: user.badge_name,
+          monthly_price: user.monthly_price,
+          benefits: benefits,
+          status: user.subscription_status,
+          start_date: user.subscription_start,
+          end_date: user.subscription_end,
+          auto_renew: user.auto_renew,
+          next_payment_date: user.next_payment_date,
+          is_active: user.subscription_status === 'ACTIVE' && 
+                    user.subscription_end && 
+                    new Date(user.subscription_end) >= new Date()
+        } : null
+      };
+    });
+
+    return formattedUsers;
+  } catch (error) {
+    console.error("Error exporting pending users:", error);
+    throw new Error("Failed to export pending users");
+  }
+},
+
+// Export all Suspended Users (inactive)
+exportAllSuspendedUsers: async ({ search, role, status }) => {
+  try {
+    let query = `
+      SELECT
+        BIN_TO_UUID(u.id) AS id,
+        u.email,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.role,
+        u.is_active,
+        u.age_verified,
+        u.created_at,
+        u.last_login,
+        wc.balance AS cash_balance,
+        wcr.balance AS credit_balance,
+        st.tier_name,
+        st.tier_level,
+        st.badge_name,
+        st.monthly_price,
+        st.benefits,
+        us.status AS subscription_status,
+        us.start_date AS subscription_start,
+        us.end_date AS subscription_end,
+        us.auto_renew,
+        us.next_payment_date,
+        (
+          SELECT COUNT(*)
+          FROM purchases p
+          WHERE p.user_id = u.id AND p.status = 'PAID'
+        ) AS total_purchases,
+        (
+          SELECT COUNT(*)
+          FROM tickets t
+          WHERE t.user_id = u.id
+        ) AS total_tickets
+      FROM users u
+      LEFT JOIN wallets wc 
+        ON u.id = wc.user_id AND wc.type = 'CASH'
+      LEFT JOIN wallets wcr 
+        ON u.id = wcr.user_id AND wcr.type = 'CREDIT'
+      LEFT JOIN user_subscriptions us 
+        ON u.id = us.user_id 
+        AND us.status = 'ACTIVE' 
+        AND us.end_date >= CURDATE()
+      LEFT JOIN subscription_tiers st 
+        ON us.tier_id = st.id
+      WHERE u.is_active = FALSE
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Role
+    if (role) {
+      conditions.push(`u.role = ?`);
+      params.push(role);
+    }
+
+    // Verification status
+    if (status === "verified") {
+      conditions.push(`u.age_verified = TRUE`);
+    } else if (status === "unverified") {
+      conditions.push(`u.age_verified = FALSE`);
+    }
+
+    // Apply WHERE clause additional conditions
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY u.created_at DESC`;
+
+    const [users] = await pool.query(query, params);
+
+    // Format users
+    const formattedUsers = users.map(user => {
+      let benefits = {};
+      try {
+        if (user.benefits) {
+          benefits = typeof user.benefits === 'string' 
+            ? JSON.parse(user.benefits) 
+            : user.benefits;
+        }
+      } catch (error) {
+        console.error('Error parsing benefits:', error);
+      }
+
+      return {
+        ...user,
+        subscription: user.tier_name ? {
+          tier_name: user.tier_name,
+          tier_level: user.tier_level,
+          badge_name: user.badge_name,
+          monthly_price: user.monthly_price,
+          benefits: benefits,
+          status: user.subscription_status,
+          start_date: user.subscription_start,
+          end_date: user.subscription_end,
+          auto_renew: user.auto_renew,
+          next_payment_date: user.next_payment_date,
+          is_active: user.subscription_status === 'ACTIVE' && 
+                    user.subscription_end && 
+                    new Date(user.subscription_end) >= new Date()
+        } : null
+      };
+    });
+
+    return formattedUsers;
+  } catch (error) {
+    console.error("Error exporting suspended users:", error);
+    throw new Error("Failed to export suspended users");
+  }
+},
+
+// Export by Date Range
+exportByDateRange: async ({ startDate, endDate, search, role, status }) => {
+  try {
+    if (!startDate || !endDate) {
+      throw new Error("Start date and end date are required");
+    }
+
+    let query = `
+      SELECT
+        BIN_TO_UUID(u.id) AS id,
+        u.email,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.role,
+        u.is_active,
+        u.age_verified,
+        u.created_at,
+        u.last_login,
+        wc.balance AS cash_balance,
+        wcr.balance AS credit_balance,
+        st.tier_name,
+        st.tier_level,
+        st.badge_name,
+        st.monthly_price,
+        st.benefits,
+        us.status AS subscription_status,
+        us.start_date AS subscription_start,
+        us.end_date AS subscription_end,
+        us.auto_renew,
+        us.next_payment_date,
+        (
+          SELECT COUNT(*)
+          FROM purchases p
+          WHERE p.user_id = u.id AND p.status = 'PAID'
+        ) AS total_purchases,
+        (
+          SELECT COUNT(*)
+          FROM tickets t
+          WHERE t.user_id = u.id
+        ) AS total_tickets
+      FROM users u
+      LEFT JOIN wallets wc 
+        ON u.id = wc.user_id AND wc.type = 'CASH'
+      LEFT JOIN wallets wcr 
+        ON u.id = wcr.user_id AND wcr.type = 'CREDIT'
+      LEFT JOIN user_subscriptions us 
+        ON u.id = us.user_id 
+        AND us.status = 'ACTIVE' 
+        AND us.end_date >= CURDATE()
+      LEFT JOIN subscription_tiers st 
+        ON us.tier_id = st.id
+      WHERE DATE(u.created_at) BETWEEN ? AND ?
+    `;
+
+    const params = [startDate, endDate];
+    const conditions = [];
+
+    // Search
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Role
+    if (role) {
+      conditions.push(`u.role = ?`);
+      params.push(role);
+    }
+
+    // Verification status
+    if (status === "verified") {
+      conditions.push(`u.age_verified = TRUE`);
+    } else if (status === "unverified") {
+      conditions.push(`u.age_verified = FALSE`);
+    }
+
+    // Apply WHERE clause additional conditions
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY u.created_at DESC`;
+
+    const [users] = await pool.query(query, params);
+
+    // Format users
+    const formattedUsers = users.map(user => {
+      let benefits = {};
+      try {
+        if (user.benefits) {
+          benefits = typeof user.benefits === 'string' 
+            ? JSON.parse(user.benefits) 
+            : user.benefits;
+        }
+      } catch (error) {
+        console.error('Error parsing benefits:', error);
+      }
+
+      return {
+        ...user,
+        subscription: user.tier_name ? {
+          tier_name: user.tier_name,
+          tier_level: user.tier_level,
+          badge_name: user.badge_name,
+          monthly_price: user.monthly_price,
+          benefits: benefits,
+          status: user.subscription_status,
+          start_date: user.subscription_start,
+          end_date: user.subscription_end,
+          auto_renew: user.auto_renew,
+          next_payment_date: user.next_payment_date,
+          is_active: user.subscription_status === 'ACTIVE' && 
+                    user.subscription_end && 
+                    new Date(user.subscription_end) >= new Date()
+        } : null
+      };
+    });
+
+    return formattedUsers;
+  } catch (error) {
+    console.error("Error exporting users by date range:", error);
+    throw new Error("Failed to export users by date range");
+  }
+},
+
+// Export all Tier 1 Users
+exportAllTier1Users: async ({ search, role, status }) => {
+  try {
+    let query = `
+      SELECT
+        BIN_TO_UUID(u.id) AS id,
+        u.email,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.role,
+        u.is_active,
+        u.age_verified,
+        u.created_at,
+        u.last_login,
+        wc.balance AS cash_balance,
+        wcr.balance AS credit_balance,
+        st.tier_name,
+        st.tier_level,
+        st.badge_name,
+        st.monthly_price,
+        st.benefits,
+        us.status AS subscription_status,
+        us.start_date AS subscription_start,
+        us.end_date AS subscription_end,
+        us.auto_renew,
+        us.next_payment_date,
+        (
+          SELECT COUNT(*)
+          FROM purchases p
+          WHERE p.user_id = u.id AND p.status = 'PAID'
+        ) AS total_purchases,
+        (
+          SELECT COUNT(*)
+          FROM tickets t
+          WHERE t.user_id = u.id
+        ) AS total_tickets
+      FROM users u
+      LEFT JOIN wallets wc 
+        ON u.id = wc.user_id AND wc.type = 'CASH'
+      LEFT JOIN wallets wcr 
+        ON u.id = wcr.user_id AND wc.type = 'CREDIT'
+      LEFT JOIN user_subscriptions us 
+        ON u.id = us.user_id 
+        AND us.status = 'ACTIVE' 
+        AND us.end_date >= CURDATE()
+      LEFT JOIN subscription_tiers st 
+        ON us.tier_id = st.id
+      WHERE st.tier_level = 1
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Role
+    if (role) {
+      conditions.push(`u.role = ?`);
+      params.push(role);
+    }
+
+    // Verification status
+    if (status === "verified") {
+      conditions.push(`u.age_verified = TRUE`);
+    } else if (status === "unverified") {
+      conditions.push(`u.age_verified = FALSE`);
+    }
+
+    // Apply WHERE clause additional conditions
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY u.created_at DESC`;
+
+    const [users] = await pool.query(query, params);
+
+    // Format users
+    const formattedUsers = users.map(user => {
+      let benefits = {};
+      try {
+        if (user.benefits) {
+          benefits = typeof user.benefits === 'string' 
+            ? JSON.parse(user.benefits) 
+            : user.benefits;
+        }
+      } catch (error) {
+        console.error('Error parsing benefits:', error);
+      }
+
+      return {
+        ...user,
+        subscription: user.tier_name ? {
+          tier_name: user.tier_name,
+          tier_level: user.tier_level,
+          badge_name: user.badge_name,
+          monthly_price: user.monthly_price,
+          benefits: benefits,
+          status: user.subscription_status,
+          start_date: user.subscription_start,
+          end_date: user.subscription_end,
+          auto_renew: user.auto_renew,
+          next_payment_date: user.next_payment_date,
+          is_active: user.subscription_status === 'ACTIVE' && 
+                    user.subscription_end && 
+                    new Date(user.subscription_end) >= new Date()
+        } : null
+      };
+    });
+
+    return formattedUsers;
+  } catch (error) {
+    console.error("Error exporting tier 1 users:", error);
+    throw new Error("Failed to export tier 1 users");
+  }
+},
+
+// Export all Tier 2 Users
+exportAllTier2Users: async ({ search, role, status }) => {
+  try {
+    let query = `
+      SELECT
+        BIN_TO_UUID(u.id) AS id,
+        u.email,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.role,
+        u.is_active,
+        u.age_verified,
+        u.created_at,
+        u.last_login,
+        wc.balance AS cash_balance,
+        wcr.balance AS credit_balance,
+        st.tier_name,
+        st.tier_level,
+        st.badge_name,
+        st.monthly_price,
+        st.benefits,
+        us.status AS subscription_status,
+        us.start_date AS subscription_start,
+        us.end_date AS subscription_end,
+        us.auto_renew,
+        us.next_payment_date,
+        (
+          SELECT COUNT(*)
+          FROM purchases p
+          WHERE p.user_id = u.id AND p.status = 'PAID'
+        ) AS total_purchases,
+        (
+          SELECT COUNT(*)
+          FROM tickets t
+          WHERE t.user_id = u.id
+        ) AS total_tickets
+      FROM users u
+      LEFT JOIN wallets wc 
+        ON u.id = wc.user_id AND wc.type = 'CASH'
+      LEFT JOIN wallets wcr 
+        ON u.id = wcr.user_id AND wc.type = 'CREDIT'
+      LEFT JOIN user_subscriptions us 
+        ON u.id = us.user_id 
+        AND us.status = 'ACTIVE' 
+        AND us.end_date >= CURDATE()
+      LEFT JOIN subscription_tiers st 
+        ON us.tier_id = st.id
+      WHERE st.tier_level = 2
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Role
+    if (role) {
+      conditions.push(`u.role = ?`);
+      params.push(role);
+    }
+
+    // Verification status
+    if (status === "verified") {
+      conditions.push(`u.age_verified = TRUE`);
+    } else if (status === "unverified") {
+      conditions.push(`u.age_verified = FALSE`);
+    }
+
+    // Apply WHERE clause additional conditions
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY u.created_at DESC`;
+
+    const [users] = await pool.query(query, params);
+
+    // Format users
+    const formattedUsers = users.map(user => {
+      let benefits = {};
+      try {
+        if (user.benefits) {
+          benefits = typeof user.benefits === 'string' 
+            ? JSON.parse(user.benefits) 
+            : user.benefits;
+        }
+      } catch (error) {
+        console.error('Error parsing benefits:', error);
+      }
+
+      return {
+        ...user,
+        subscription: user.tier_name ? {
+          tier_name: user.tier_name,
+          tier_level: user.tier_level,
+          badge_name: user.badge_name,
+          monthly_price: user.monthly_price,
+          benefits: benefits,
+          status: user.subscription_status,
+          start_date: user.subscription_start,
+          end_date: user.subscription_end,
+          auto_renew: user.auto_renew,
+          next_payment_date: user.next_payment_date,
+          is_active: user.subscription_status === 'ACTIVE' && 
+                    user.subscription_end && 
+                    new Date(user.subscription_end) >= new Date()
+        } : null
+      };
+    });
+
+    return formattedUsers;
+  } catch (error) {
+    console.error("Error exporting tier 2 users:", error);
+    throw new Error("Failed to export tier 2 users");
+  }
+},
+
+// Export all Tier 3 Users
+exportAllTier3Users: async ({ search, role, status }) => {
+  try {
+    let query = `
+      SELECT
+        BIN_TO_UUID(u.id) AS id,
+        u.email,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.role,
+        u.is_active,
+        u.age_verified,
+        u.created_at,
+        u.last_login,
+        wc.balance AS cash_balance,
+        wcr.balance AS credit_balance,
+        st.tier_name,
+        st.tier_level,
+        st.badge_name,
+        st.monthly_price,
+        st.benefits,
+        us.status AS subscription_status,
+        us.start_date AS subscription_start,
+        us.end_date AS subscription_end,
+        us.auto_renew,
+        us.next_payment_date,
+        (
+          SELECT COUNT(*)
+          FROM purchases p
+          WHERE p.user_id = u.id AND p.status = 'PAID'
+        ) AS total_purchases,
+        (
+          SELECT COUNT(*)
+          FROM tickets t
+          WHERE t.user_id = u.id
+        ) AS total_tickets
+      FROM users u
+      LEFT JOIN wallets wc 
+        ON u.id = wc.user_id AND wc.type = 'CASH'
+      LEFT JOIN wallets wcr 
+        ON u.id = wcr.user_id AND wc.type = 'CREDIT'
+      LEFT JOIN user_subscriptions us 
+        ON u.id = us.user_id 
+        AND us.status = 'ACTIVE' 
+        AND us.end_date >= CURDATE()
+      LEFT JOIN subscription_tiers st 
+        ON us.tier_id = st.id
+      WHERE st.tier_level = 3
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Role
+    if (role) {
+      conditions.push(`u.role = ?`);
+      params.push(role);
+    }
+
+    // Verification status
+    if (status === "verified") {
+      conditions.push(`u.age_verified = TRUE`);
+    } else if (status === "unverified") {
+      conditions.push(`u.age_verified = FALSE`);
+    }
+
+    // Apply WHERE clause additional conditions
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY u.created_at DESC`;
+
+    const [users] = await pool.query(query, params);
+
+    // Format users
+    const formattedUsers = users.map(user => {
+      let benefits = {};
+      try {
+        if (user.benefits) {
+          benefits = typeof user.benefits === 'string' 
+            ? JSON.parse(user.benefits) 
+            : user.benefits;
+        }
+      } catch (error) {
+        console.error('Error parsing benefits:', error);
+      }
+
+      return {
+        ...user,
+        subscription: user.tier_name ? {
+          tier_name: user.tier_name,
+          tier_level: user.tier_level,
+          badge_name: user.badge_name,
+          monthly_price: user.monthly_price,
+          benefits: benefits,
+          status: user.subscription_status,
+          start_date: user.subscription_start,
+          end_date: user.subscription_end,
+          auto_renew: user.auto_renew,
+          next_payment_date: user.next_payment_date,
+          is_active: user.subscription_status === 'ACTIVE' && 
+                    user.subscription_end && 
+                    new Date(user.subscription_end) >= new Date()
+        } : null
+      };
+    });
+
+    return formattedUsers;
+  } catch (error) {
+    console.error("Error exporting tier 3 users:", error);
+    throw new Error("Failed to export tier 3 users");
+  }
+},
+
+// Export all Free Users (users without active subscription)
+exportAllFreeUsers: async ({ search, role, status }) => {
+  try {
+    let query = `
+      SELECT
+        BIN_TO_UUID(u.id) AS id,
+        u.email,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.role,
+        u.is_active,
+        u.age_verified,
+        u.created_at,
+        u.last_login,
+        wc.balance AS cash_balance,
+        wcr.balance AS credit_balance,
+        NULL AS tier_name,
+        NULL AS tier_level,
+        NULL AS badge_name,
+        NULL AS monthly_price,
+        NULL AS benefits,
+        NULL AS subscription_status,
+        NULL AS subscription_start,
+        NULL AS subscription_end,
+        NULL AS auto_renew,
+        NULL AS next_payment_date,
+        (
+          SELECT COUNT(*)
+          FROM purchases p
+          WHERE p.user_id = u.id AND p.status = 'PAID'
+        ) AS total_purchases,
+        (
+          SELECT COUNT(*)
+          FROM tickets t
+          WHERE t.user_id = u.id
+        ) AS total_tickets
+      FROM users u
+      LEFT JOIN wallets wc 
+        ON u.id = wc.user_id AND wc.type = 'CASH'
+      LEFT JOIN wallets wcr 
+        ON u.id = wcr.user_id AND wc.type = 'CREDIT'
+      WHERE u.id NOT IN (
+        SELECT DISTINCT us.user_id 
+        FROM user_subscriptions us
+        WHERE us.status = 'ACTIVE' 
+          AND us.end_date >= CURDATE()
+      )
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Role
+    if (role) {
+      conditions.push(`u.role = ?`);
+      params.push(role);
+    }
+
+    // Verification status
+    if (status === "verified") {
+      conditions.push(`u.age_verified = TRUE`);
+    } else if (status === "unverified") {
+      conditions.push(`u.age_verified = FALSE`);
+    }
+
+    // Apply WHERE clause additional conditions
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY u.created_at DESC`;
+
+    const [users] = await pool.query(query, params);
+
+    // Format users
+    const formattedUsers = users.map(user => ({
+      ...user,
+      subscription: null
+    }));
+
+    return formattedUsers;
+  } catch (error) {
+    console.error("Error exporting free users:", error);
+    throw new Error("Failed to export free users");
+  }
+},
+
+// Export with detailed information including all data from getUserDetails
+exportDetailedUsers: async ({ limit = 100, search, role, status }) => {
+  try {
+    // First get basic user info
+    const basicUsers = await getAllUsers({
+      page: 1,
+      limit: parseInt(limit),
+      search,
+      role,
+      status
+    });
+
+    // Then enrich each user with detailed information
+    const detailedUsers = await Promise.all(
+      basicUsers.users.map(async (user) => {
+        try {
+          const details = await getUserDetails(user.id);
+          return {
+            ...user,
+            details
+          };
+        } catch (error) {
+          console.error(`Error fetching details for user ${user.id}:`, error);
+          return user; // Return basic user info if details fail
+        }
+      })
+    );
+
+    return detailedUsers;
+  } catch (error) {
+    console.error("Error exporting detailed users:", error);
+    throw new Error("Failed to export detailed users");
+  }
+},
+// Export all KYC
+exportAllKYC: async ({ search, status, documentType }) => {
+  try {
+    let query = `
+      SELECT 
+        BIN_TO_UUID(v.id) as verification_id,
+        BIN_TO_UUID(v.user_id) as user_id,
+        v.status,
+        v.verification_type,
+        v.document_type,
+        v.document_number,
+        BIN_TO_UUID(v.government_id_doc_id) as government_id_doc_id,
+        BIN_TO_UUID(v.selfie_doc_id) as selfie_doc_id,
+        v.additional_doc_ids,
+        v.first_name,
+        v.last_name,
+        v.date_of_birth,
+        v.government_id_type,
+        v.government_id_number,
+        v.document_front_url,
+        v.document_back_url,
+        v.selfie_url,
+        BIN_TO_UUID(v.verified_by) as verified_by,
+        v.verified_at,
+        v.rejected_reason,
+        v.created_at,
+        v.updated_at,
+        
+        u.username,
+        u.email,
+        u.first_name as user_first_name,
+        u.last_name as user_last_name,
+        u.date_of_birth as user_date_of_birth,
+        u.profile_photo,
+        u.created_at as user_joined,
+        u.phone,
+        u.country,
+        
+        verifier.email as verified_by_email,
+        CONCAT(verifier.first_name, ' ', verifier.last_name) as verified_by_name
+      FROM verifications v
+      JOIN users u ON v.user_id = u.id
+      LEFT JOIN users verifier ON v.verified_by = verifier.id
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search by username or email
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Status filter
+    if (status) {
+      conditions.push(`v.status = ?`);
+      params.push(status);
+    }
+
+    // Document type filter
+    if (documentType) {
+      conditions.push(`v.document_type = ?`);
+      params.push(documentType);
+    }
+
+    // Apply WHERE clause
+    if (conditions.length > 0) {
+      const whereClause = ` WHERE ${conditions.join(" AND ")}`;
+      query += whereClause;
+    }
+
+    query += ` ORDER BY v.created_at DESC`;
+
+    const [verifications] = await pool.query(query, params);
+
+    return verifications;
+  } catch (error) {
+    console.error("Error exporting all KYC:", error);
+    throw new Error("Failed to export all KYC");
+  }
+},
+
+// Export all Pending KYC
+exportAllPendingKYC: async ({ search, documentType }) => {
+  try {
+    let query = `
+      SELECT 
+        BIN_TO_UUID(v.id) as verification_id,
+        BIN_TO_UUID(v.user_id) as user_id,
+        v.status,
+        v.verification_type,
+        v.document_type,
+        v.document_number,
+        v.first_name,
+        v.last_name,
+        v.date_of_birth,
+        v.government_id_type,
+        v.government_id_number,
+        v.created_at,
+        
+        u.username,
+        u.email,
+        u.first_name as user_first_name,
+        u.last_name as user_last_name,
+        u.date_of_birth as user_date_of_birth,
+        u.created_at as user_joined,
+        u.phone,
+        u.country
+      FROM verifications v
+      JOIN users u ON v.user_id = u.id
+      WHERE v.status = 'PENDING'
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search by username or email
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Document type filter
+    if (documentType) {
+      conditions.push(`v.document_type = ?`);
+      params.push(documentType);
+    }
+
+    // Apply WHERE clause additional conditions
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY v.created_at DESC`;
+
+    const [verifications] = await pool.query(query, params);
+
+    return verifications;
+  } catch (error) {
+    console.error("Error exporting pending KYC:", error);
+    throw new Error("Failed to export pending KYC");
+  }
+},
+
+// Export all Approved KYC
+exportAllApprovedKYC: async ({ search, documentType }) => {
+  try {
+    let query = `
+      SELECT 
+        BIN_TO_UUID(v.id) as verification_id,
+        BIN_TO_UUID(v.user_id) as user_id,
+        v.status,
+        v.verification_type,
+        v.document_type,
+        v.document_number,
+        v.first_name,
+        v.last_name,
+        v.date_of_birth,
+        v.government_id_type,
+        v.government_id_number,
+        BIN_TO_UUID(v.verified_by) as verified_by,
+        v.verified_at,
+        v.created_at,
+        
+        u.username,
+        u.email,
+        u.first_name as user_first_name,
+        u.last_name as user_last_name,
+        u.date_of_birth as user_date_of_birth,
+        u.created_at as user_joined,
+        u.phone,
+        u.country,
+        
+        verifier.email as verified_by_email,
+        CONCAT(verifier.first_name, ' ', verifier.last_name) as verified_by_name
+      FROM verifications v
+      JOIN users u ON v.user_id = u.id
+      LEFT JOIN users verifier ON v.verified_by = verifier.id
+      WHERE v.status = 'APPROVED'
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search by username or email
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Document type filter
+    if (documentType) {
+      conditions.push(`v.document_type = ?`);
+      params.push(documentType);
+    }
+
+    // Apply WHERE clause additional conditions
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY v.verified_at DESC`;
+
+    const [verifications] = await pool.query(query, params);
+
+    return verifications;
+  } catch (error) {
+    console.error("Error exporting approved KYC:", error);
+    throw new Error("Failed to export approved KYC");
+  }
+},
+
+// Export all Rejected KYC
+exportAllRejectedKYC: async ({ search, documentType }) => {
+  try {
+    let query = `
+      SELECT 
+        BIN_TO_UUID(v.id) as verification_id,
+        BIN_TO_UUID(v.user_id) as user_id,
+        v.status,
+        v.verification_type,
+        v.document_type,
+        v.document_number,
+        v.first_name,
+        v.last_name,
+        v.date_of_birth,
+        v.government_id_type,
+        v.government_id_number,
+        BIN_TO_UUID(v.verified_by) as verified_by,
+        v.verified_at,
+        v.rejected_reason,
+        v.created_at,
+        
+        u.username,
+        u.email,
+        u.first_name as user_first_name,
+        u.last_name as user_last_name,
+        u.date_of_birth as user_date_of_birth,
+        u.created_at as user_joined,
+        u.phone,
+        u.country,
+        
+        verifier.email as verified_by_email,
+        CONCAT(verifier.first_name, ' ', verifier.last_name) as verified_by_name
+      FROM verifications v
+      JOIN users u ON v.user_id = u.id
+      LEFT JOIN users verifier ON v.verified_by = verifier.id
+      WHERE v.status = 'REJECTED'
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search by username or email
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Document type filter
+    if (documentType) {
+      conditions.push(`v.document_type = ?`);
+      params.push(documentType);
+    }
+
+    // Apply WHERE clause additional conditions
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY v.verified_at DESC`;
+
+    const [verifications] = await pool.query(query, params);
+
+    return verifications;
+  } catch (error) {
+    console.error("Error exporting rejected KYC:", error);
+    throw new Error("Failed to export rejected KYC");
+  }
+},
+
+// Export by document type: Driver's License
+exportDriversLicenseKYC: async ({ search, status }) => {
+  try {
+    let query = `
+      SELECT 
+        BIN_TO_UUID(v.id) as verification_id,
+        BIN_TO_UUID(v.user_id) as user_id,
+        v.status,
+        v.verification_type,
+        v.document_type,
+        v.document_number,
+        v.first_name,
+        v.last_name,
+        v.date_of_birth,
+        v.government_id_type,
+        v.government_id_number,
+        BIN_TO_UUID(v.verified_by) as verified_by,
+        v.verified_at,
+        v.rejected_reason,
+        v.created_at,
+        
+        u.username,
+        u.email,
+        u.first_name as user_first_name,
+        u.last_name as user_last_name,
+        u.date_of_birth as user_date_of_birth,
+        u.created_at as user_joined,
+        u.phone,
+        u.country,
+        
+        verifier.email as verified_by_email,
+        CONCAT(verifier.first_name, ' ', verifier.last_name) as verified_by_name
+      FROM verifications v
+      JOIN users u ON v.user_id = u.id
+      LEFT JOIN users verifier ON v.verified_by = verifier.id
+      WHERE v.document_type = 'DRIVERS_LICENSE'
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search by username or email
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Status filter
+    if (status) {
+      conditions.push(`v.status = ?`);
+      params.push(status);
+    }
+
+    // Apply WHERE clause additional conditions
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY v.created_at DESC`;
+
+    const [verifications] = await pool.query(query, params);
+
+    return verifications;
+  } catch (error) {
+    console.error("Error exporting driver's license KYC:", error);
+    throw new Error("Failed to export driver's license KYC");
+  }
+},
+
+// Export by document type: Passport
+exportPassportKYC: async ({ search, status }) => {
+  try {
+    let query = `
+      SELECT 
+        BIN_TO_UUID(v.id) as verification_id,
+        BIN_TO_UUID(v.user_id) as user_id,
+        v.status,
+        v.verification_type,
+        v.document_type,
+        v.document_number,
+        v.first_name,
+        v.last_name,
+        v.date_of_birth,
+        v.government_id_type,
+        v.government_id_number,
+        BIN_TO_UUID(v.verified_by) as verified_by,
+        v.verified_at,
+        v.rejected_reason,
+        v.created_at,
+        
+        u.username,
+        u.email,
+        u.first_name as user_first_name,
+        u.last_name as user_last_name,
+        u.date_of_birth as user_date_of_birth,
+        u.created_at as user_joined,
+        u.phone,
+        u.country,
+        
+        verifier.email as verified_by_email,
+        CONCAT(verifier.first_name, ' ', verifier.last_name) as verified_by_name
+      FROM verifications v
+      JOIN users u ON v.user_id = u.id
+      LEFT JOIN users verifier ON v.verified_by = verifier.id
+      WHERE v.document_type = 'PASSPORT'
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search by username or email
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Status filter
+    if (status) {
+      conditions.push(`v.status = ?`);
+      params.push(status);
+    }
+
+    // Apply WHERE clause additional conditions
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY v.created_at DESC`;
+
+    const [verifications] = await pool.query(query, params);
+
+    return verifications;
+  } catch (error) {
+    console.error("Error exporting passport KYC:", error);
+    throw new Error("Failed to export passport KYC");
+  }
+},
+
+// Export by document type: National ID
+exportNationalIdKYC: async ({ search, status }) => {
+  try {
+    let query = `
+      SELECT 
+        BIN_TO_UUID(v.id) as verification_id,
+        BIN_TO_UUID(v.user_id) as user_id,
+        v.status,
+        v.verification_type,
+        v.document_type,
+        v.document_number,
+        v.first_name,
+        v.last_name,
+        v.date_of_birth,
+        v.government_id_type,
+        v.government_id_number,
+        BIN_TO_UUID(v.verified_by) as verified_by,
+        v.verified_at,
+        v.rejected_reason,
+        v.created_at,
+        
+        u.username,
+        u.email,
+        u.first_name as user_first_name,
+        u.last_name as user_last_name,
+        u.date_of_birth as user_date_of_birth,
+        u.created_at as user_joined,
+        u.phone,
+        u.country,
+        
+        verifier.email as verified_by_email,
+        CONCAT(verifier.first_name, ' ', verifier.last_name) as verified_by_name
+      FROM verifications v
+      JOIN users u ON v.user_id = u.id
+      LEFT JOIN users verifier ON v.verified_by = verifier.id
+      WHERE v.document_type = 'NATIONAL_ID'
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Search by username or email
+    if (search) {
+      conditions.push(`(u.username LIKE ? OR u.email LIKE ?)`);
+      params.push(`%${search}%`, `%${search}%`);
+    }
+
+    // Status filter
+    if (status) {
+      conditions.push(`v.status = ?`);
+      params.push(status);
+    }
+
+    // Apply WHERE clause additional conditions
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY v.created_at DESC`;
+
+    const [verifications] = await pool.query(query, params);
+
+    return verifications;
+  } catch (error) {
+    console.error("Error exporting national ID KYC:", error);
+    throw new Error("Failed to export national ID KYC");
+  }
+},
+
+// Export detailed KYC with documents and reviews
+exportDetailedKYC: async ({ limit = 100, search, status, documentType }) => {
+  try {
+    // Get verifications
+    const verifications = await exportAllKYC({ search, status, documentType });
+    
+    // Limit results
+    const limitedVerifications = verifications.slice(0, parseInt(limit));
+
+    // Fetch documents and reviews for each verification
+    const detailedVerifications = await Promise.all(
+      limitedVerifications.map(async (verification) => {
+        try {
+          // Get documents for this user
+          const [documents] = await pool.query(
+            `SELECT 
+              BIN_TO_UUID(kd.id) as id,
+              BIN_TO_UUID(kd.user_id) as user_id,
+              kd.document_type,
+              kd.file_path,
+              kd.file_name,
+              kd.mime_type,
+              kd.file_size,
+              kd.status,
+              kd.created_at
+             FROM kyc_documents kd
+             WHERE kd.user_id = UUID_TO_BIN(?)
+             ORDER BY kd.created_at DESC`,
+            [verification.user_id]
+          );
+
+          // Get review history for this user
+          const [reviews] = await pool.query(
+            `SELECT 
+              BIN_TO_UUID(kr.id) as id,
+              BIN_TO_UUID(kr.user_id) as user_id,
+              BIN_TO_UUID(kr.admin_id) as admin_id,
+              kr.old_status,
+              kr.new_status,
+              kr.review_notes,
+              kr.reviewed_at,
+              admin.email as admin_email,
+              CONCAT(admin.first_name, ' ', admin.last_name) as admin_name
+             FROM kyc_reviews kr
+             LEFT JOIN users admin ON kr.admin_id = admin.id
+             WHERE kr.user_id = UUID_TO_BIN(?)
+             ORDER BY kr.reviewed_at DESC`,
+            [verification.user_id]
+          );
+
+          return {
+            ...verification,
+            documents,
+            reviews
+          };
+        } catch (error) {
+          console.error(`Error fetching details for KYC ${verification.verification_id}:`, error);
+          return verification; // Return basic verification if details fail
+        }
+      })
+    );
+
+    return detailedVerifications;
+  } catch (error) {
+    console.error("Error exporting detailed KYC:", error);
+    throw new Error("Failed to export detailed KYC");
+  }
+},
+// Export all Admins
+exportAllAdmins: async ({ search, status }) => {
+  try {
+    let query = `
+      SELECT 
+        BIN_TO_UUID(u.id) AS id,
+        u.email,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.is_active,
+        u.created_at,
+        u.last_login,
+        u.permissions,
+
+        BIN_TO_UUID(u.created_by) AS created_by_id,
+        creator.email AS created_by_email,
+        creator.first_name AS created_by_first_name,
+        creator.last_name AS created_by_last_name,
+
+        (SELECT COUNT(*) 
+           FROM admin_activities a 
+           WHERE a.admin_id = u.id
+        ) AS activity_count,
+
+        (SELECT COUNT(*) 
+           FROM admin_activities a 
+           WHERE a.admin_id = u.id 
+           AND DATE(a.created_at) = CURDATE()
+        ) AS todays_activities
+
+      FROM users u
+      LEFT JOIN users creator ON u.created_by = creator.id
+      WHERE u.role = 'ADMIN'
+    `;
+
+    const params = [];
+    const conditions = [];
+
+    // Status filter
+    if (status === "active") {
+      conditions.push(`u.is_active = TRUE`);
+    } else if (status === "inactive") {
+      conditions.push(`u.is_active = FALSE`);
+    }
+
+    // Search by email or name
+    if (search) {
+      conditions.push(`(u.email LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ?)`);
+      const searchParam = `%${search}%`;
+      params.push(searchParam, searchParam, searchParam);
+    }
+
+    // Apply WHERE clause
+    if (conditions.length > 0) {
+      query += ` AND ${conditions.join(" AND ")}`;
+    }
+
+    query += ` ORDER BY u.created_at DESC`;
+
+    const [admins] = await pool.query(query, params);
+
+    // Parse permissions JSON
+    const formattedAdmins = admins.map(admin => {
+      let permissions = {};
+      try {
+        if (admin.permissions) {
+          permissions = typeof admin.permissions === 'string' 
+            ? JSON.parse(admin.permissions) 
+            : admin.permissions;
+        }
+      } catch (error) {
+        console.error('Error parsing permissions:', error);
+      }
+
+      return {
+        ...admin,
+        permissions: permissions
+      };
+    });
+
+    return formattedAdmins;
+  } catch (error) {
+    console.error("Error exporting all admins:", error);
+    throw new Error("Failed to export all admins");
+  }
+},
+
+// Export all Active Admins
+exportAllActiveAdmins: async ({ search }) => {
+  try {
+    let query = `
+      SELECT 
+        BIN_TO_UUID(u.id) AS id,
+        u.email,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.is_active,
+        u.created_at,
+        u.last_login,
+        u.permissions,
+
+        BIN_TO_UUID(u.created_by) AS created_by_id,
+        creator.email AS created_by_email,
+        creator.first_name AS created_by_first_name,
+        creator.last_name AS created_by_last_name,
+
+        (SELECT COUNT(*) 
+           FROM admin_activity_logs a 
+           WHERE a.admin_id = u.id
+        ) AS activity_count,
+
+        (SELECT COUNT(*) 
+           FROM admin_activity_logs a 
+           WHERE a.admin_id = u.id 
+           AND DATE(a.created_at) = CURDATE()
+        ) AS todays_activities
+
+      FROM users u
+      LEFT JOIN users creator ON u.created_by = creator.id
+      WHERE u.role = 'ADMIN'
+        AND u.is_active = TRUE
+    `;
+
+    const params = [];
+    
+    // Search by email or name
+    if (search) {
+      query += ` AND (u.email LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ?)`;
+      const searchParam = `%${search}%`;
+      params.push(searchParam, searchParam, searchParam);
+    }
+
+    query += ` ORDER BY u.created_at DESC`;
+
+    const [admins] = await pool.query(query, params);
+
+    // Parse permissions JSON
+    const formattedAdmins = admins.map(admin => {
+      let permissions = {};
+      try {
+        if (admin.permissions) {
+          permissions = typeof admin.permissions === 'string' 
+            ? JSON.parse(admin.permissions) 
+            : admin.permissions;
+        }
+      } catch (error) {
+        console.error('Error parsing permissions:', error);
+      }
+
+      return {
+        ...admin,
+        permissions: permissions
+      };
+    });
+
+    return formattedAdmins;
+  } catch (error) {
+    console.error("Error exporting active admins:", error);
+    throw new Error("Failed to export active admins");
+  }
+},
+
+// Export all Inactive Admins
+exportAllInactiveAdmins: async ({ search }) => {
+  try {
+    let query = `
+      SELECT 
+        BIN_TO_UUID(u.id) AS id,
+        u.email,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.is_active,
+        u.created_at,
+        u.last_login,
+        u.permissions,
+
+        BIN_TO_UUID(u.created_by) AS created_by_id,
+        creator.email AS created_by_email,
+        creator.first_name AS created_by_first_name,
+        creator.last_name AS created_by_last_name,
+
+        (SELECT COUNT(*) 
+           FROM admin_activity_logs a 
+           WHERE a.admin_id = u.id
+        ) AS activity_count,
+
+        (SELECT created_at
+           FROM admin_activity_logs a 
+           WHERE a.admin_id = u.id
+           ORDER BY created_at DESC
+           LIMIT 1
+        ) AS last_activity
+
+      FROM users u
+      LEFT JOIN users creator ON u.created_by = creator.id
+      WHERE u.role = 'ADMIN'
+        AND u.is_active = FALSE
+    `;
+
+    const params = [];
+    
+    // Search by email or name
+    if (search) {
+      query += ` AND (u.email LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ?)`;
+      const searchParam = `%${search}%`;
+      params.push(searchParam, searchParam, searchParam);
+    }
+
+    query += ` ORDER BY u.created_at DESC`;
+
+    const [admins] = await pool.query(query, params);
+
+    // Parse permissions JSON
+    const formattedAdmins = admins.map(admin => {
+      let permissions = {};
+      try {
+        if (admin.permissions) {
+          permissions = typeof admin.permissions === 'string' 
+            ? JSON.parse(admin.permissions) 
+            : admin.permissions;
+        }
+      } catch (error) {
+        console.error('Error parsing permissions:', error);
+      }
+
+      return {
+        ...admin,
+        permissions: permissions
+      };
+    });
+
+    return formattedAdmins;
+  } catch (error) {
+    console.error("Error exporting inactive admins:", error);
+    throw new Error("Failed to export inactive admins");
+  }
+},
+
+// Export detailed admins with activity stats
+exportDetailedAdmins: async ({ limit = 100, search, status }) => {
+  try {
+    // Get admins
+    const admins = await exportAllAdmins({ search, status });
+    
+    // Limit results
+    const limitedAdmins = admins.slice(0, parseInt(limit));
+
+    // Fetch detailed stats for each admin
+    const detailedAdmins = await Promise.all(
+      limitedAdmins.map(async (admin) => {
+        try {
+          // Get admin activity stats
+          const [stats] = await pool.query(
+            `SELECT 
+               COUNT(*) AS total_activities,
+               SUM(action = 'CREATE_COMPETITION') AS competitions_created,
+               SUM(action = 'SELECT_WINNER') AS winners_selected,
+               SUM(action = 'EDIT_USER') AS users_edited,
+               SUM(action = 'KYC_APPROVED') AS kyc_approved,
+               SUM(action = 'KYC_REJECTED') AS kyc_rejected,
+               MAX(created_at) AS last_activity,
+               MIN(created_at) AS first_activity
+             FROM admin_activity_logs
+             WHERE admin_id = UUID_TO_BIN(?)`,
+            [admin.id]
+          );
+
+          // Get recent activities (last 10)
+          const [activities] = await pool.query(
+            `SELECT 
+               action,
+               entity_type,
+               details,
+               created_at
+             FROM admin_activity_logs
+             WHERE admin_id = UUID_TO_BIN(?)
+             ORDER BY created_at DESC
+             LIMIT 10`,
+            [admin.id]
+          );
+
+          // Get admin role permissions if separate table exists
+          let roleInfo = {};
+          try {
+            const [role] = await pool.query(
+              `SELECT 
+                 name as role_name,
+                 description,
+                 level,
+                 created_at
+               FROM admin_roles
+               WHERE id = (
+                 SELECT role_id FROM admin_user_roles 
+                 WHERE user_id = UUID_TO_BIN(?) 
+                 LIMIT 1
+               )`,
+              [admin.id]
+            );
+            if (role.length > 0) {
+              roleInfo = role[0];
+            }
+          } catch (roleError) {
+            console.log('Role table may not exist:', roleError.message);
+          }
+
+          return {
+            ...admin,
+            stats: stats[0] || {},
+            recent_activities: activities,
+            role_info: roleInfo
+          };
+        } catch (error) {
+          console.error(`Error fetching details for admin ${admin.id}:`, error);
+          return admin; // Return basic admin if details fail
+        }
+      })
+    );
+
+    return detailedAdmins;
+  } catch (error) {
+    console.error("Error exporting detailed admins:", error);
+    throw new Error("Failed to export detailed admins");
   }
 }
 };
