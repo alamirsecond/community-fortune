@@ -168,12 +168,14 @@ const documentOnlyUpload = multer({
 // Preconfigured upload middlewares
 export const upload = competitionUpload;
 
-// Specialized upload configurations
-export const competitionFeaturedUpload = imageOnlyUpload.fields([
+
+export const competitionFeaturedUpload = competitionUpload.fields([
   { name: 'featured_image', maxCount: 1 },
   { name: 'featured_video', maxCount: 1 },
-  { name: 'banner_image', maxCount: 1 }
+  { name: 'banner_image', maxCount: 1 },
+  { name: 'gallery_images', maxCount: 10 }
 ]);
+
 
 export const competitionImagesUpload = imageOnlyUpload.array('images', 10);
 
@@ -191,56 +193,61 @@ export const validateUploadedFiles = (req, res, next) => {
   if (!req.files && !req.file) {
     return next();
   }
-  
-  const files = req.files || [req.file];
+
+  // Flatten files to a single array
+  let files = [];
+  if (req.files && typeof req.files === 'object') {
+    files = Object.values(req.files).flat();
+  } else if (req.file) {
+    files = [req.file];
+  }
+
   const errors = [];
-  
+
   files.forEach(file => {
-    // Additional validation based on field name
+    // Video field validation
     if (file.fieldname === 'featured_video' && !file.mimetype.startsWith('video/')) {
       errors.push(`${file.originalname}: Featured video must be a video file`);
     }
-    
-    if (file.fieldname.includes('image') && !file.mimetype.startsWith('image/')) {
+
+    // Image fields validation
+    if (
+      ['featured_image', 'banner_image', 'gallery_images'].includes(file.fieldname) &&
+      !file.mimetype.startsWith('image/')
+    ) {
       errors.push(`${file.originalname}: ${file.fieldname} must be an image file`);
     }
-    
+
+    // PDF fields validation
     if (file.fieldname.includes('pdf') && file.mimetype !== 'application/pdf') {
       errors.push(`${file.originalname}: ${file.fieldname} must be a PDF file`);
     }
-    
-    // Check file size for specific types
-    if (file.mimetype.startsWith('image/') && file.size > (parseInt(process.env.MAX_COMPETITION_IMAGE_SIZE) || 10 * 1024 * 1024)) {
-      errors.push(`${file.originalname}: Image files must be less than ${parseInt(process.env.MAX_COMPETITION_IMAGE_SIZE) / (1024 * 1024)}MB`);
+
+    // Size validation
+    if (file.mimetype.startsWith('image/') &&
+        file.size > (parseInt(process.env.MAX_COMPETITION_IMAGE_SIZE) || 10 * 1024 * 1024)) {
+      errors.push(`${file.originalname}: Image too large`);
     }
-    
-    if (file.mimetype.startsWith('video/') && file.size > (parseInt(process.env.MAX_COMPETITION_VIDEO_SIZE) || 50 * 1024 * 1024)) {
-      errors.push(`${file.originalname}: Video files must be less than ${parseInt(process.env.MAX_COMPETITION_VIDEO_SIZE) / (1024 * 1024)}MB`);
-    }
-    
-    if (file.mimetype.includes('application/') && file.size > (parseInt(process.env.MAX_COMPETITION_DOCUMENT_SIZE) || 20 * 1024 * 1024)) {
-      errors.push(`${file.originalname}: Document files must be less than ${parseInt(process.env.MAX_COMPETITION_DOCUMENT_SIZE) / (1024 * 1024)}MB`);
+
+    if (file.mimetype.startsWith('video/') &&
+        file.size > (parseInt(process.env.MAX_COMPETITION_VIDEO_SIZE) || 50 * 1024 * 1024)) {
+      errors.push(`${file.originalname}: Video too large`);
     }
   });
-  
+
   if (errors.length > 0) {
-    // Clean up uploaded files if validation fails
-    if (req.files || req.file) {
-      const filesToDelete = req.files || [req.file];
-      filesToDelete.forEach(file => {
-        if (fs.existsSync(file.path)) {
-          fs.unlinkSync(file.path);
-        }
-      });
-    }
-    
+    // Clean up uploaded files on error
+    files.forEach(file => {
+      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+    });
+
     return res.status(400).json({
       success: false,
       message: 'File validation failed',
-      errors: errors
+      errors
     });
   }
-  
+
   next();
 };
 
@@ -313,10 +320,12 @@ export const deleteUploadedFiles = (filePaths) => {
 // Utility function to get file URL
 export const getFileUrl = (filePath) => {
   if (!filePath) return null;
-  
-  const relativePath = path.relative(competitionUploadsDir, filePath);
-  return `/uploads/competitions/${relativePath.replace(/\\/g, '/')}`;
+
+  const relativePath = path.relative(competitionUploadsDir, filePath).replace(/\\/g, '/');
+  const baseUrl = process.env.SERVER_URL || 'http://localhost:4000'; // adjust port
+  return `${baseUrl}/uploads/competitions/${relativePath}`;
 };
+
 
 // ============================================
 // GAME ZIP UPLOAD CONFIGURATION
