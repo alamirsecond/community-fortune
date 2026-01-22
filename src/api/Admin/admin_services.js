@@ -2084,9 +2084,6 @@ activateUser: async ({ user_id }) => {
   }
 },
 
-
-
-
 // Export all Users
 exportAllUsers: async ({ search, role, status }) => {
   try {
@@ -4084,7 +4081,8 @@ exportDetailedAdmins: async ({ limit = 100, search, status }) => {
     console.error("Error exporting detailed admins:", error);
     throw new Error("Failed to export detailed admins");
   }
-}
+},
+
 };
 
 export default AdminService;

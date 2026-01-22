@@ -3,7 +3,19 @@ import authenticate from "../../../middleware/auth.js";
 import superAdminController from "./superAdminController.js";
 import adminController from "../Admin/admin_controller.js";
 import referralRouter from "../Referrals/referrals_routes.js";
-
+import {
+  createCompetition,
+  updateCompetition,
+  bulkCreateCompetitions
+} from '../Competition/competitionController.js';
+import {
+  competitionImagesUpload,
+  competitionFeaturedUpload,
+  competitionDocumentsUpload,
+  bulkUploadCompetitions,
+  validateUploadedFiles,
+  handleUploadError
+} from '../../../middleware/upload.js';
 const superAdminRouter = Router();
 
 //Community:All superadmin routes require authentication and superadmin role
@@ -37,7 +49,7 @@ superAdminRouter.get('/users/export/tier-2', adminController.exportTier2Users);
 superAdminRouter.get('/users/export/tier-3', adminController.exportTier3Users);
 superAdminRouter.get('/users/export/free', adminController.exportFreeUsers);
 superAdminRouter.get('/users/export/detailed', adminController.exportDetailedUsers);
-superAdminRouter.get('/users/export/all', adminController.exportAll); // From your image
+superAdminRouter.get('/users/export/all', adminController.exportAll);
 superAdminRouter.post('/users/export/bulk', adminController.exportUsersBulk);
 
 //Community:Admin management
@@ -49,8 +61,8 @@ superAdminRouter.post("/admins/:admin_id/reset-password",superAdminController.re
 superAdminRouter.get("/activity-logs",superAdminController.getActivityLogs);
 
 superAdminRouter.get('/export/admins/all', adminController.exportAllAdmins);
-// superAdminRouter.get('/export/admins/active', adminController.exportAllActiveAdmins);
-// superAdminRouter.get('/export/admins/inactive', adminController.exportAllInactiveAdmins);
+superAdminRouter.get('/export/admins/active', adminController.exportActiveAdmins);
+superAdminRouter.get('/export/admins/inactive', adminController.exportInactiveAdmins);
 superAdminRouter.get('/export/admins/detailed', adminController.exportDetailedAdmins);
 superAdminRouter.get('/export/admins/all', adminController.exportAll); // From your image
 superAdminRouter.post('/export/admins/bulk', adminController.exportAdminsBulk);
@@ -61,6 +73,66 @@ superAdminRouter.post("/competitions", adminController.createCompetition);
 superAdminRouter.put("/competitions/:id", adminController.updateCompetition);
 superAdminRouter.delete("/competitions/:id", adminController.deleteCompetition);
 superAdminRouter.post("/competitions/:id/draw", adminController.drawWinner);
+
+
+
+// ==================== ADMIN ROUTES ====================
+//aklilu:Create competition with featured images/videos
+superAdminRouter.post('/competitions', 
+  authenticate(['SUPERADMIN', 'ADMIN']), 
+  competitionFeaturedUpload,
+  validateUploadedFiles,
+  handleUploadError,
+  createCompetition
+);
+
+//aklilu:Bulk create competitions from CSV
+superAdminRouter.post('/bulk', 
+  authenticate(['SUPERADMIN', 'ADMIN']), 
+  bulkUploadCompetitions,
+  validateUploadedFiles,
+  handleUploadError,
+  bulkCreateCompetitions
+);
+
+//aklilu:Update competition with images
+superAdminRouter.put('/:id', 
+  authenticate(['SUPERADMIN', 'ADMIN']), 
+  competitionFeaturedUpload,
+  validateUploadedFiles,
+  handleUploadError,
+  updateCompetition
+);
+
+//aklilu:Upload competition gallery images
+superAdminRouter.post('/:id/images', 
+  authenticate(['SUPERADMIN', 'ADMIN']), 
+  competitionImagesUpload,
+  validateUploadedFiles,
+  handleUploadError,
+  (req, res) => {
+    res.json({
+      success: true,
+      message: 'Images uploaded successfully',
+      data: { images: req.files }
+    });
+  }
+);
+
+//aklilu:Upload competition documents
+superAdminRouter.post('/:id/documents', 
+  authenticate(['SUPERADMIN', 'ADMIN']), 
+  competitionDocumentsUpload,
+  validateUploadedFiles,
+  handleUploadError,
+  (req, res) => {
+    res.json({
+      success: true,
+      message: 'Documents uploaded successfully',
+      data: { documents: req.files }
+    });
+  }
+);
 
 
 // Community: KYC Verification Management
