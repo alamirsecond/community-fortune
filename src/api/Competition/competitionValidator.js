@@ -12,8 +12,8 @@ const baseCompetitionSchema = {
   total_tickets: z.number().int().positive("Total tickets must be positive"),
   category: z.enum(['PAID', 'FREE', 'JACKPOT', 'MINI_GAME', 'SUBSCRIPTION', 'VIP', 'INSTANT_WIN', 'ROLLING']),
   type: z.enum(['STANDARD', 'MANUAL_DRAW', 'AUTO_DRAW']),
-  start_date: z.string().datetime("Invalid start date format"),
-  end_date: z.string().datetime("Invalid end date format").optional().nullable(),
+  start_date: z.date("Invalid start date format"),
+  end_date: z.date("Invalid end date format").optional().nullable(),
   no_end_date: z.boolean().default(false),
   is_free_competition: z.boolean().default(false),
   points_per_pound: z.number().int().min(0).default(0),
@@ -26,7 +26,7 @@ const baseCompetitionSchema = {
   postal_address: z.string().optional(),
   max_entries_per_user: z.number().int().positive().default(1),
   requires_address: z.boolean().default(false),
-  status: z.enum(['DRAFT', 'ACTIVE', 'COMPLETED', 'CANCELLED']).default('DRAFT'),
+  status: z.enum([ 'ACTIVE', 'COMPLETED', 'CANCELLED']).default('ACTIVE'),
   created_at: z.string().datetime().optional(),
   updated_at: z.string().datetime().optional()
 };

@@ -16,68 +16,98 @@ import {
 } from './competitionValidator.js';
 
 // Helper function for validation
-const validateRequest = (schema, data) => {
+export const validateRequest = (schema, data) => {
   const validationResult = schema.safeParse(data);
   if (!validationResult.success) {
-    return { success: false, errors: validationResult.error.errors };
+    return { success: false, errors: validationResult.error.issues };
   }
   return { success: true, data: validationResult.data };
 };
 
+
 // ==================== COMPETITION CREATION & MANAGEMENT ====================
+
+const safeParseInt = (val) => (val !== undefined ? parseInt(val) : undefined);
+const safeParseFloat = (val) => (val !== undefined ? parseFloat(val) : undefined);
+const safeParseBool = (val) => val === 'true' || val === true;
+
+// Helper to delete uploaded files
+const cleanupFiles = (files) => {
+  Object.values(files).flat().forEach(file => {
+    if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
+  });
+};
+
+// Utility: convert ISO string or Date to MySQL DATETIME string
+const toMySQLDateTime = (date) => {
+  if (!date) return null;
+
+  const d = date instanceof Date ? date : new Date(date);
+  if (isNaN(d.getTime())) return null; // invalid date
+  return d.toISOString().slice(0, 19).replace('T', ' ');
+};
 
 export const createCompetition = async (req, res) => {
   try {
-    // Process uploaded files
     const files = req.files || {};
-    
-    // Combine body and files
-    const competitionData = {
+
+    // Normalize request body: numbers, booleans, and dates
+    const bodyData = {
       ...req.body,
+      price: req.body.price !== undefined ? parseFloat(req.body.price) : undefined,
+      total_tickets: req.body.total_tickets !== undefined ? parseInt(req.body.total_tickets) : undefined,
+      max_entries_per_user: req.body.max_entries_per_user !== undefined ? parseInt(req.body.max_entries_per_user) : undefined,
+      free_entry_enabled: req.body.free_entry_enabled === 'true' || req.body.free_entry_enabled === true,
+      auto_entry_enabled: req.body.auto_entry_enabled === 'true' || req.body.auto_entry_enabled === true,
+      skill_question_enabled: req.body.skill_question_enabled === 'true' || req.body.skill_question_enabled === true,
+      is_free_competition: req.body.is_free_competition === 'true' || req.body.is_free_competition === true,
+      no_end_date: req.body.no_end_date === 'true' || req.body.no_end_date === true,
+      start_date: req.body.start_date ? new Date(req.body.start_date) : undefined,
+      end_date: req.body.end_date ? new Date(req.body.end_date) : undefined,
+    };
+
+    // Combine body and uploaded files
+    const competitionData = {
+      ...bodyData,
       featured_image: files.featured_image?.[0] ? getFileUrl(files.featured_image[0].path) : null,
       featured_video: files.featured_video?.[0] ? getFileUrl(files.featured_video[0].path) : null,
       banner_image: files.banner_image?.[0] ? getFileUrl(files.banner_image[0].path) : null,
       gallery_images: files.gallery_images?.map(f => getFileUrl(f.path)) || []
     };
 
+    // Validate with Zod
     const validationResult = validateRequest(createCompetitionSchema, { body: competitionData });
+    console.log('Validation Result:', validationResult);
+
     if (!validationResult.success) {
-      // Clean up uploaded files if validation fails
-      if (files) {
-        Object.values(files).forEach(fileArray => {
-          fileArray.forEach(file => {
-            deleteUploadedFiles(file.path);
-          });
-        });
-      }
-      
+      const formattedErrors = validationResult.errors.map(err => ({
+        path: ['body', ...err.path].join('.'),
+        message: err.message
+      }));
+
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
-        errors: validationResult.errors
+        errors: formattedErrors
       });
     }
 
     const validatedData = validationResult.data.body;
-    
-    // Admin role check
-    if (req.user.role !== 'SUPERADMIN' && req.user.role !== 'ADMIN') {
-      // Clean up uploaded files if unauthorized
-      if (files) {
-        Object.values(files).forEach(fileArray => {
-          fileArray.forEach(file => {
-            deleteUploadedFiles(file.path);
-          });
-        });
-      }
-      
+
+    // Convert dates to MySQL DATETIME format
+    validatedData.start_date = toMySQLDateTime(validatedData.start_date);
+    validatedData.end_date = toMySQLDateTime(validatedData.end_date);
+
+    // Check admin role
+    if (!['SUPERADMIN', 'ADMIN'].includes(req.user.role)) {
+      Object.values(files).flat().forEach(file => deleteUploadedFiles(file.path));
       return res.status(403).json({
         success: false,
         message: 'Only administrators can create competitions'
       });
     }
 
-    // Set competition type based on category
+    // Competition type logic
     if (validatedData.category === 'FREE') {
       validatedData.price = 0;
       validatedData.is_free_competition = true;
@@ -89,7 +119,7 @@ export const createCompetition = async (req, res) => {
       validatedData.competition_type = 'PAID';
     }
 
-    // Set defaults based on category
+    // Category defaults
     switch (validatedData.category) {
       case 'JACKPOT':
         validatedData.total_tickets = validatedData.total_tickets || 1000000;
@@ -105,43 +135,42 @@ export const createCompetition = async (req, res) => {
 
     // Create competition
     const competitionId = await Competition.create(validatedData);
-    
-    // Process and save gallery images
-    if (files.gallery_images && files.gallery_images.length > 0) {
+
+    // Process gallery images
+    if (files.gallery_images?.length > 0) {
       const galleryDir = path.join(process.env.COMPETITION_UPLOAD_PATH, competitionId, 'gallery');
-      if (!fs.existsSync(galleryDir)) {
-        fs.mkdirSync(galleryDir, { recursive: true });
-      }
-      // Move gallery images to proper directory and update gallery_images array
+      if (!fs.existsSync(galleryDir)) fs.mkdirSync(galleryDir, { recursive: true });
+
       const galleryUrls = [];
       for (const file of files.gallery_images) {
         const newPath = path.join(galleryDir, path.basename(file.path));
         fs.renameSync(file.path, newPath);
         galleryUrls.push(getFileUrl(newPath));
       }
-      // Update competition gallery_images in DB
       await Competition.update(competitionId, { gallery_images: galleryUrls });
+      validatedData.gallery_images = galleryUrls;
     }
 
-    // Create instant wins if provided
-    if (validatedData.instant_wins && validatedData.instant_wins.length > 0) {
+    // Instant wins
+    if (validatedData.instant_wins?.length > 0) {
       await Competition.createInstantWins(competitionId, validatedData.instant_wins);
     }
 
-    // Create achievements if provided
-    if (validatedData.achievements && validatedData.achievements.length > 0) {
+    // Achievements
+    if (validatedData.achievements?.length > 0) {
       await Competition.createAchievements(competitionId, validatedData.achievements);
     }
 
-    // Auto-subscribe eligible users for subscription competitions
+    // Auto-subscribe
     if (validatedData.category === 'SUBSCRIPTION' && validatedData.auto_entry_enabled) {
       await Competition.autoSubscribeToCompetition(competitionId);
     }
 
+    // Success response
     res.status(201).json({
       success: true,
       message: 'Competition created successfully',
-      data: { 
+      data: {
         competitionId,
         category: validatedData.category,
         files: {
@@ -153,18 +182,11 @@ export const createCompetition = async (req, res) => {
         next_steps: getCompetitionNextSteps(validatedData.category)
       }
     });
+
   } catch (error) {
     console.error('Create competition error:', error);
-    
-    // Clean up uploaded files on error
-    if (req.files) {
-      Object.values(req.files).forEach(fileArray => {
-        fileArray.forEach(file => {
-          deleteUploadedFiles(file.path);
-        });
-      });
-    }
-    
+    if (req.files) Object.values(req.files).flat().forEach(file => deleteUploadedFiles(file.path));
+
     res.status(500).json({
       success: false,
       message: 'Failed to create competition',
@@ -173,6 +195,9 @@ export const createCompetition = async (req, res) => {
     });
   }
 };
+
+
+
 
 export const updateCompetition = async (req, res) => {
   try {
