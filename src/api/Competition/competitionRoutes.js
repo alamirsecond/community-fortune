@@ -57,7 +57,7 @@ router.post('/instant-win/claim', authenticate(), claimInstantWin);
 // ==================== ADMIN ROUTES ====================
 //aklilu:Create competition with featured images/videos
 router.post('/', 
-  authenticate(['ADMIN']), 
+  authenticate(['SUPERADMIN', 'ADMIN']), 
   competitionFeaturedUpload,
   validateUploadedFiles,
   handleUploadError,

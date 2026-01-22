@@ -8,6 +8,7 @@ class Competition {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
+console.log(competitionData);
 
       // Generate UUID for competition
       const competitionId = uuidv4();

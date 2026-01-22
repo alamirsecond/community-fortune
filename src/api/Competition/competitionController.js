@@ -61,7 +61,7 @@ export const createCompetition = async (req, res) => {
     const validatedData = validationResult.data.body;
     
     // Admin role check
-    if (req.user.role !== 'admin') {
+    if (req.user.role !== 'SUPERADMIN' && req.user.role !== 'ADMIN') {
       // Clean up uploaded files if unauthorized
       if (files) {
         Object.values(files).forEach(fileArray => {
