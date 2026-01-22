@@ -144,188 +144,283 @@ async function findVoucherByCode(client, code, { forUpdate = false } = {}) {
 
 const voucherController = {
   // ADMIN: Create voucher (supports auto-code generation)
-  createVoucher: async (req, res) => {
-    const parsed = CreateVoucherSchema.safeParse(req.body);
-    if (!parsed.success) {
-      return res.status(400).json({
-        success: false,
-        message: "Validation failed",
-        details: parsed.error.errors,
-      });
+createVoucher: async (req, res) => {
+  console.log('📦 Request body received:', JSON.stringify(req.body, null, 2));
+  
+  const parsed = CreateVoucherSchema.safeParse(req.body);
+  
+  console.log('📦 Zod parse result:', {
+    success: parsed.success,
+    error: parsed.error ? 'Has error' : 'No error',
+    errorType: parsed.error?.constructor?.name,
+    errorKeys: parsed.error ? Object.keys(parsed.error) : []
+  });
+  
+  if (!parsed.success) {
+    console.log('❌ Zod error object:', parsed.error);
+    console.log('❌ Zod error format:', parsed.error?.format?.());
+    console.log('❌ Zod error issues:', parsed.error?.issues);
+    
+    // CORRECT WAY to get validation errors
+    let formattedErrors = [];
+    
+    if (parsed.error?.issues) {
+      formattedErrors = parsed.error.issues.map(err => ({
+        field: err.path?.join('.') || 'unknown',
+        message: err.message,
+        code: err.code,
+        received: err.received,
+        expected: err.expected
+      }));
+    } else if (parsed.error?.format) {
+      // Alternative approach using format()
+      const formatted = parsed.error.format();
+      formattedErrors = Object.keys(formatted)
+        .filter(key => formatted[key] && formatted[key]._errors)
+        .map(key => ({
+          field: key,
+          message: formatted[key]._errors.join(', '),
+          code: 'custom'
+        }));
+    }
+    
+    console.log('📋 Formatted errors:', formattedErrors);
+    
+    return res.status(400).json({
+      success: false,
+      message: "Validation failed",
+      details: formattedErrors,
+      raw_error: parsed.error ? {
+        name: parsed.error.name,
+        message: parsed.error.message,
+        stack: parsed.error.stack
+      } : null
+    });
+  }
+
+  console.log('✅ Validation successful, data:', parsed.data);
+  
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const {
+      campaign_name,
+      voucher_type,
+      reward_type,
+      reward_value,
+      start_date,
+      expiry_date,
+      usage_limit,
+      code_prefix,
+      bulk_quantity,
+      bulk_code_length,
+      code: providedCode
+    } = parsed.data;
+
+    console.log('📋 Parsed data:', {
+      campaign_name,
+      voucher_type,
+      reward_type,
+      reward_value,
+      start_date,
+      expiry_date,
+      usage_limit,
+      code_prefix,
+      bulk_quantity,
+      bulk_code_length,
+      providedCode
+    });
+
+    // Convert dates to MySQL format
+    const startMysql = parseDateInputToMysql(start_date);
+    const expiryMysql = parseDateInputToMysql(expiry_date);
+
+    let finalCode = providedCode || "";
+    let usageLimit = usage_limit;
+    let bulkQuantity = voucher_type === "BULK_CODES" ? bulk_quantity : 0;
+    let bulkCodesGenerated = false;
+
+    // If code is empty, generate one
+    if (!finalCode || finalCode.trim() === '') {
+      for (let i = 0; i < 10; i += 1) {
+        const candidate = generateCode(8);
+        const [exists] = await connection.query(
+          `SELECT 1 FROM vouchers WHERE code = ? LIMIT 1`,
+          [candidate]
+        );
+        if (exists.length === 0) {
+          finalCode = candidate;
+          break;
+        }
+      }
     }
 
-    const connection = await pool.getConnection();
-    try {
-      await connection.beginTransaction();
+    if (!finalCode) {
+      throw new Error("Failed to generate unique voucher code");
+    }
 
-      const {
-        campaign_name,
-        voucher_type,
-        reward_type,
-        reward_value,
-        start_date,
-        expiry_date,
-        usage_limit,
-        code_prefix,
-        bulk_quantity,
-        bulk_code_length,
-      } = parsed.data;
+    const voucherId = uuidv4();
+    const createdBy = req.user?.id || null; // This is a string UUID
 
-      const startMysql = parseDateInputToMysql(start_date);
-      const expiryMysql = parseDateInputToMysql(expiry_date);
+    console.log('👤 User info:', {
+      userId: req.user?.id,
+      userRole: req.user?.role,
+      createdBy,
+      createdByType: typeof createdBy
+    });
 
-      let usageLimit = usage_limit;
-      let bulkQuantity = voucher_type === "BULK_CODES" ? bulk_quantity : 0;
-      let bulkGenerated = 0;
+    let bulkCodes = [];
+    if (voucher_type === "BULK_CODES") {
+      usageLimit = bulkQuantity;
+      const prefix = code_prefix || "";
+      const targetLength = Math.min(32, Math.max(4, bulk_code_length));
+      const suffixLength = Math.max(4, targetLength - prefix.length);
+      const maxAttempts = Math.max(bulkQuantity * 8, 16);
+      const unique = new Set();
+      let attempts = 0;
 
-      // If code blank => auto-generate. Try a few times to avoid collisions.
-      let code = parsed.data.code;
-      if (!code) {
-        for (let i = 0; i < 10; i += 1) {
-          const candidate = generateCode(8);
-          const [exists] = await connection.query(
-            `SELECT 1 FROM vouchers WHERE code = ? LIMIT 1`,
-            [candidate]
-          );
-          if (exists.length === 0) {
-            code = candidate;
-            break;
-          }
-        }
+      while (unique.size < bulkQuantity && attempts < maxAttempts) {
+        attempts += 1;
+        const candidate = `${prefix}${generateCode(suffixLength)}`
+          .slice(0, targetLength)
+          .toUpperCase();
+        unique.add(candidate);
       }
 
-      if (!code) {
-        throw new Error("Failed to generate unique voucher code");
+      if (unique.size !== bulkQuantity) {
+        throw new Error("Failed to generate bulk voucher codes");
       }
 
-      const voucherId = uuidv4();
-      const createdBy = req.user?.id || null;
+      bulkCodes = Array.from(unique);
+      bulkCodesGenerated = bulkCodes.length > 0;
+    }
 
-      let bulkCodes = [];
-      if (voucher_type === "BULK_CODES") {
-        usageLimit = bulkQuantity;
-        const prefix = code_prefix || "";
-        const targetLength = Math.min(32, Math.max(4, bulk_code_length));
-        const suffixLength = Math.max(4, targetLength - prefix.length);
-        const maxAttempts = Math.max(bulkQuantity * 8, 16);
-        const unique = new Set();
-        let attempts = 0;
+    // FIXED: Handle created_by properly - use UUID_TO_BIN() in SQL
+    const sql = `
+      INSERT INTO vouchers (
+        id, code, code_prefix, campaign_name, voucher_type, reward_type, reward_value,
+        start_date, expiry_date, usage_limit, usage_count, bulk_quantity, bulk_code_length,
+        bulk_codes_generated, status, created_by
+      ) VALUES (
+        UUID_TO_BIN(?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ${createdBy ? 'UUID_TO_BIN(?)' : 'NULL'}
+      )
+    `;
 
-        while (unique.size < bulkQuantity && attempts < maxAttempts) {
-          attempts += 1;
-          const candidate = `${prefix}${generateCode(suffixLength)}`
-            .slice(0, targetLength)
-            .toUpperCase();
-          unique.add(candidate);
-        }
+    const params = [
+      voucherId,                    // 1. id
+      finalCode,                    // 2. code
+      code_prefix || null,          // 3. code_prefix
+      campaign_name,                // 4. campaign_name
+      voucher_type,                 // 5. voucher_type
+      reward_type,                  // 6. reward_type
+      reward_value,                 // 7. reward_value
+      startMysql,                   // 8. start_date
+      expiryMysql,                  // 9. expiry_date
+      usageLimit,                   // 10. usage_limit
+      0,                            // 11. usage_count (default 0)
+      bulkQuantity,                 // 12. bulk_quantity
+      bulk_code_length,             // 13. bulk_code_length
+      bulkCodesGenerated,           // 14. bulk_codes_generated
+      'ACTIVE',                     // 15. status
+    ];
 
-        if (unique.size !== bulkQuantity) {
-          throw new Error("Failed to generate bulk voucher codes");
-        }
+    // Add created_by parameter if it exists
+    if (createdBy) {
+      params.push(createdBy);       // 16. created_by (string UUID)
+    }
 
-        bulkCodes = Array.from(unique);
-        bulkGenerated = bulkCodes.length;
-      }
+    console.log('🔍 SQL Parameters:', {
+      sql: sql.replace(/\s+/g, ' ').trim(),
+      paramCount: params.length,
+      createdBy: createdBy,
+      createdByIncluded: !!createdBy
+    });
 
-      await connection.query(
-        `INSERT INTO vouchers (
-          id, code, code_prefix, campaign_name, voucher_type, reward_type, reward_value,
-          start_date, expiry_date, usage_limit, times_redeemed, bulk_quantity, bulk_generated,
-          bulk_code_length, is_active, created_by
-        ) VALUES (
-          UUID_TO_BIN(?), ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, TRUE, ${
-            createdBy ? "UUID_TO_BIN(?)" : "NULL"
-          }
-        )`,
-        createdBy
-          ? [
-              voucherId,
-              code,
-              code_prefix || null,
-              campaign_name,
-              voucher_type,
-              reward_type,
-              reward_value,
-              startMysql,
-              expiryMysql,
-              usageLimit,
-              bulkQuantity,
-              bulkGenerated,
-              bulk_code_length,
-              createdBy,
-            ]
-          : [
-              voucherId,
-              code,
-              code_prefix || null,
-              campaign_name,
-              voucher_type,
-              reward_type,
-              reward_value,
-              startMysql,
-              expiryMysql,
-              usageLimit,
-              bulkQuantity,
-              bulkGenerated,
-              bulk_code_length,
-            ]
-      );
+    await connection.query(sql, params);
 
-      if (voucher_type === "BULK_CODES" && bulkCodes.length > 0) {
+    // If bulk codes, insert into voucher_codes table
+    if (voucher_type === "BULK_CODES" && bulkCodes.length > 0) {
+      try {
         const valuesSql = bulkCodes
-          .map(() => "(UUID_TO_BIN(?), UUID_TO_BIN(?), ?, 'AVAILABLE')")
+          .map(() => "(UUID_TO_BIN(?), UUID_TO_BIN(?), ?, 'ACTIVE')")
           .join(", ");
         const valueParams = bulkCodes.flatMap((c) => [uuidv4(), voucherId, c]);
+        
         await connection.query(
           `INSERT INTO voucher_codes (id, voucher_id, code, status) VALUES ${valuesSql}`,
           valueParams
         );
+        console.log(`✅ Inserted ${bulkCodes.length} bulk codes`);
+      } catch (bulkError) {
+        console.log('⚠️ Could not insert bulk codes:', bulkError.message);
+        // Continue without bulk codes in separate table
       }
+    }
 
-      await connection.commit();
-      return res.status(201).json({
-        success: true,
-        message: "Voucher created",
-        data: {
-          id: voucherId,
-          code,
-          campaign_name,
-          voucher_type,
-          reward_type,
-          reward_value,
-          start_date: startMysql,
-          expiry_date: expiryMysql,
-          usage_limit: usageLimit,
-          code_prefix: code_prefix || null,
-          bulk_quantity: bulkQuantity,
-          bulk_generated: bulkGenerated,
-          bulk_code_length,
-        },
+    await connection.commit();
+    
+    console.log('✅ Voucher created successfully:', voucherId);
+    
+    return res.status(201).json({
+      success: true,
+      message: "Voucher created",
+      data: {
+        id: voucherId,
+        code: finalCode,
+        campaign_name,
+        voucher_type,
+        reward_type,
+        reward_value,
+        start_date: startMysql,
+        expiry_date: expiryMysql,
+        usage_limit: usageLimit,
+        code_prefix: code_prefix || null,
+        bulk_quantity: bulkQuantity,
+        bulk_codes_generated: bulkCodesGenerated,
+        bulk_code_length: bulk_code_length,
+        bulk_codes_count: bulkCodes.length
+      },
+    });
+    
+  } catch (error) {
+    await connection.rollback();
+    
+    console.error("❌ createVoucher error details:", {
+      message: error.message,
+      code: error.code,
+      sql: error.sql,
+      sqlMessage: error.sqlMessage
+    });
+
+    // Duplicate code
+    if (error?.code === "ER_DUP_ENTRY") {
+      return res.status(409).json({
+        success: false,
+        message: "Voucher code already exists",
       });
-    } catch (error) {
-      await connection.rollback();
+    }
 
-      // Duplicate code
-      if (error?.code === "ER_DUP_ENTRY") {
-        return res.status(409).json({
-          success: false,
-          message: "Voucher code already exists",
-        });
-      }
-
-      console.error("createVoucher error:", error);
+    // MySQL syntax error
+    if (error?.code === "ER_PARSE_ERROR") {
       return res.status(500).json({
         success: false,
-        message: "Failed to create voucher",
-        error:
-          process.env.NODE_ENV === "development" ? error.message : undefined,
+        message: "Database error - invalid SQL syntax",
+        details: process.env.NODE_ENV === "development" ? error.sqlMessage : undefined
       });
-    } finally {
-      connection.release();
     }
-  },
 
-  // ADMIN: List vouchers
+    return res.status(500).json({
+      success: false,
+      message: "Failed to create voucher",
+      error: process.env.NODE_ENV === "development" ? error.message : undefined,
+    });
+  } finally {
+    connection.release();
+  }
+},
+
+  // ADMIN: List vouchers - UPDATED with correct column names
   listVouchers: async (req, res) => {
     const parsed = AdminListVouchersSchema.safeParse(req.query);
     if (!parsed.success) {
@@ -349,8 +444,9 @@ const voucherController = {
       }
 
       if (typeof is_active === "boolean") {
-        where.push("v.is_active = ?");
-        params.push(is_active);
+        // Updated: Use status column instead of is_active
+        where.push("v.status = ?");
+        params.push(is_active ? 'ACTIVE' : 'INACTIVE');
       }
 
       if (type) {
@@ -361,14 +457,14 @@ const voucherController = {
       if (status) {
         if (status === "active") {
           where.push(
-            "v.is_active = TRUE AND NOW() BETWEEN v.start_date AND v.expiry_date"
+            "v.status = 'ACTIVE' AND NOW() BETWEEN v.start_date AND v.expiry_date"
           );
         } else if (status === "expired") {
           where.push("NOW() > v.expiry_date");
         } else if (status === "scheduled") {
-          where.push("v.is_active = TRUE AND NOW() < v.start_date");
+          where.push("v.status = 'ACTIVE' AND NOW() < v.start_date");
         } else if (status === "inactive") {
-          where.push("v.is_active = FALSE");
+          where.push("v.status != 'ACTIVE'");
         }
       }
 
@@ -381,10 +477,10 @@ const voucherController = {
         orderSql = "v.expiry_date ASC";
       } else if (sort === "usage_desc") {
         orderSql =
-          "CASE WHEN v.usage_limit = 0 THEN 0 ELSE (v.times_redeemed / v.usage_limit) END DESC, v.times_redeemed DESC";
+          "CASE WHEN v.usage_limit = 0 THEN 0 ELSE (v.usage_count / v.usage_limit) END DESC, v.usage_count DESC";
       } else if (sort === "usage_asc") {
         orderSql =
-          "CASE WHEN v.usage_limit = 0 THEN 0 ELSE (v.times_redeemed / NULLIF(v.usage_limit, 0)) END ASC, v.times_redeemed ASC";
+          "CASE WHEN v.usage_limit = 0 THEN 0 ELSE (v.usage_count / NULLIF(v.usage_limit, 0)) END ASC, v.usage_count ASC";
       }
 
       const [rows] = await pool.query(
@@ -399,21 +495,22 @@ const voucherController = {
           v.start_date,
           v.expiry_date,
           v.usage_limit,
-          v.times_redeemed,
+          v.usage_count,  -- Changed: times_redeemed -> usage_count
           v.bulk_quantity,
-          v.bulk_generated,
+          v.bulk_codes_generated AS bulk_generated,  -- Changed: bulk_codes_generated
           v.bulk_code_length,
-          v.is_active,
+          v.status,  -- Changed: is_active -> status
+          BIN_TO_UUID(v.created_by) as created_by_uuid,
           v.created_at,
           v.updated_at,
           CASE
-            WHEN v.is_active = FALSE THEN 'inactive'
+            WHEN v.status != 'ACTIVE' THEN 'inactive'
             WHEN NOW() < v.start_date THEN 'scheduled'
             WHEN NOW() > v.expiry_date THEN 'expired'
             ELSE 'active'
-          END AS status,
-          CASE WHEN v.usage_limit = 0 THEN NULL ELSE GREATEST(v.usage_limit - v.times_redeemed, 0) END AS usage_remaining,
-          CASE WHEN v.usage_limit = 0 THEN NULL ELSE ROUND((v.times_redeemed / v.usage_limit) * 100, 2) END AS usage_percent
+          END AS computed_status,
+          CASE WHEN v.usage_limit = 0 THEN NULL ELSE GREATEST(v.usage_limit - v.usage_count, 0) END AS usage_remaining,
+          CASE WHEN v.usage_limit = 0 THEN NULL ELSE ROUND((v.usage_count / v.usage_limit) * 100, 2) END AS usage_percent
          FROM vouchers v
          ${whereSql}
          ORDER BY ${orderSql}
@@ -433,10 +530,10 @@ const voucherController = {
       const [statusCountsRows] = await pool.query(
         `SELECT
           COUNT(*) AS total,
-          SUM(v.is_active = TRUE AND NOW() BETWEEN v.start_date AND v.expiry_date) AS active,
+          SUM(v.status = 'ACTIVE' AND NOW() BETWEEN v.start_date AND v.expiry_date) AS active,
           SUM(NOW() > v.expiry_date) AS expired,
-          SUM(v.is_active = FALSE) AS inactive,
-          SUM(v.is_active = TRUE AND NOW() < v.start_date) AS scheduled
+          SUM(v.status != 'ACTIVE') AS inactive,
+          SUM(v.status = 'ACTIVE' AND NOW() < v.start_date) AS scheduled
          FROM vouchers v`
       );
 
@@ -472,25 +569,25 @@ const voucherController = {
     }
   },
 
-  // ADMIN: Overview cards / stats for dashboard
+  // ADMIN: Overview cards / stats for dashboard - UPDATED
   getOverview: async (_req, res) => {
     try {
       const [overviewRows] = await pool.query(
         `SELECT
           COUNT(*) AS total,
-          SUM(v.is_active = TRUE AND NOW() BETWEEN v.start_date AND v.expiry_date) AS active,
+          SUM(v.status = 'ACTIVE' AND NOW() BETWEEN v.start_date AND v.expiry_date) AS active,
           SUM(NOW() > v.expiry_date) AS expired,
-          SUM(CASE WHEN v.is_active = TRUE AND NOW() BETWEEN v.start_date AND v.expiry_date THEN
-            CASE WHEN v.usage_limit = 0 THEN 0 ELSE GREATEST(v.usage_limit - v.times_redeemed, 0) * v.reward_value END
+          SUM(CASE WHEN v.status = 'ACTIVE' AND NOW() BETWEEN v.start_date AND v.expiry_date THEN
+            CASE WHEN v.usage_limit = 0 THEN 0 ELSE GREATEST(v.usage_limit - v.usage_count, 0) * v.reward_value END
           END) AS active_value
          FROM vouchers v`
       );
 
       const [todayRows] = await pool.query(
-        `SELECT COUNT(*) AS redeemed_today FROM voucher_redemptions WHERE DATE(redeemed_at) = CURDATE()`
+        `SELECT COUNT(*) AS redeemed_today FROM voucher_usage WHERE DATE(used_at) = CURDATE()`
       );
       const [yesterdayRows] = await pool.query(
-        `SELECT COUNT(*) AS redeemed_yesterday FROM voucher_redemptions WHERE DATE(redeemed_at) = CURDATE() - INTERVAL 1 DAY`
+        `SELECT COUNT(*) AS redeemed_yesterday FROM voucher_usage WHERE DATE(used_at) = CURDATE() - INTERVAL 1 DAY`
       );
       const today = Number(todayRows?.[0]?.redeemed_today || 0);
       const yesterday = Number(yesterdayRows?.[0]?.redeemed_yesterday || 0);
@@ -502,11 +599,11 @@ const voucherController = {
           : ((today - yesterday) / yesterday) * 100;
 
       const [creditRows] = await pool.query(
-        `SELECT COALESCE(SUM(reward_value), 0) AS total_credit FROM voucher_redemptions`
+        `SELECT COALESCE(SUM(used_amount), 0) AS total_credit FROM voucher_usage`
       );
 
       const [recentRedemptionRows] = await pool.query(
-        `SELECT COUNT(*) AS redemptions_30d FROM voucher_redemptions WHERE redeemed_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`
+        `SELECT COUNT(*) AS redemptions_30d FROM voucher_usage WHERE used_at >= DATE_SUB(NOW(), INTERVAL 30 DAY)`
       );
       const [recentSupplyRows] = await pool.query(
         `SELECT COALESCE(SUM(CASE WHEN v.usage_limit = 0 THEN NULL ELSE v.usage_limit END), 0) AS supply_30d
@@ -547,7 +644,7 @@ const voucherController = {
     }
   },
 
-  // ADMIN: Export vouchers as CSV (applies same filters as list)
+  // ADMIN: Export vouchers as CSV - UPDATED
   exportVouchers: async (req, res) => {
     const parsed = AdminListVouchersSchema.safeParse(req.query);
     if (!parsed.success) {
@@ -570,8 +667,8 @@ const voucherController = {
       }
 
       if (typeof is_active === "boolean") {
-        where.push("v.is_active = ?");
-        params.push(is_active);
+        where.push("v.status = ?");
+        params.push(is_active ? 'ACTIVE' : 'INACTIVE');
       }
 
       if (type) {
@@ -582,14 +679,14 @@ const voucherController = {
       if (status) {
         if (status === "active") {
           where.push(
-            "v.is_active = TRUE AND NOW() BETWEEN v.start_date AND v.expiry_date"
+            "v.status = 'ACTIVE' AND NOW() BETWEEN v.start_date AND v.expiry_date"
           );
         } else if (status === "expired") {
           where.push("NOW() > v.expiry_date");
         } else if (status === "scheduled") {
-          where.push("v.is_active = TRUE AND NOW() < v.start_date");
+          where.push("v.status = 'ACTIVE' AND NOW() < v.start_date");
         } else if (status === "inactive") {
-          where.push("v.is_active = FALSE");
+          where.push("v.status != 'ACTIVE'");
         }
       }
 
@@ -602,10 +699,10 @@ const voucherController = {
         orderSql = "v.expiry_date ASC";
       } else if (sort === "usage_desc") {
         orderSql =
-          "CASE WHEN v.usage_limit = 0 THEN 0 ELSE (v.times_redeemed / v.usage_limit) END DESC, v.times_redeemed DESC";
+          "CASE WHEN v.usage_limit = 0 THEN 0 ELSE (v.usage_count / v.usage_limit) END DESC, v.usage_count DESC";
       } else if (sort === "usage_asc") {
         orderSql =
-          "CASE WHEN v.usage_limit = 0 THEN 0 ELSE (v.times_redeemed / NULLIF(v.usage_limit, 0)) END ASC, v.times_redeemed ASC";
+          "CASE WHEN v.usage_limit = 0 THEN 0 ELSE (v.usage_count / NULLIF(v.usage_limit, 0)) END ASC, v.usage_count ASC";
       }
 
       const [rows] = await pool.query(
@@ -620,21 +717,21 @@ const voucherController = {
           v.start_date,
           v.expiry_date,
           v.usage_limit,
-          v.times_redeemed,
+          v.usage_count AS times_redeemed,
           v.bulk_quantity,
-          v.bulk_generated,
+          v.bulk_codes_generated AS bulk_generated,
           v.bulk_code_length,
-          v.is_active,
+          v.status,
           v.created_at,
           v.updated_at,
           CASE
-            WHEN v.is_active = FALSE THEN 'inactive'
+            WHEN v.status != 'ACTIVE' THEN 'inactive'
             WHEN NOW() < v.start_date THEN 'scheduled'
             WHEN NOW() > v.expiry_date THEN 'expired'
             ELSE 'active'
-          END AS status,
-          CASE WHEN v.usage_limit = 0 THEN NULL ELSE GREATEST(v.usage_limit - v.times_redeemed, 0) END AS usage_remaining,
-          CASE WHEN v.usage_limit = 0 THEN NULL ELSE ROUND((v.times_redeemed / v.usage_limit) * 100, 2) END AS usage_percent
+          END AS computed_status,
+          CASE WHEN v.usage_limit = 0 THEN NULL ELSE GREATEST(v.usage_limit - v.usage_count, 0) END AS usage_remaining,
+          CASE WHEN v.usage_limit = 0 THEN NULL ELSE ROUND((v.usage_count / v.usage_limit) * 100, 2) END AS usage_percent
          FROM vouchers v
          ${whereSql}
          ORDER BY ${orderSql}`,
@@ -682,8 +779,8 @@ const voucherController = {
             row.times_redeemed,
             row.usage_remaining,
             row.usage_percent,
-            row.status,
-            row.is_active ? "TRUE" : "FALSE",
+            row.computed_status,
+            row.status === 'ACTIVE' ? "TRUE" : "FALSE",
             row.start_date,
             row.expiry_date,
             row.created_at,
@@ -713,7 +810,7 @@ const voucherController = {
     }
   },
 
-  // ADMIN: Toggle active flag
+  // ADMIN: Toggle active flag - UPDATED
   toggleVoucher: async (req, res) => {
     const { id } = req.params;
     const { is_active } = req.body || {};
@@ -727,8 +824,8 @@ const voucherController = {
 
     try {
       const [result] = await pool.query(
-        `UPDATE vouchers SET is_active = ?, updated_at = CURRENT_TIMESTAMP WHERE id = UUID_TO_BIN(?)`,
-        [is_active, id]
+        `UPDATE vouchers SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = UUID_TO_BIN(?)`,
+        [is_active ? 'ACTIVE' : 'INACTIVE', id]
       );
 
       if (result.affectedRows === 0) {
@@ -777,7 +874,7 @@ const voucherController = {
     }
   },
 
-  // ADMIN: Get voucher
+  // ADMIN: Get voucher - UPDATED
   getVoucher: async (req, res) => {
     const { id } = req.params;
     try {
@@ -793,21 +890,22 @@ const voucherController = {
           v.start_date,
           v.expiry_date,
           v.usage_limit,
-          v.times_redeemed,
+          v.usage_count AS times_redeemed,
           v.bulk_quantity,
-          v.bulk_generated,
+          v.bulk_codes_generated AS bulk_generated,
           v.bulk_code_length,
-          v.is_active,
+          v.status,
+          BIN_TO_UUID(v.created_by) as created_by_uuid,
           v.created_at,
           v.updated_at,
           CASE
-            WHEN v.is_active = FALSE THEN 'inactive'
+            WHEN v.status != 'ACTIVE' THEN 'inactive'
             WHEN NOW() < v.start_date THEN 'scheduled'
             WHEN NOW() > v.expiry_date THEN 'expired'
             ELSE 'active'
-          END AS status,
-          CASE WHEN v.usage_limit = 0 THEN NULL ELSE GREATEST(v.usage_limit - v.times_redeemed, 0) END AS usage_remaining,
-          CASE WHEN v.usage_limit = 0 THEN NULL ELSE ROUND((v.times_redeemed / v.usage_limit) * 100, 2) END AS usage_percent
+          END AS computed_status,
+          CASE WHEN v.usage_limit = 0 THEN NULL ELSE GREATEST(v.usage_limit - v.usage_count, 0) END AS usage_remaining,
+          CASE WHEN v.usage_limit = 0 THEN NULL ELSE ROUND((v.usage_count / v.usage_limit) * 100, 2) END AS usage_percent
          FROM vouchers v
          WHERE v.id = UUID_TO_BIN(?)
          LIMIT 1`,
@@ -832,7 +930,7 @@ const voucherController = {
     }
   },
 
-  // ADMIN: Update voucher
+  // ADMIN: Update voucher - UPDATED
   updateVoucher: async (req, res) => {
     const { id } = req.params;
     const parsed = UpdateVoucherSchema.safeParse(req.body);
@@ -904,8 +1002,8 @@ const voucherController = {
         params.push(updates.usage_limit);
       }
       if (updates.is_active !== undefined) {
-        sqlParts.push("is_active = ?");
-        params.push(updates.is_active);
+        sqlParts.push("status = ?");
+        params.push(updates.is_active ? 'ACTIVE' : 'INACTIVE');
       }
 
       if (updates.code_prefix !== undefined) {
@@ -955,7 +1053,7 @@ const voucherController = {
     }
   },
 
-  // USER: Validate a code (does not redeem)
+  // USER: Validate a code (does not redeem) - UPDATED
   validateVoucher: async (req, res) => {
     const parsed = ValidateVoucherSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -970,6 +1068,102 @@ const voucherController = {
     const userId = req.user?.id;
 
     try {
+      // Helper function to find voucher
+      const findVoucherByCode = async (pool, code) => {
+        // First check main vouchers table
+        const [voucherRows] = await pool.query(
+          `SELECT 
+            BIN_TO_UUID(v.id) AS id,
+            v.code,
+            v.campaign_name,
+            v.voucher_type,
+            v.reward_type,
+            v.reward_value,
+            v.start_date,
+            v.expiry_date,
+            v.usage_limit,
+            v.usage_count AS times_redeemed,
+            v.status,
+            v.bulk_quantity,
+            v.bulk_codes_generated
+           FROM vouchers v 
+           WHERE v.code = ? 
+           LIMIT 1`,
+          [code]
+        );
+
+        if (voucherRows.length > 0) {
+          return { voucher: voucherRows[0], voucherCode: null };
+        }
+
+        // If not found in main table, check bulk codes table
+        const [bulkCodeRows] = await pool.query(
+          `SELECT 
+            BIN_TO_UUID(bvc.id) AS id,
+            bvc.code,
+            bvc.status,
+            BIN_TO_UUID(bvc.used_by) AS redeemed_by,
+            BIN_TO_UUID(v.id) AS voucher_id,
+            v.campaign_name,
+            v.voucher_type,
+            v.reward_type,
+            v.reward_value,
+            v.start_date,
+            v.expiry_date,
+            v.usage_limit,
+            v.usage_count AS times_redeemed,
+            v.status AS voucher_status,
+            v.bulk_quantity,
+            v.bulk_codes_generated
+           FROM bulk_voucher_codes bvc
+           JOIN vouchers v ON bvc.parent_voucher_id = v.id
+           WHERE bvc.code = ? 
+           LIMIT 1`,
+          [code]
+        );
+
+        if (bulkCodeRows.length > 0) {
+          const bulkCode = bulkCodeRows[0];
+          return {
+            voucher: {
+              id: bulkCode.voucher_id,
+              code: bulkCode.code,
+              campaign_name: bulkCode.campaign_name,
+              voucher_type: bulkCode.voucher_type,
+              reward_type: bulkCode.reward_type,
+              reward_value: bulkCode.reward_value,
+              start_date: bulkCode.start_date,
+              expiry_date: bulkCode.expiry_date,
+              usage_limit: bulkCode.usage_limit,
+              times_redeemed: bulkCode.times_redeemed,
+              status: bulkCode.voucher_status,
+              bulk_quantity: bulkCode.bulk_quantity,
+              bulk_codes_generated: bulkCode.bulk_codes_generated
+            },
+            voucherCode: {
+              id: bulkCode.id,
+              code: bulkCode.code,
+              status: bulkCode.status,
+              redeemed_by: bulkCode.redeemed_by
+            }
+          };
+        }
+
+        return { voucher: null, voucherCode: null };
+      };
+
+      // Helper function to compute status
+      const computeVoucherStatus = (voucher) => {
+        const now = new Date();
+        const start = new Date(voucher.start_date);
+        const expiry = new Date(voucher.expiry_date);
+        
+        if (voucher.status !== 'ACTIVE') return 'inactive';
+        if (now < start) return 'scheduled';
+        if (now > expiry) return 'expired';
+        return 'active';
+      };
+
       const { voucher, voucherCode } = await findVoucherByCode(pool, code);
 
       if (!voucher) {
@@ -987,8 +1181,8 @@ const voucherController = {
 
       if (!alreadyRedeemed && userId) {
         const [redeemRows] = await pool.query(
-          `SELECT 1 FROM voucher_redemptions vr
-           WHERE vr.voucher_id = UUID_TO_BIN(?) AND vr.user_id = UUID_TO_BIN(?)
+          `SELECT 1 FROM voucher_usage vu
+           WHERE vu.voucher_id = UUID_TO_BIN(?) AND vu.user_id = UUID_TO_BIN(?)
            LIMIT 1`,
           [voucher.id, userId]
         );
@@ -999,10 +1193,10 @@ const voucherController = {
         voucher.usage_limit === 0 ||
         voucher.times_redeemed < voucher.usage_limit;
       const isCodeAvailable = voucherCode
-        ? voucherCode.status === "AVAILABLE"
+        ? voucherCode.status === 'ACTIVE'
         : true;
       const ok = Boolean(
-        voucher.is_active &&
+        voucher.status === 'ACTIVE' &&
           status === "active" &&
           hasUses &&
           isCodeAvailable &&
@@ -1025,7 +1219,6 @@ const voucherController = {
             expiry_date: voucher.expiry_date,
             usage_limit: voucher.usage_limit,
             times_redeemed: voucher.times_redeemed,
-            is_active: voucher.is_active,
             status,
             code_status: voucherCode?.status || null,
           },
@@ -1042,7 +1235,7 @@ const voucherController = {
     }
   },
 
-  // USER: Redeem a voucher, apply reward
+  // USER: Redeem a voucher, apply reward - UPDATED
   redeemVoucher: async (req, res) => {
     const parsed = RedeemVoucherSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -1066,12 +1259,98 @@ const voucherController = {
     try {
       await connection.beginTransaction();
 
+      // Helper function to find voucher with FOR UPDATE
+      const findVoucherByCode = async (connection, code, options = {}) => {
+        const forUpdate = options.forUpdate ? "FOR UPDATE" : "";
+        
+        // First check main vouchers table
+        const [voucherRows] = await connection.query(
+          `SELECT 
+            BIN_TO_UUID(v.id) AS id,
+            v.code,
+            v.campaign_name,
+            v.voucher_type,
+            v.reward_type,
+            v.reward_value,
+            v.start_date,
+            v.expiry_date,
+            v.usage_limit,
+            v.usage_count AS times_redeemed,
+            v.status,
+            v.bulk_quantity,
+            v.bulk_codes_generated
+           FROM vouchers v 
+           WHERE v.code = ? 
+           ${forUpdate}
+           LIMIT 1`,
+          [code]
+        );
+
+        if (voucherRows.length > 0) {
+          return { voucher: voucherRows[0], voucherCode: null };
+        }
+
+        // If not found in main table, check bulk codes table
+        const [bulkCodeRows] = await connection.query(
+          `SELECT 
+            BIN_TO_UUID(bvc.id) AS id,
+            bvc.code,
+            bvc.status,
+            BIN_TO_UUID(bvc.used_by) AS redeemed_by,
+            BIN_TO_UUID(v.id) AS voucher_id,
+            v.campaign_name,
+            v.voucher_type,
+            v.reward_type,
+            v.reward_value,
+            v.start_date,
+            v.expiry_date,
+            v.usage_limit,
+            v.usage_count AS times_redeemed,
+            v.status AS voucher_status,
+            v.bulk_quantity,
+            v.bulk_codes_generated
+           FROM bulk_voucher_codes bvc
+           JOIN vouchers v ON bvc.parent_voucher_id = v.id
+           WHERE bvc.code = ? 
+           ${forUpdate}
+           LIMIT 1`,
+          [code]
+        );
+
+        if (bulkCodeRows.length > 0) {
+          const bulkCode = bulkCodeRows[0];
+          return {
+            voucher: {
+              id: bulkCode.voucher_id,
+              code: bulkCode.code,
+              campaign_name: bulkCode.campaign_name,
+              voucher_type: bulkCode.voucher_type,
+              reward_type: bulkCode.reward_type,
+              reward_value: bulkCode.reward_value,
+              start_date: bulkCode.start_date,
+              expiry_date: bulkCode.expiry_date,
+              usage_limit: bulkCode.usage_limit,
+              times_redeemed: bulkCode.times_redeemed,
+              status: bulkCode.voucher_status,
+              bulk_quantity: bulkCode.bulk_quantity,
+              bulk_codes_generated: bulkCode.bulk_codes_generated
+            },
+            voucherCode: {
+              id: bulkCode.id,
+              code: bulkCode.code,
+              status: bulkCode.status,
+              redeemed_by: bulkCode.redeemed_by
+            }
+          };
+        }
+
+        return { voucher: null, voucherCode: null };
+      };
+
       const { voucher, voucherCode } = await findVoucherByCode(
         connection,
         code,
-        {
-          forUpdate: true,
-        }
+        { forUpdate: true }
       );
 
       if (!voucher) {
@@ -1081,7 +1360,7 @@ const voucherController = {
           .json({ success: false, message: "Voucher not found" });
       }
 
-      if (!voucher.is_active) {
+      if (voucher.status !== 'ACTIVE') {
         await connection.rollback();
         return res
           .status(400)
@@ -1109,7 +1388,7 @@ const voucherController = {
           .json({ success: false, message: "Voucher usage limit reached" });
       }
 
-      if (voucherCode && voucherCode.status !== "AVAILABLE") {
+      if (voucherCode && voucherCode.status !== 'ACTIVE') {
         await connection.rollback();
         return res.status(409).json({
           success: false,
@@ -1125,46 +1404,28 @@ const voucherController = {
         });
       }
 
-      // Insert redemption (unique per voucher/user)
+      // Insert redemption
       const redemptionId = uuidv4();
       await connection.query(
-        `INSERT INTO voucher_redemptions (
-          id, voucher_id, voucher_code_id, user_id, reward_type, reward_value, metadata
+        `INSERT INTO voucher_usage (
+          id, voucher_id, user_id, used_amount, ip_address, user_agent
         ) VALUES (
-          UUID_TO_BIN(?), UUID_TO_BIN(?), ${
-            voucherCode ? "UUID_TO_BIN(?)" : "NULL"
-          }, UUID_TO_BIN(?), ?, ?, ?
+          UUID_TO_BIN(?), UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, ?
         )`,
-        voucherCode
-          ? [
-              redemptionId,
-              voucher.id,
-              voucherCode.id,
-              userId,
-              voucher.reward_type,
-              voucher.reward_value,
-              JSON.stringify({
-                code: voucherCode.code,
-                campaign_name: voucher.campaign_name,
-              }),
-            ]
-          : [
-              redemptionId,
-              voucher.id,
-              userId,
-              voucher.reward_type,
-              voucher.reward_value,
-              JSON.stringify({
-                code: voucher.code,
-                campaign_name: voucher.campaign_name,
-              }),
-            ]
+        [
+          redemptionId,
+          voucher.id,
+          userId,
+          voucher.reward_value,
+          req.ip,
+          req.headers['user-agent'] || null
+        ]
       );
 
       if (voucherCode) {
         await connection.query(
-          `UPDATE voucher_codes
-           SET status = 'REDEEMED', redeemed_by = UUID_TO_BIN(?), redeemed_at = CURRENT_TIMESTAMP
+          `UPDATE bulk_voucher_codes
+           SET status = 'USED', used_by = UUID_TO_BIN(?), used_at = CURRENT_TIMESTAMP
            WHERE id = UUID_TO_BIN(?)`,
           [userId, voucherCode.id]
         );
@@ -1172,11 +1433,13 @@ const voucherController = {
 
       // Update usage counter
       await connection.query(
-        `UPDATE vouchers SET times_redeemed = times_redeemed + 1, updated_at = CURRENT_TIMESTAMP
+        `UPDATE vouchers SET usage_count = usage_count + 1, updated_at = CURRENT_TIMESTAMP
          WHERE id = UUID_TO_BIN(?)`,
         [voucher.id]
       );
 
+      // Add site credit to user's wallet
+      // Note: You need to implement or import walletController
       const rewardResult = await walletController.static.addSiteCredit(
         connection,
         userId,
