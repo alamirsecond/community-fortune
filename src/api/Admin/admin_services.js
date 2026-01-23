@@ -1107,38 +1107,42 @@ getUserStats: async () => {
   }
 },
 
-updateUserStatus: async (user_id, status, reason, admin_id) => {
-    const connection = await pool.getConnection();
-    try {
-      await connection.beginTransaction();
+updateUserStatus: async (user_id, status, reason, admin_id, ip_address = null) => {
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
 
-      // Update user status (you might want to add an is_active field)
-      await connection.query(`UPDATE users SET age_verified = ? WHERE id = ?`, [
-        status === "verified",
-        user_id,
-      ]);
+    // Update user status 
+    // Note: You might want to change 'age_verified' to a more appropriate field like 'status' or 'verification_status'
+    await connection.query(
+      `UPDATE users SET age_verified = ?, updated_at = CURRENT_TIMESTAMP WHERE id = UUID_TO_BIN(?)`,
+      [status === "verified", user_id]
+    );
 
-      // Log admin activity
-      await connection.query(
-        `INSERT INTO admin_activities (id, admin_id, action, resource_type, resource_id, ip_address)
-         VALUES (UUID(), ?, ?, 'USER', ?, ?)`,
-        [
-          admin_id,
-          `Updated user status to ${status}: ${reason}`,
-          user_id,
-          req.ip,
-        ]
-      );
+    // Log admin activity - FIXED: Pass ip_address as parameter
+    await connection.query(
+      `INSERT INTO admin_activities (id, admin_id, action, ip_address, user_agent)
+       VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)`,
+      [
+        admin_id,
+        `Updated user status to ${status}: ${reason}`,
+ 
+        ip_address || null,
+        null  // user_agent can be null or passed as another parameter
+      ]
+    );
 
-      await connection.commit();
-    } catch (error) {
-      await connection.rollback();
-      console.error("Error updating user status:", error);
-      throw new Error("Failed to update user status");
-    } finally {
-      connection.release();
-    }
-  },
+    await connection.commit();
+    
+    return { success: true, message: "User status updated successfully" };
+  } catch (error) {
+    await connection.rollback();
+    console.error("Error updating user status:", error);
+    throw new Error("Failed to update user status");
+  } finally {
+    connection.release();
+  }
+},
 
   // ... other service methods for competitions, withdrawals, analytics, etc.
 
