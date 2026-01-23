@@ -2019,12 +2019,34 @@ deleteUser: async ({ user_id }) => {
         };
       }
 
-      // Delete from ALL tables that reference users
-      // Order matters - delete from child tables first
+      // Delete from ALL tables that reference users in correct order
       
-      // 1. Start with game-related tables
+      // 1. Start with dependent child tables (most specific to general)
+
+      // Voucher-related tables first
+      await connection.query(
+        'DELETE FROM voucher_usage WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      await connection.query(
+        'DELETE FROM bulk_voucher_codes WHERE used_by = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      await connection.query(
+        'DELETE FROM voucher_codes WHERE used_by = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      // 2. Game-related tables
       await connection.query(
         'DELETE FROM game_plays WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      await connection.query(
+        'DELETE FROM mini_game_scores WHERE user_id = UUID_TO_BIN(?)',
         [user_id]
       );
 
@@ -2034,11 +2056,32 @@ deleteUser: async ({ user_id }) => {
       );
 
       await connection.query(
-        'DELETE FROM mini_game_scores WHERE user_id = UUID_TO_BIN(?)',
+        'DELETE FROM game_scores WHERE user_id = UUID_TO_BIN(?)',
         [user_id]
       );
 
-      // 2. Delete from points and rewards tables
+      // 3. User notes and activities
+      await connection.query(
+        'DELETE FROM user_notes WHERE user_id = UUID_TO_BIN(?) OR created_by = UUID_TO_BIN(?)',
+        [user_id, user_id]
+      );
+
+      await connection.query(
+        'DELETE FROM user_activities WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      await connection.query(
+        'DELETE FROM admin_activities WHERE admin_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      // 4. Points and rewards
+      await connection.query(
+        'DELETE FROM points_history WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
       await connection.query(
         'DELETE FROM daily_login_points WHERE user_id = UUID_TO_BIN(?)',
         [user_id]
@@ -2050,13 +2093,74 @@ deleteUser: async ({ user_id }) => {
       );
 
       await connection.query(
-        'DELETE FROM points_history WHERE user_id = UUID_TO_BIN(?)',
+        'DELETE FROM user_streaks WHERE user_id = UUID_TO_BIN(?)',
         [user_id]
       );
 
-      // 3. Delete from bonus and credit tables
       await connection.query(
-        'DELETE FROM bonus_spins WHERE user_id = UUID_TO_BIN(?)',
+        'DELETE FROM user_points WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      // 5. Mission and achievements
+      await connection.query(
+        'DELETE FROM user_missions WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      // 6. Competition-related tables
+      await connection.query(
+        'DELETE FROM competition_entries WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      await connection.query(
+        'DELETE FROM competition_audit WHERE changed_by = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      // 7. Wallet and transactions
+      // First get wallet IDs to delete wallet_transactions
+      const [userWallets] = await connection.query(
+        'SELECT id FROM wallets WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      for (const wallet of userWallets) {
+        await connection.query(
+          'DELETE FROM wallet_transactions WHERE wallet_id = UUID_TO_BIN(?)',
+          [wallet.id]
+        );
+
+        await connection.query(
+          'DELETE FROM wallet_actions WHERE wallet_id = UUID_TO_BIN(?)',
+          [wallet.id]
+        );
+      }
+
+      await connection.query(
+        'DELETE FROM wallets WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      await connection.query(
+        'DELETE FROM spending_limits WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      // 8. Tickets and purchases
+      await connection.query(
+        'DELETE FROM tickets WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      await connection.query(
+        'DELETE FROM universal_tickets WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      await connection.query(
+        'DELETE FROM purchases WHERE user_id = UUID_TO_BIN(?)',
         [user_id]
       );
 
@@ -2065,31 +2169,20 @@ deleteUser: async ({ user_id }) => {
         [user_id]
       );
 
-      // 4. Delete from competition tables
+      // 9. Spin and bonus related
       await connection.query(
-        'DELETE FROM competition_entries WHERE user_id = UUID_TO_BIN(?)',
+        'DELETE FROM spin_history WHERE user_id = UUID_TO_BIN(?)',
         [user_id]
       );
 
       await connection.query(
-        'DELETE FROM competition_audit WHERE user_id = UUID_TO_BIN(?)',
+        'DELETE FROM bonus_spins WHERE user_id = UUID_TO_BIN(?)',
         [user_id]
       );
 
-      // 5. Delete from referral tables
+      // 10. Winners and instant wins
       await connection.query(
-        'DELETE FROM referral_links WHERE user_id = UUID_TO_BIN(?)',
-        [user_id]
-      );
-
-      await connection.query(
-        'DELETE FROM referral_events WHERE referrer_user_id = UUID_TO_BIN(?) OR referred_user_id = UUID_TO_BIN(?)',
-        [user_id, user_id]
-      );
-
-      // 6. Delete from prize and claim tables
-      await connection.query(
-        'DELETE FROM physical_prize_claims WHERE user_id = UUID_TO_BIN(?)',
+        'DELETE FROM winners WHERE user_id = UUID_TO_BIN(?)',
         [user_id]
       );
 
@@ -2098,35 +2191,28 @@ deleteUser: async ({ user_id }) => {
         [user_id]
       );
 
-      // 7. Delete from purchases and tickets
       await connection.query(
-        'DELETE FROM purchases WHERE user_id = UUID_TO_BIN(?)',
+        'DELETE FROM physical_prize_claims WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      // 11. KYC and verification
+      await connection.query(
+        'DELETE FROM kyc_documents WHERE user_id = UUID_TO_BIN(?)',
         [user_id]
       );
 
       await connection.query(
-        'DELETE FROM tickets WHERE user_id = UUID_TO_BIN(?)',
-        [user_id]
-      );
-
-      // 8. Delete from admin and review tables
-      await connection.query(
-        'DELETE FROM admin_activities WHERE user_id = UUID_TO_BIN(?)',
-        [user_id]
-      );
-
-      await connection.query(
-        'DELETE FROM reviews WHERE user_id = UUID_TO_BIN(?) OR admin_id = UUID_TO_BIN(?)',
+        'DELETE FROM kyc_reviews WHERE user_id = UUID_TO_BIN(?) OR admin_id = UUID_TO_BIN(?)',
         [user_id, user_id]
       );
 
-      // 9. Delete from user_activities (which was causing the error)
       await connection.query(
-        'DELETE FROM user_activities WHERE user_id = UUID_TO_BIN(?)',
-        [user_id]
+        'DELETE FROM verifications WHERE user_id = UUID_TO_BIN(?) OR verified_by = UUID_TO_BIN(?)',
+        [user_id, user_id]
       );
 
-      // 10. Delete from other user-related tables
+      // 12. Email and password verification
       await connection.query(
         'DELETE FROM email_verification_tokens WHERE user_id = UUID_TO_BIN(?)',
         [user_id]
@@ -2137,39 +2223,104 @@ deleteUser: async ({ user_id }) => {
         [user_id]
       );
 
+      // 13. Referral system
       await connection.query(
-        'DELETE FROM recycled_documents WHERE user_id = UUID_TO_BIN(?)',
+        'DELETE FROM referral_links WHERE user_id = UUID_TO_BIN(?)',
         [user_id]
       );
 
-      // 11. Delete from games created by user
       await connection.query(
-        'DELETE FROM games WHERE created_by = UUID_TO_BIN(?)',
+        'DELETE FROM referral_events WHERE referrer_id = UUID_TO_BIN(?) OR referred_user_id = UUID_TO_BIN(?)',
+        [user_id, user_id]
+      );
+
+      await connection.query(
+        'DELETE FROM user_referral_stats WHERE user_id = UUID_TO_BIN(?)',
         [user_id]
       );
 
-      // 12. Delete from partner applications
+      // 14. Subscription system
+      await connection.query(
+        'DELETE FROM user_subscriptions WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      // 15. Social sharing
+      await connection.query(
+        'DELETE FROM share_events WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      // 16. Legal consents
+      await connection.query(
+        'DELETE FROM user_consents WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      // 17. Contact messages (if they have user_id field)
+      try {
+        await connection.query(
+          'DELETE FROM contact_messages WHERE email = (SELECT email FROM users WHERE id = UUID_TO_BIN(?))',
+          [user_id]
+        );
+      } catch (error) {
+        // Table might not have user_id or different structure
+        console.log('Note: Could not delete contact messages');
+      }
+
+      // 18. Transactions
+      await connection.query(
+        'DELETE FROM transactions WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      // 19. Withdrawals
+      await connection.query(
+        'DELETE FROM withdrawals WHERE user_id = UUID_TO_BIN(?) OR admin_id = UUID_TO_BIN(?)',
+        [user_id, user_id]
+      );
+
+      // 20. Reviews
+      await connection.query(
+        'DELETE FROM reviews WHERE user_id = UUID_TO_BIN(?) OR admin_id = UUID_TO_BIN(?)',
+        [user_id, user_id]
+      );
+
+      // 21. Partner applications
       await connection.query(
         'DELETE FROM partner_applications WHERE assigned_admin_id = UUID_TO_BIN(?)',
         [user_id]
       );
 
-      // 13. Delete from referral settings
+      // 22. Games created by user
+      await connection.query(
+        'DELETE FROM games WHERE created_by = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      // 23. Referral settings
       await connection.query(
         'DELETE FROM referral_settings WHERE updated_by = UUID_TO_BIN(?)',
         [user_id]
       );
 
-      // 14. Delete from wallets (if exists - not in your list but mentioned earlier)
-      try {
-        await connection.query(
-          'DELETE FROM wallets WHERE user_id = UUID_TO_BIN(?)',
-          [user_id]
-        );
-      } catch (error) {
-        // Table might not exist or have different name
-        console.log('Note: wallets table might not exist');
-      }
+      // 24. Other tables from your list
+      await connection.query(
+        'DELETE FROM recycled_documents WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      // 25. Handle users who referred others (set referred_by to NULL)
+      await connection.query(
+        'UPDATE users SET referred_by = NULL WHERE referred_by = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
+      // 26. Handle users created by this user (set created_by to NULL)
+      await connection.query(
+        'UPDATE users SET created_by = NULL WHERE created_by = UUID_TO_BIN(?)',
+        [user_id]
+      );
 
       // Finally delete user
       const [result] = await connection.query(
@@ -2187,13 +2338,19 @@ deleteUser: async ({ user_id }) => {
     } catch (error) {
       await connection.rollback();
       console.error("Transaction error:", error);
+      
+      // Provide more specific error messages
+      if (error.code === 'ER_ROW_IS_REFERENCED_2') {
+        throw new Error(`Foreign key constraint violation. There might be additional tables referencing this user. Error: ${error.sqlMessage}`);
+      }
+      
       throw error;
     } finally {
       connection.release();
     }
   } catch (error) {
     console.error("Error deleting user:", error);
-    throw new Error("Failed to delete user");
+    throw new Error(`Failed to delete user: ${error.message}`);
   }
 },
 
