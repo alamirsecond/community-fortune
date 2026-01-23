@@ -2280,11 +2280,6 @@ deleteUser: async ({ user_id }) => {
         [user_id, user_id]
       );
 
-      // 20. Reviews
-      await connection.query(
-        'DELETE FROM reviews WHERE user_id = UUID_TO_BIN(?) OR admin_id = UUID_TO_BIN(?)',
-        [user_id, user_id]
-      );
 
       // 21. Partner applications
       await connection.query(
@@ -2299,22 +2294,22 @@ deleteUser: async ({ user_id }) => {
       );
 
       // 23. Referral settings
-      await connection.query(
-        'DELETE FROM referral_settings WHERE updated_by = UUID_TO_BIN(?)',
-        [user_id]
-      );
+      // await connection.query(
+      //   'DELETE FROM referral_settings WHERE updated_by = UUID_TO_BIN(?)',
+      //   [user_id]
+      // );
 
       // 24. Other tables from your list
-      await connection.query(
-        'DELETE FROM recycled_documents WHERE user_id = UUID_TO_BIN(?)',
-        [user_id]
-      );
+      // await connection.query(
+      //   'DELETE FROM recycled_documents WHERE user_id = UUID_TO_BIN(?)',
+      //   [user_id]
+      // );
 
       // 25. Handle users who referred others (set referred_by to NULL)
-      await connection.query(
-        'UPDATE users SET referred_by = NULL WHERE referred_by = UUID_TO_BIN(?)',
-        [user_id]
-      );
+      // await connection.query(
+      //   'UPDATE users SET referred_by = NULL WHERE referred_by = UUID_TO_BIN(?)',
+      //   [user_id]
+      // );
 
       // 26. Handle users created by this user (set created_by to NULL)
       await connection.query(
