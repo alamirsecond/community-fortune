@@ -207,6 +207,7 @@ const superAdminController = {
     }
   },
   //Get all admins
+// Get all admins
 getAdmins: async (req, res) => {
   try {
     const parsed = PaginationSchema.safeParse(req.query);
@@ -217,28 +218,32 @@ getAdmins: async (req, res) => {
         details: parsed.error.errors,
       });
     }
+    
     const {
       page = 1,
       limit = 20,
       search = "",
       status = "active",
     } = parsed.data;
+    
     const offset = (page - 1) * limit;
-    let whereClause = "WHERE u.role = 'ADMIN'";
+    let whereClause = "WHERE u.role IN ('ADMIN', 'SUPERADMIN')";
     const queryParams = [];
+    
     if (status === "active") {
       whereClause += " AND u.is_active = TRUE";
     } else if (status === "inactive") {
       whereClause += " AND u.is_active = FALSE";
     }
+    
     if (search) {
       whereClause +=
-        " AND (u.email LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ?)";
+        " AND (u.email LIKE ? OR u.first_name LIKE ? OR u.last_name LIKE ? OR u.username LIKE ?)";
       const searchParam = `%${search}%`;
-      queryParams.push(searchParam, searchParam, searchParam);
+      queryParams.push(searchParam, searchParam, searchParam, searchParam);
     }
-    queryParams.push(parseInt(limit), offset);
-    //Fetch admins (convert BIN → UUID in SELECT)
+    
+    // Main query for admins
     const [admins] = await pool.query(
       `SELECT 
         BIN_TO_UUID(u.id)            AS id,
@@ -247,34 +252,41 @@ getAdmins: async (req, res) => {
         u.first_name,
         u.last_name,
         u.phone,
+        u.role,
         u.is_active,
         u.created_at,
         u.last_login,
         u.permissions,
-
         BIN_TO_UUID(u.created_by)    AS created_by_id,
         creator.email               AS created_by_email,
         creator.first_name          AS created_by_first_name,
         creator.last_name           AS created_by_last_name,
-
-        (SELECT COUNT(*) 
-           FROM admin_activity_logs a 
-           WHERE a.admin_id = u.id
+        (
+          SELECT COUNT(*) 
+          FROM admin_activities aa 
+          WHERE aa.admin_id = u.id
         ) AS activity_count
-
       FROM users u
       LEFT JOIN users creator ON u.created_by = creator.id
       ${whereClause}
-      ORDER BY u.created_at DESC
+      ORDER BY 
+        CASE u.role 
+          WHEN 'SUPERADMIN' THEN 1 
+          WHEN 'ADMIN' THEN 2 
+          ELSE 3 
+        END,
+        u.created_at DESC
       LIMIT ? OFFSET ?`,
-      queryParams
+      [...queryParams, parseInt(limit), offset]
     );
 
-    //Total count (no BIN_TO_UUID needed)
+    // Total count
+    const countWhereClause = whereClause.replace(/u\./g, '');
     const [totalResult] = await pool.query(
-      `SELECT COUNT(*) as total FROM users u ${whereClause}`,
-      queryParams.slice(0, queryParams.length - 2)
+      `SELECT COUNT(*) as total FROM users ${countWhereClause}`,
+      queryParams
     );
+    
     res.status(200).json({
       success: true,
       data: {
@@ -292,35 +304,39 @@ getAdmins: async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to fetch admins",
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 },
 //Get single admin by ID
+// Get single admin by ID
 getAdmin: async (req, res) => {
   try {
     const { admin_id } = req.params;
+    
+    // Get admin details
     const [admins] = await pool.query(
       `SELECT 
-         BIN_TO_UUID(u.id)         AS id,
-         u.email,
-         u.username,
-         u.first_name,
-         u.last_name,
-         u.phone,
-         u.is_active,
-         u.created_at,
-         u.last_login,
-         u.permissions,
-
-         BIN_TO_UUID(u.created_by) AS created_by_id,
-         creator.email            AS created_by_email,
-         creator.first_name       AS created_by_first_name,
-         creator.last_name        AS created_by_last_name
-
-       FROM users u
-       LEFT JOIN users creator ON u.created_by = creator.id
-       WHERE u.id = UUID_TO_BIN(?) 
-         AND u.role = 'ADMIN'`,
+        BIN_TO_UUID(u.id)         AS id,
+        u.email,
+        u.username,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.role,
+        u.is_active,
+        u.created_at,
+        u.last_login,
+        u.permissions,
+        BIN_TO_UUID(u.created_by) AS created_by_id,
+        creator.email            AS created_by_email,
+        creator.username         AS created_by_username,
+        creator.first_name       AS created_by_first_name,
+        creator.last_name        AS created_by_last_name
+      FROM users u
+      LEFT JOIN users creator ON u.created_by = creator.id
+      WHERE u.id = UUID_TO_BIN(?) 
+        AND u.role IN ('ADMIN', 'SUPERADMIN')`,
       [admin_id]
     );
 
@@ -331,38 +347,72 @@ getAdmin: async (req, res) => {
       });
     }
 
-    //Admin activity stats
+    const admin = admins[0];
+
+    // Admin activity stats (matching new table schema)
     const [stats] = await pool.query(
       `SELECT 
-         COUNT(*) AS total_activities,
-         SUM(action = 'CREATE_COMPETITION') AS competitions_created,
-         SUM(action = 'SELECT_WINNER')      AS winners_selected,
-         MAX(created_at)                    AS last_activity
-       FROM admin_activity_logs
-       WHERE admin_id = UUID_TO_BIN(?)`,
+        COUNT(*) AS total_activities,
+        SUM(CASE 
+          WHEN module = 'competitions' THEN 1 
+          ELSE 0 
+        END) AS competitions_activities,
+        SUM(CASE 
+          WHEN module = 'users' THEN 1 
+          ELSE 0 
+        END) AS users_activities,
+        SUM(CASE 
+          WHEN module = 'vouchers' THEN 1 
+          ELSE 0 
+        END) AS vouchers_activities,
+        DATE(MAX(created_at)) AS last_activity_date
+      FROM admin_activities
+      WHERE admin_id = UUID_TO_BIN(?)`,
       [admin_id]
     );
 
-    //Recent activities 
+    // Recent activities (last 10)
     const [activities] = await pool.query(
       `SELECT 
-         action,
-         entity_type,
-         details,
-         created_at
-       FROM admin_activity_logs
-       WHERE admin_id = UUID_TO_BIN(?)
-       ORDER BY created_at DESC
-       LIMIT 10`,
+        BIN_TO_UUID(id) as activity_id,
+        action,
+        module,
+        target_id,
+        ip_address,
+        created_at
+      FROM admin_activities
+      WHERE admin_id = UUID_TO_BIN(?)
+      ORDER BY created_at DESC
+      LIMIT 10`,
+      [admin_id]
+    );
+
+    // Monthly activity count (last 6 months)
+    const [monthlyStats] = await pool.query(
+      `SELECT 
+        DATE_FORMAT(created_at, '%Y-%m') as month,
+        COUNT(*) as activity_count
+      FROM admin_activities
+      WHERE admin_id = UUID_TO_BIN(?)
+        AND created_at >= DATE_SUB(NOW(), INTERVAL 6 MONTH)
+      GROUP BY DATE_FORMAT(created_at, '%Y-%m')
+      ORDER BY month DESC`,
       [admin_id]
     );
 
     res.status(200).json({
       success: true,
       data: {
-        admin: admins[0],
-        stats: stats[0],
+        admin: admin,
+        stats: {
+          total_activities: stats[0]?.total_activities || 0,
+          competitions_activities: stats[0]?.competitions_activities || 0,
+          users_activities: stats[0]?.users_activities || 0,
+          vouchers_activities: stats[0]?.vouchers_activities || 0,
+          last_activity_date: stats[0]?.last_activity_date || null
+        },
         recent_activities: activities,
+        monthly_activity: monthlyStats,
       },
     });
   } catch (err) {
@@ -370,18 +420,20 @@ getAdmin: async (req, res) => {
     res.status(500).json({
       success: false,
       error: "Failed to fetch admin details",
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   }
 },
 
-  // Update admin
- updateAdmin: async (req, res) => {
+updateAdmin: async (req, res) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
 
     const { admin_id } = req.params; 
     const superadminId = req.user.id;
+    const userIp = req.ip;
+    const userAgent = req.headers["user-agent"] || null;
 
     const parsed = UpdateAdminSchema.safeParse(req.body);
     if (!parsed.success) {
@@ -393,13 +445,19 @@ getAdmin: async (req, res) => {
       });
     }
 
-    const { is_active, permissions } = parsed.data;
+    const { is_active, permissions, role } = parsed.data;
 
-    //Check admin exists
+    // Check admin exists
     const [existingAdmins] = await connection.query(
-      `SELECT BIN_TO_UUID(id) AS id, email
-       FROM users
-       WHERE id = UUID_TO_BIN(?) AND role = 'ADMIN'`,
+      `SELECT 
+        BIN_TO_UUID(id) AS id, 
+        email,
+        username,
+        is_active as current_is_active,
+        permissions as current_permissions,
+        role as current_role
+      FROM users
+      WHERE id = UUID_TO_BIN(?) AND role IN ('ADMIN', 'SUPERADMIN')`,
       [admin_id]
     );
 
@@ -411,17 +469,55 @@ getAdmin: async (req, res) => {
       });
     }
 
-    //Build update query
+    const existingAdmin = existingAdmins[0];
+
+    // Check permission to update role (only SUPERADMIN can change roles)
+    if (role && req.user.role !== 'SUPERADMIN') {
+      await connection.rollback();
+      return res.status(403).json({
+        success: false,
+        error: "Only SUPERADMIN can change admin roles",
+      });
+    }
+
+    // Check if trying to demote last SUPERADMIN
+    if (role === 'ADMIN' && existingAdmin.current_role === 'SUPERADMIN') {
+      const [superadminCount] = await connection.query(
+        `SELECT COUNT(*) as count 
+        FROM users 
+        WHERE role = 'SUPERADMIN' AND is_active = TRUE`
+      );
+      
+      if (superadminCount[0].count <= 1) {
+        await connection.rollback();
+        return res.status(400).json({
+          success: false,
+          error: "Cannot demote the last active SUPERADMIN",
+        });
+      }
+    }
+
+    // Build update query
     const updates = [];
     const updateParams = [];
+    
     if (is_active !== undefined) {
       updates.push("is_active = ?");
       updateParams.push(is_active);
     }
-    if (permissions) {
+    
+    if (permissions !== undefined) {
       updates.push("permissions = ?");
       updateParams.push(JSON.stringify(permissions));
     }
+    
+    if (role !== undefined) {
+      updates.push("role = ?");
+      updateParams.push(role);
+    }
+    
+    updates.push("updated_at = CURRENT_TIMESTAMP");
+    
     if (updates.length === 0) {
       await connection.rollback();
       return res.status(400).json({
@@ -430,46 +526,71 @@ getAdmin: async (req, res) => {
       });
     }
 
-    //UUID → BIN for WHERE
     updateParams.push(admin_id);
 
-    await connection.query(
+    // Update the admin
+    const [updateResult] = await connection.query(
       `UPDATE users
        SET ${updates.join(", ")}
        WHERE id = UUID_TO_BIN(?)`,
       updateParams
     );
 
-    //Log update activity (ALL UUIDs converted properly)
+    if (updateResult.affectedRows === 0) {
+      await connection.rollback();
+      return res.status(400).json({
+        success: false,
+        error: "No changes were made to the admin",
+      });
+    }
+
+    // Log activity in admin_activities table - FIXED: target_id as VARCHAR
     await connection.query(
-      `INSERT INTO admin_activity_logs (
-        id, admin_id, action, entity_type, entity_id,
-        ip_address, user_agent, details
+      `INSERT INTO admin_activities (
+        id, 
+        admin_id, 
+        action, 
+        target_id,  -- VARCHAR(255) - store as string
+        module,
+        ip_address, 
+        user_agent,
+        created_at
       ) VALUES (
         UUID_TO_BIN(UUID()),
         UUID_TO_BIN(?),
         ?,
+        ?,  -- Pass admin_id as string
         ?,
-        UUID_TO_BIN(?),
         ?,
         ?,
-        ?
+        CURRENT_TIMESTAMP
       )`,
       [
         superadminId,       
-        "UPDATE_ADMIN",
-        "user",
-        admin_id,    
-        req.ip,
-        req.headers["user-agent"],
-        JSON.stringify({
-          admin_id,
-          updates: {
-            is_active,
-            permissions,
-          },
-        }),
+        "ADMIN_UPDATED",
+        admin_id,  // Already a string UUID
+        "admin_management",
+        userIp,
+        userAgent
       ]
+    );
+
+    // Get updated admin data
+    const [updatedAdmin] = await connection.query(
+      `SELECT 
+        BIN_TO_UUID(id) as id,
+        email,
+        username,
+        first_name,
+        last_name,
+        role,
+        is_active,
+        permissions,
+        created_at,
+        updated_at
+      FROM users
+      WHERE id = UUID_TO_BIN(?)`,
+      [admin_id]
     );
 
     await connection.commit();
@@ -477,13 +598,31 @@ getAdmin: async (req, res) => {
     res.status(200).json({
       success: true,
       message: "Admin updated successfully",
+      data: updatedAdmin[0]
     });
   } catch (err) {
     await connection.rollback();
     console.error("Update admin error:", err);
+    
+    // Handle specific errors
+    if (err.code === 'ER_NO_REFERENCED_ROW_2') {
+      return res.status(404).json({
+        success: false,
+        error: "Admin not found or invalid ID",
+      });
+    }
+    
+    if (err.code === 'ER_DATA_TOO_LONG') {
+      return res.status(400).json({
+        success: false,
+        error: "Data too long for one of the fields",
+      });
+    }
+    
     res.status(500).json({
       success: false,
       error: "Failed to update admin",
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined
     });
   } finally {
     connection.release();
