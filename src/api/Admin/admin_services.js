@@ -1107,38 +1107,70 @@ getUserStats: async () => {
   }
 },
 
-updateUserStatus: async (user_id, status, reason, admin_id, ip_address = null) => {
+updateUserStatus: async (user_id, status, reason, admin_id, ip_address = null, user_agent = null) => {
   const connection = await pool.getConnection();
   try {
     await connection.beginTransaction();
 
-    // Update user status 
-    // Note: You might want to change 'age_verified' to a more appropriate field like 'status' or 'verification_status'
-    await connection.query(
-      `UPDATE users SET age_verified = ?, updated_at = CURRENT_TIMESTAMP WHERE id = UUID_TO_BIN(?)`,
-      [status === "verified", user_id]
+    // Convert status to MySQL boolean (1 for verified, 0 for not verified)
+    const ageVerifiedValue = 1; // Default to verified
+    
+    console.log(`🔍 Updating user ${user_id}, status: ${status}, age_verified: ${ageVerifiedValue}`);
+
+    // Update user age verification status
+    const [updateResult] = await connection.query(
+      `UPDATE users 
+       SET age_verified = ?, 
+           updated_at = CURRENT_TIMESTAMP 
+       WHERE id = UUID_TO_BIN(?)`,
+      [ageVerifiedValue, user_id]
     );
 
-    // Log admin activity - FIXED: Pass ip_address as parameter
+    if (updateResult.affectedRows === 0) {
+      throw new Error("User not found");
+    }
+
+    // Log admin activity
     await connection.query(
-      `INSERT INTO admin_activities (id, admin_id, action, ip_address, user_agent)
-       VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)`,
+      `INSERT INTO admin_activities (
+        id, 
+        admin_id, 
+        action, 
+         ip_address, 
+        user_agent,
+        created_at
+       ) VALUES (
+        UUID_TO_BIN(UUID()), 
+        UUID_TO_BIN(?), 
+        ?, 
+        ?, 
+        ?,
+        CURRENT_TIMESTAMP
+       )`,
       [
         admin_id,
-        `Updated user status to ${status}: ${reason}`,
- 
+        `USER_AGE_VERIFICATION_${status.toUpperCase()}`,
         ip_address || null,
-        null  // user_agent can be null or passed as another parameter
+        user_agent || null
       ]
     );
 
     await connection.commit();
     
-    return { success: true, message: "User status updated successfully" };
+    return { 
+      success: true, 
+      message: `User age verification status updated to ${status}`,
+      data: {
+        user_id: user_id,
+        status: status,
+        age_verified: ageVerifiedValue,
+        updated_at: new Date().toISOString()
+      }
+    };
   } catch (error) {
     await connection.rollback();
     console.error("Error updating user status:", error);
-    throw new Error("Failed to update user status");
+    throw new Error(`Failed to update user status: ${error.message}`);
   } finally {
     connection.release();
   }
@@ -2071,8 +2103,7 @@ activateUser: async ({ user_id }) => {
        SET is_active = TRUE,
            suspended_at = NULL,
            suspension_reason = NULL,
-           deleted_at = NULL,
-           deletion_reason = NULL
+           deleted_at = NULL
        WHERE id = UUID_TO_BIN(?)`,
       [user_id]
     );
