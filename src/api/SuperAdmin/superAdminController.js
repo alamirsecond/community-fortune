@@ -724,6 +724,7 @@ resetAdminPassword: async (req, res) => {
   }
 },
 //aklilu:Get activity logs
+//aklilu:Get activity logs
 getActivityLogs: async (req, res) => {
   try {
     const parsed = ActivityLogQuerySchema.safeParse(req.query);
@@ -741,10 +742,13 @@ getActivityLogs: async (req, res) => {
       action,
       start_date,
       end_date,
+      module, // Added module filter if needed
     } = parsed.data;
     const offset = (page - 1) * limit;
+    
     let whereClause = "WHERE 1=1";
     const queryParams = [];
+    
     //aklilu:UUID → BIN for filtering
     if (admin_id) {
       whereClause += " AND a.admin_id = UUID_TO_BIN(?)";
@@ -754,32 +758,43 @@ getActivityLogs: async (req, res) => {
       whereClause += " AND a.action = ?";
       queryParams.push(action);
     }
+    if (module) {
+      whereClause += " AND a.module = ?";
+      queryParams.push(module);
+    }
     if (start_date) {
-      whereClause += " AND a.created_at >= ?";
+      whereClause += " AND DATE(a.created_at) >= ?";
       queryParams.push(start_date);
     }
     if (end_date) {
-      whereClause += " AND a.created_at <= ?";
+      whereClause += " AND DATE(a.created_at) <= ?";
       queryParams.push(end_date);
     }
+    
+    // Clone query params for total count query (without LIMIT/OFFSET)
+    const countParams = [...queryParams];
+    
+    // Add LIMIT and OFFSET for main query
     queryParams.push(parseInt(limit), offset);
+    
     //aklilu:Fetch logs with UUIDs instead of BINs
     const [logs] = await pool.query(
       `SELECT 
           BIN_TO_UUID(a.id) AS id,
           BIN_TO_UUID(a.admin_id) AS admin_id,
           a.action,
-          a.entity_type,
-          BIN_TO_UUID(a.entity_id) AS entity_id,
+          a.target_id,
+          a.module,
           a.ip_address,
           a.user_agent,
-          a.details,
           a.created_at,
-          u.email AS sup_admin_email,
+          a.updated_at,
+          u.email AS admin_email,
           u.first_name AS admin_first_name,
-          u.last_name AS admin_last_name
-       FROM admin_activity_logs a
-       JOIN users u ON a.admin_id = u.id
+          u.last_name AS admin_last_name,
+          u.role AS admin_role
+       FROM admin_activities a
+       LEFT JOIN users u ON a.admin_id = u.id
        ${whereClause}
        ORDER BY a.created_at DESC
        LIMIT ? OFFSET ?`,
@@ -789,11 +804,12 @@ getActivityLogs: async (req, res) => {
     //aklilu:Total count (same filters, no LIMIT/OFFSET)
     const [totalResult] = await pool.query(
       `SELECT COUNT(*) AS total
-       FROM admin_activity_logs a
-       JOIN users u ON a.admin_id = u.id
+       FROM admin_activities a
+       LEFT JOIN users u ON a.admin_id = u.id
        ${whereClause}`,
-      queryParams.slice(0, queryParams.length - 2)
+      countParams
     );
+    
     res.status(200).json({
       success: true,
       data: {
