@@ -1301,6 +1301,327 @@ CREATE TABLE faqs (
     INDEX idx_faqs_scope_sort (scope, sort_order)
 );
 
+USE community_fortune;
+
+-- Vouchers table
+CREATE TABLE vouchers (
+    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+    code VARCHAR(32) NOT NULL UNIQUE,
+    campaign_name VARCHAR(255) NOT NULL,
+    voucher_type ENUM('SINGLE_USE', 'MULTI_USE', 'BULK_CODES') NOT NULL DEFAULT 'SINGLE_USE',
+    reward_type ENUM('SITE_CREDIT', 'FREE_ENTRY', 'DISCOUNT_PERCENT', 'DISCOUNT_FIXED', 'POINTS', 'RAFFLE_TICKETS') NOT NULL DEFAULT 'SITE_CREDIT',
+    reward_value DECIMAL(12, 2) NOT NULL,
+    start_date DATETIME NOT NULL,
+    expiry_date DATETIME NOT NULL,
+    usage_limit INT NOT NULL DEFAULT 1,
+    usage_count INT NOT NULL DEFAULT 0,
+    code_prefix VARCHAR(32) NULL,
+    bulk_quantity INT DEFAULT 0,
+    bulk_code_length INT DEFAULT 8,
+    bulk_codes_generated BOOLEAN DEFAULT FALSE,
+    status ENUM('ACTIVE', 'EXPIRED', 'DISABLED', 'DELETED', 'USED_UP') DEFAULT 'ACTIVE',
+    created_by BINARY(16) NULL, -- Admin/Superadmin who created it
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    -- Indexes for performance
+    INDEX idx_code (code),
+    INDEX idx_campaign (campaign_name),
+    INDEX idx_voucher_type (voucher_type),
+    INDEX idx_status (status),
+    INDEX idx_dates (start_date, expiry_date),
+    INDEX idx_created_by (created_by),
+    
+    -- Foreign key to users table (optional, if tracking who created)
+    CONSTRAINT fk_voucher_created_by FOREIGN KEY (created_by) 
+        REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Voucher usage tracking table
+CREATE TABLE voucher_usage (
+    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+    voucher_id BINARY(16) NOT NULL,
+    user_id BINARY(16) NOT NULL,
+    transaction_id BINARY(16) NULL, -- Links to purchase/transaction
+    used_amount DECIMAL(12, 2) NOT NULL, -- Actual amount used (may be less than reward_value)
+    used_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    ip_address VARCHAR(45) NULL,
+    user_agent TEXT NULL,
+    
+    -- Indexes
+    INDEX idx_voucher_id (voucher_id),
+    INDEX idx_user_id (user_id),
+    INDEX idx_used_at (used_at),
+    INDEX idx_transaction (transaction_id),
+    
+    -- Foreign keys
+    CONSTRAINT fk_voucher_usage_voucher FOREIGN KEY (voucher_id) 
+        REFERENCES vouchers(id) ON DELETE CASCADE,
+    CONSTRAINT fk_voucher_usage_user FOREIGN KEY (user_id) 
+        REFERENCES users(id) ON DELETE CASCADE,
+    CONSTRAINT fk_voucher_usage_transaction FOREIGN KEY (transaction_id) 
+        REFERENCES transactions(id) ON DELETE SET NULL
+);
+
+-- Bulk voucher codes table (for BULK_CODES type)
+CREATE TABLE bulk_voucher_codes (
+    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+    parent_voucher_id BINARY(16) NOT NULL,
+    code VARCHAR(32) NOT NULL UNIQUE,
+    status ENUM('ACTIVE', 'USED', 'EXPIRED', 'DISABLED') DEFAULT 'ACTIVE',
+    used_by BINARY(16) NULL,
+    used_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Indexes
+    INDEX idx_parent_voucher (parent_voucher_id),
+    INDEX idx_code (code),
+    INDEX idx_status (status),
+    UNIQUE INDEX idx_voucher_code (parent_voucher_id, code),
+    
+    -- Foreign keys
+    CONSTRAINT fk_bulk_voucher_parent FOREIGN KEY (parent_voucher_id) 
+        REFERENCES vouchers(id) ON DELETE CASCADE,
+    CONSTRAINT fk_bulk_voucher_user FOREIGN KEY (used_by) 
+        REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- Voucher redemption rules table
+CREATE TABLE voucher_redemption_rules (
+    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+    voucher_id BINARY(16) NOT NULL,
+    rule_type ENUM('MIN_PURCHASE', 'COMPETITION_TYPE', 'USER_TIER', 'TIME_RESTRICTION', 'USAGE_PER_USER') NOT NULL,
+    rule_value TEXT NOT NULL, -- JSON or text value
+    comparator ENUM('GREATER_THAN', 'LESS_THAN', 'EQUALS', 'INCLUDES', 'EXCLUDES') DEFAULT 'EQUALS',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    -- Indexes
+    INDEX idx_voucher_id (voucher_id),
+    INDEX idx_rule_type (rule_type),
+    
+    -- Foreign key
+    CONSTRAINT fk_redemption_rule_voucher FOREIGN KEY (voucher_id) 
+        REFERENCES vouchers(id) ON DELETE CASCADE
+);
+
+-- Archive table for deleted vouchers
+CREATE TABLE vouchers_archive (
+    id BINARY(16) NOT NULL,
+    code VARCHAR(32) NOT NULL,
+    campaign_name VARCHAR(255) NOT NULL,
+    voucher_type ENUM('SINGLE_USE', 'MULTI_USE', 'BULK_CODES') NOT NULL,
+    reward_type ENUM('SITE_CREDIT', 'FREE_ENTRY', 'DISCOUNT_PERCENT', 'DISCOUNT_FIXED', 'POINTS', 'RAFFLE_TICKETS') NOT NULL,
+    reward_value DECIMAL(12, 2) NOT NULL,
+    start_date DATETIME NOT NULL,
+    expiry_date DATETIME NOT NULL,
+    usage_limit INT NOT NULL,
+    usage_count INT NOT NULL,
+    code_prefix VARCHAR(32) NULL,
+    bulk_quantity INT DEFAULT 0,
+    bulk_code_length INT DEFAULT 8,
+    bulk_codes_generated BOOLEAN DEFAULT FALSE,
+    status VARCHAR(50) NOT NULL,
+    created_by BINARY(16) NULL,
+    created_at TIMESTAMP NULL,
+    updated_at TIMESTAMP NULL,
+    deleted_by BINARY(16) NULL,
+    deleted_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    delete_reason TEXT NULL,
+    
+    INDEX idx_deleted_at (deleted_at),
+    INDEX idx_original_id (id)
+);
+
+-- Create triggers
+DELIMITER //
+
+-- Trigger to archive deleted vouchers
+CREATE TRIGGER before_voucher_delete
+BEFORE DELETE ON vouchers
+FOR EACH ROW
+BEGIN
+    INSERT INTO vouchers_archive (
+        id, code, campaign_name, voucher_type, reward_type, reward_value,
+        start_date, expiry_date, usage_limit, usage_count, code_prefix,
+        bulk_quantity, bulk_code_length, bulk_codes_generated, status,
+        created_by, created_at, updated_at, deleted_by, delete_reason
+    ) VALUES (
+        OLD.id, OLD.code, OLD.campaign_name, OLD.voucher_type, OLD.reward_type, OLD.reward_value,
+        OLD.start_date, OLD.expiry_date, OLD.usage_limit, OLD.usage_count, OLD.code_prefix,
+        OLD.bulk_quantity, OLD.bulk_code_length, OLD.bulk_codes_generated, OLD.status,
+        OLD.created_by, OLD.created_at, OLD.updated_at, 
+        @current_user_id, -- Set this before delete
+        @delete_reason    -- Set this before delete
+    );
+END //
+
+-- Trigger to auto-generate bulk codes
+CREATE TRIGGER after_voucher_insert
+AFTER INSERT ON vouchers
+FOR EACH ROW
+BEGIN
+    IF NEW.voucher_type = 'BULK_CODES' AND NEW.bulk_quantity > 0 AND NEW.bulk_codes_generated = FALSE THEN
+        -- Call stored procedure to generate bulk codes
+        CALL generate_bulk_voucher_codes(NEW.id, NEW.bulk_quantity, NEW.bulk_code_length, NEW.code_prefix);
+        
+        -- Update the flag
+        UPDATE vouchers SET bulk_codes_generated = TRUE WHERE id = NEW.id;
+    END IF;
+END //
+
+-- Trigger to update voucher status based on usage
+CREATE TRIGGER after_voucher_usage_insert
+AFTER INSERT ON voucher_usage
+FOR EACH ROW
+BEGIN
+    UPDATE vouchers 
+    SET usage_count = usage_count + 1
+    WHERE id = NEW.voucher_id;
+    
+    -- Update status if usage limit reached
+    UPDATE vouchers 
+    SET status = 'USED_UP'
+    WHERE id = NEW.voucher_id 
+      AND usage_count >= usage_limit 
+      AND status = 'ACTIVE';
+END //
+
+
+
+-- Stored procedure to generate bulk codes
+DELIMITER //
+
+CREATE PROCEDURE generate_bulk_voucher_codes(
+    IN p_voucher_id BINARY(16),
+    IN p_quantity INT,
+    IN p_code_length INT,
+    IN p_prefix VARCHAR(32)
+)
+BEGIN
+    DECLARE counter INT DEFAULT 0;
+    DECLARE generated_code VARCHAR(32);
+    
+    WHILE counter < p_quantity DO
+        -- Generate random code
+        SET generated_code = generate_voucher_code(p_code_length);
+        
+        -- Add prefix if provided
+        IF p_prefix IS NOT NULL AND p_prefix != '' THEN
+            SET generated_code = CONCAT(p_prefix, generated_code);
+        END IF;
+        
+        -- Ensure unique code
+        WHILE EXISTS (SELECT 1 FROM bulk_voucher_codes WHERE code = generated_code) 
+              OR EXISTS (SELECT 1 FROM vouchers WHERE code = generated_code) DO
+            SET generated_code = generate_voucher_code(p_code_length);
+            IF p_prefix IS NOT NULL AND p_prefix != '' THEN
+                SET generated_code = CONCAT(p_prefix, generated_code);
+            END IF;
+        END WHILE;
+        
+        -- Insert the bulk code
+        INSERT INTO bulk_voucher_codes (parent_voucher_id, code)
+        VALUES (p_voucher_id, generated_code);
+        
+        SET counter = counter + 1;
+    END WHILE;
+END //
+
+-- Function to generate random voucher code
+CREATE FUNCTION generate_voucher_code(length INT) RETURNS VARCHAR(32)
+DETERMINISTIC
+BEGIN
+    DECLARE chars VARCHAR(62) DEFAULT 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789abcdefghijklmnopqrstuvwxyz';
+    DECLARE result VARCHAR(32) DEFAULT '';
+    DECLARE i INT DEFAULT 0;
+    
+    WHILE i < length DO
+        SET result = CONCAT(result, SUBSTRING(chars, FLOOR(1 + RAND() * 62), 1));
+        SET i = i + 1;
+    END WHILE;
+    
+    RETURN result;
+END //
+
+DELIMITER ;
+
+-- Views for easier querying
+
+-- Active vouchers view
+CREATE VIEW active_vouchers AS
+SELECT 
+    BIN_TO_UUID(v.id) as id,
+    v.code,
+    v.campaign_name,
+    v.voucher_type,
+    v.reward_type,
+    v.reward_value,
+    v.start_date,
+    v.expiry_date,
+    v.usage_limit,
+    v.usage_count,
+    v.status,
+    BIN_TO_UUID(v.created_by) as created_by,
+    v.created_at,
+    v.updated_at,
+    (v.usage_limit - v.usage_count) as remaining_uses,
+    CASE 
+        WHEN v.expiry_date < NOW() THEN 'EXPIRED'
+        WHEN v.usage_count >= v.usage_limit THEN 'USED_UP'
+        WHEN v.status != 'ACTIVE' THEN v.status
+        ELSE 'ACTIVE'
+    END as effective_status
+FROM vouchers v
+WHERE v.status = 'ACTIVE';
+
+-- Voucher usage statistics view
+CREATE VIEW voucher_statistics AS
+SELECT 
+    BIN_TO_UUID(v.id) as voucher_id,
+    v.code,
+    v.campaign_name,
+    v.reward_type,
+    v.reward_value,
+    v.usage_limit,
+    v.usage_count,
+    COUNT(DISTINCT vu.user_id) as unique_users,
+    COALESCE(SUM(vu.used_amount), 0) as total_redeemed_value,
+    MIN(vu.used_at) as first_redemption,
+    MAX(vu.used_at) as last_redemption
+FROM vouchers v
+LEFT JOIN voucher_usage vu ON v.id = vu.voucher_id
+GROUP BY v.id;
+
+-- Bulk codes availability view
+CREATE VIEW bulk_codes_availability AS
+SELECT 
+    BIN_TO_UUID(bvc.parent_voucher_id) as voucher_id,
+    v.campaign_name,
+    COUNT(bvc.id) as total_codes,
+    SUM(CASE WHEN bvc.status = 'ACTIVE' THEN 1 ELSE 0 END) as active_codes,
+    SUM(CASE WHEN bvc.status = 'USED' THEN 1 ELSE 0 END) as used_codes,
+    BIN_TO_UUID(v.created_by) as created_by
+FROM bulk_voucher_codes bvc
+JOIN vouchers v ON bvc.parent_voucher_id = v.id
+WHERE v.voucher_type = 'BULK_CODES'
+GROUP BY bvc.parent_voucher_id;
+
+CREATE TABLE voucher_codes (
+    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+    voucher_id BINARY(16) NOT NULL,
+    code VARCHAR(32) NOT NULL UNIQUE,
+    status ENUM('ACTIVE', 'USED', 'EXPIRED', 'DISABLED') DEFAULT 'ACTIVE',
+    used_by BINARY(16) NULL,
+    used_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    
+    INDEX idx_voucher_id (voucher_id),
+    INDEX idx_code (code),
+    INDEX idx_status (status),
+    
+    CONSTRAINT fk_voucher_codes_voucher FOREIGN KEY (voucher_id) 
+        REFERENCES vouchers(id) ON DELETE CASCADE
+);
 ------
 -- Update the kyc_reviews table ENUM values
 ALTER TABLE kyc_reviews 

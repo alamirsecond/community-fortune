@@ -427,18 +427,60 @@ getUserStats: async (req, res) => {
     res.status(500).json({ success: false, error: "Internal server error" });
   }
 },
-  updateUserStatus: async (req, res) => {
-    try {
-      const { user_id } = req.params;
-      const { status, reason } = UserStatusSchema.parse(req.body);
-
-      await AdminService.updateUserStatus(user_id, status, reason, req.user.id);
-      res.status(200).json({ success: true, message: "User status updated" });
-    } catch (err) {
-      console.error("Update user status error:", err);
-      res.status(400).json({ success: false, error: err.message });
+ updateUserStatus : async (req, res) => {
+  try {
+    const {  status, reason } = req.body;
+    const { user_id } = req.params;
+    const admin_id = req.user.id;
+    
+    // Validate inputs
+    if (!user_id || !status || !reason) {
+      return res.status(400).json({
+        success: false,
+        message: "user_id, status, and reason are required"
+      });
     }
-  },
+    const validStatuses = ["active", "suspended", "verified", "unverified"];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({
+        success: false,
+        message: `Invalid status. Must be one of: ${validStatuses.join(", ")}`
+      });
+    }
+
+    // Call the service function
+    const result = await AdminService.updateUserStatus(
+      user_id, 
+      status, 
+      reason, 
+      admin_id, 
+      req.ip,
+      req.headers['user-agent'] || null
+    );
+
+    res.status(200).json({
+      success: true,
+      message: result.message,
+      data: result.data
+    });
+  } catch (error) {
+    console.error("Update user status error:", error);
+    
+    // Handle specific errors
+    if (error.message.includes("User not found")) {
+      return res.status(404).json({
+        success: false,
+        message: "User not found"
+      });
+    }
+
+    res.status(500).json({
+      success: false,
+      message: "Failed to update user status",
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+},
 
   impersonateUser: async (req, res) => {
     try {

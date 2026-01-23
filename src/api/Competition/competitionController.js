@@ -473,6 +473,19 @@ export const getCompetitions = async (req, res) => {
 export const getCompetitionDetails = async (req, res) => {
   try {
     const { id } = req.params;
+    
+    // Validate the ID format
+    const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+    
+    if (!uuidRegex.test(id)) {
+      return res.status(400).json({
+        success: false,
+        message: 'Invalid competition ID format'
+      });
+    }
+    
+    console.log('🔍 Fetching competition with ID:', id);
+    
     const competition = await Competition.findById(id);
 
     if (!competition) {
@@ -492,90 +505,129 @@ export const getCompetitionDetails = async (req, res) => {
     let leaderboard = null;
 
     if (req.user) {
-      // Check if user can enter
-      userEntryStatus = await Competition.canUserEnter(id, req.user.id);
-      eligibility.can_enter = userEntryStatus.canEnter;
-      eligibility.reason = userEntryStatus.reason;
-      
-      // Check entry count and limits
-      const userEntries = await Competition.getUserEntries(id, req.user.id);
-      eligibility.entries_used = userEntries.length;
-      eligibility.entries_remaining = competition.max_entries_per_user - userEntries.length;
-      
-      // Check if user has any instant wins
-      const userInstantWins = await Competition.getUserInstantWins(id, req.user.id);
-      if (userInstantWins.length > 0) {
-        eligibility.has_instant_wins = true;
-        eligibility.instant_wins = userInstantWins;
-      }
-      
-      // Check achievements progress
-      const userAchievements = await Competition.getUserAchievementsProgress(id, req.user.id);
-      if (userAchievements.length > 0) {
-        eligibility.achievements_progress = userAchievements;
+      try {
+        // Check if user can enter
+        userEntryStatus = await Competition.canUserEnter(id, req.user.id);
+        eligibility.can_enter = userEntryStatus.canEnter;
+        eligibility.reason = userEntryStatus.reason;
+        
+        // Check entry count and limits
+        const userEntries = await Competition.getUserEntries(id, req.user.id);
+        eligibility.entries_used = userEntries.length;
+        eligibility.entries_remaining = competition.max_entries_per_user - userEntries.length;
+        
+        // Check if user has any instant wins
+        const userInstantWins = await Competition.getUserInstantWins(id, req.user.id);
+        if (userInstantWins.length > 0) {
+          eligibility.has_instant_wins = true;
+          eligibility.instant_wins = userInstantWins;
+        }
+        
+        // Check achievements progress
+        const userAchievements = await Competition.getUserAchievementsProgress(id, req.user.id);
+        if (userAchievements.length > 0) {
+          eligibility.achievements_progress = userAchievements;
+        }
+      } catch (userError) {
+        console.error('❌ User eligibility check error:', userError);
+        // Don't fail the entire request for user-specific checks
       }
     }
 
     // Check subscription eligibility
     if (competition.category === 'SUBSCRIPTION') {
-      subscriptionEligibility = await Competition.checkSubscriptionEligibility(id, req.user?.id);
-      if (!subscriptionEligibility.eligible) {
-        eligibility.can_enter = false;
-        eligibility.reason = subscriptionEligibility.reason;
-        eligibility.requirements.push('Valid subscription required');
+      try {
+        subscriptionEligibility = await Competition.checkSubscriptionEligibility(id, req.user?.id);
+        if (!subscriptionEligibility.eligible) {
+          eligibility.can_enter = false;
+          eligibility.reason = subscriptionEligibility.reason;
+          eligibility.requirements.push('Valid subscription required');
+        }
+      } catch (subError) {
+        console.error('❌ Subscription check error:', subError);
       }
     }
 
     // Get jackpot progress if applicable
     if (competition.category === 'JACKPOT') {
-      jackpotProgress = await Competition.getJackpotProgress(id);
-      eligibility.jackpot_info = jackpotProgress;
-      
-      // Check threshold status
-      const thresholdStatus = await Competition.checkThreshold(id);
-      eligibility.threshold_reached = thresholdStatus.threshold_reached;
-      eligibility.threshold_progress = {
-        current: thresholdStatus.sold_tickets,
-        required: thresholdStatus.threshold_value,
-        percentage: Math.round((thresholdStatus.sold_tickets / thresholdStatus.threshold_value) * 100)
-      };
+      try {
+        jackpotProgress = await Competition.getJackpotProgress(id);
+        eligibility.jackpot_info = jackpotProgress;
+        
+        // Check threshold status
+        const thresholdStatus = await Competition.checkThreshold(id);
+        eligibility.threshold_reached = thresholdStatus.threshold_reached;
+        eligibility.threshold_progress = {
+          current: thresholdStatus.sold_tickets,
+          required: thresholdStatus.threshold_value,
+          percentage: Math.round((thresholdStatus.sold_tickets / thresholdStatus.threshold_value) * 100)
+        };
+      } catch (jackpotError) {
+        console.error('❌ Jackpot progress error:', jackpotError);
+      }
     }
 
     // Get instant wins if enabled
     if (competition.category === 'PAID' || competition.category === 'JACKPOT') {
-      instantWins = await Competition.getInstantWins(id);
+      try {
+        instantWins = await Competition.getInstantWins(id);
+      } catch (instantWinError) {
+        console.error('❌ Instant wins fetch error:', instantWinError);
+      }
     }
 
-    // Get achievements if enabled
-    achievements = await Competition.getAchievements(id);
+    // Get achievements if enabled - FIXED WITH TRY-CATCH
+    try {
+      achievements = await Competition.getAchievements(id);
+    } catch (achievementError) {
+      console.error('❌ Achievements fetch error:', achievementError);
+      achievements = []; // Return empty array on error
+    }
 
     // Get leaderboard if applicable
     if (competition.category === 'MINI_GAME' || competition.leaderboard_type) {
-      leaderboard = await Competition.getLeaderboard(id, competition.leaderboard_type);
+      try {
+        leaderboard = await Competition.getLeaderboard(id, competition.leaderboard_type);
+      } catch (leaderboardError) {
+        console.error('❌ Leaderboard fetch error:', leaderboardError);
+      }
     }
 
     // Get competition statistics
-    const stats = await Competition.getStats(id);
+    let stats = {};
+    try {
+      stats = await Competition.getStats(id);
+    } catch (statsError) {
+      console.error('❌ Stats fetch error:', statsError);
+    }
 
     // Get gallery images
     let galleryImages = [];
-    const galleryDir = path.join(process.env.COMPETITION_UPLOAD_PATH, id, 'gallery');
-    if (fs.existsSync(galleryDir)) {
-      const files = fs.readdirSync(galleryDir);
-      galleryImages = files.map(file => getFileUrl(path.join(galleryDir, file)));
+    try {
+      const galleryDir = path.join(process.env.COMPETITION_UPLOAD_PATH, id, 'gallery');
+      if (fs.existsSync(galleryDir)) {
+        const files = fs.readdirSync(galleryDir);
+        galleryImages = files.map(file => getFileUrl(path.join(galleryDir, file)));
+      }
+    } catch (galleryError) {
+      console.error('❌ Gallery images error:', galleryError);
     }
 
     // Get documents if any
     let documents = [];
-    const docDir = path.join(process.env.COMPETITION_UPLOAD_PATH, id, 'documents');
-    if (fs.existsSync(docDir)) {
-      const docFiles = fs.readdirSync(docDir);
-      documents = docFiles.map(file => ({
-        name: file,
-        url: getFileUrl(path.join(docDir, file)),
-        type: path.extname(file).substring(1).toUpperCase(),
-        size: fs.statSync(path.join(docDir, file)).size
-      }));
+    try {
+      const docDir = path.join(process.env.COMPETITION_UPLOAD_PATH, id, 'documents');
+      if (fs.existsSync(docDir)) {
+        const docFiles = fs.readdirSync(docDir);
+        documents = docFiles.map(file => ({
+          name: file,
+          url: getFileUrl(path.join(docDir, file)),
+          type: path.extname(file).substring(1).toUpperCase(),
+          size: fs.statSync(path.join(docDir, file)).size
+        }));
+      }
+    } catch (docError) {
+      console.error('❌ Documents error:', docError);
     }
 
     res.json({
@@ -615,11 +667,11 @@ export const getCompetitionDetails = async (req, res) => {
       }
     });
   } catch (error) {
-    console.error('Get competition details error:', error);
+    console.error('❌ Get competition details error:', error);
     res.status(500).json({
       success: false,
       message: 'Failed to fetch competition details',
-      error: error.message
+      error: process.env.NODE_ENV === 'development' ? error.message : 'Internal server error'
     });
   }
 };

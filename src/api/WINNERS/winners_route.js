@@ -14,32 +14,32 @@ winnersRouter.get(
 // Admin routes
 winnersRouter.get(
   "/admin/stats",
-  authenticate(["admin"]),
+  authenticate(["SUPERADMIN","ADMIN"]),
   winnersController.getAdminStats
 );
 winnersRouter.get(
   "/admin/list",
-  authenticate(["admin"]),
+  authenticate(["SUPERADMIN","ADMIN"]),
   winnersController.getAdminList
 );
 winnersRouter.get(
   "/admin/export",
-  authenticate(["admin"]),
+  authenticate(["SUPERADMIN","ADMIN"]),
   winnersController.exportAdminWinners
 );
 winnersRouter.post(
   "/declare",
-  authenticate(["admin"]),
+  authenticate(["SUPERADMIN","ADMIN"]),
   winnersController.declareWinner
 );
 winnersRouter.post(
   "/select",
-  authenticate(["admin"]),
+  authenticate(["SUPERADMIN","ADMIN"]),
   winnersController.selectWinners
 );
 winnersRouter.post(
   "/verify",
-  authenticate(["admin"]),
+  authenticate(["SUPERADMIN","ADMIN"]),
   winnersController.verifyWinnerClaim
 );
 

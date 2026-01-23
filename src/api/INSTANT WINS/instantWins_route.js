@@ -5,7 +5,7 @@ import pool from "../../../database.js";
 
 const instantWinsRouter = express.Router();
 
-const ADMIN_ROLES = ["ADMIN", "admin", "SUPERADMIN", "superadmin"];
+const ADMIN_ROLES = ["ADMIN",  "SUPERADMIN"];
 
 // Existing routes
 instantWinsRouter.post(
