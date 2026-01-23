@@ -1301,7 +1301,6 @@ CREATE TABLE faqs (
     INDEX idx_faqs_scope_sort (scope, sort_order)
 );
 
-USE community_fortune;
 
 -- Vouchers table
 CREATE TABLE vouchers (
