@@ -2003,6 +2003,12 @@ deleteUser: async ({ user_id }) => {
     await connection.beginTransaction();
 
     try {
+      // Delete from referral_links first (due to foreign key constraints)
+      await connection.query(
+        'DELETE FROM referral_links WHERE user_id = UUID_TO_BIN(?)',
+        [user_id]
+      );
+
       // Delete from wallets first (due to foreign key constraints)
       await connection.query(
         'DELETE FROM wallets WHERE user_id = UUID_TO_BIN(?)',
