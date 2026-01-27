@@ -54,6 +54,82 @@ console.log(competitionData);
       connection.release();
     }
   }
+  // Basic competition stats using only competitions table
+static async getCompetitionStatsDashboard() {
+  try {
+    // Execute all queries in parallel for better performance
+    const [
+      [activeResult],
+      [monthlyResult],
+      [completedResult],
+      [endingResult],
+      [totalTicketsResult],
+      [soldTicketsResult]
+    ] = await Promise.all([
+      pool.query(`SELECT COUNT(*) as count FROM competitions WHERE status = 'ACTIVE'`),
+      pool.query(`
+        SELECT COUNT(*) as count 
+        FROM competitions 
+        WHERE status = 'ACTIVE' 
+        AND MONTH(created_at) = MONTH(CURRENT_DATE()) 
+        AND YEAR(created_at) = YEAR(CURRENT_DATE())
+      `),
+      pool.query(`
+        SELECT COUNT(*) as count 
+        FROM competitions 
+        WHERE status = 'COMPLETED'
+        AND MONTH(updated_at) = MONTH(CURRENT_DATE()) 
+        AND YEAR(updated_at) = YEAR(CURRENT_DATE())
+      `),
+      pool.query(`
+        SELECT COUNT(*) as count 
+        FROM competitions 
+        WHERE status = 'ACTIVE'
+        AND end_date IS NOT NULL
+        AND DATE(end_date) = CURDATE()
+      `),
+      pool.query(`
+        SELECT COALESCE(SUM(total_tickets), 0) as total 
+        FROM competitions 
+        WHERE status = 'ACTIVE'
+      `),
+      pool.query(`
+        SELECT COALESCE(SUM(sold_tickets), 0) as sold 
+        FROM competitions 
+        WHERE status = 'ACTIVE'
+      `)
+    ]);
+
+    // Extract values from results
+    const active = activeResult[0]?.count || 0;
+    const thisMonth = monthlyResult[0]?.count || 0;
+    const completed = completedResult[0]?.count || 0;
+    const ending = endingResult[0]?.count || 0;
+    const totalTickets = totalTicketsResult[0]?.total || 0;
+    const soldTickets = soldTicketsResult[0]?.sold || 0;
+    const fillRate = totalTickets > 0 ? (soldTickets / totalTickets * 100).toFixed(1) : 0;
+
+    // Calculate entries "today" based on some logic
+    // This is a placeholder - adjust based on your actual data
+    const todayEntries = Math.round(soldTickets / 30); // Approximate daily average
+
+    // Return the data object, NOT a response
+    return {
+      active,
+      thisMonth,
+      completed,
+      ending,
+      totalTickets,
+      soldTickets,
+      fillRate: parseFloat(fillRate),
+      todayEntries
+    };
+
+  } catch (err) {
+    console.error("Get competition stats dashboard error:", err);
+    throw new Error("Failed to fetch competition statistics");
+  }
+}
 
   // ==================== CREATE INSTANT WINS ====================
   

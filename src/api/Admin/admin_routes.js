@@ -3,7 +3,7 @@ import adminController from "./admin_controller.js";
 import authenticate from "./../../../middleware/auth.js";
 const adminRouter = Router();
 // All routes require ADMIN role
-adminRouter.use(authenticate(["ADMIN"]));
+adminRouter.use(authenticate(["ADMIN","SUPERADMIN"]));
 
 // Dashboard Analytics
 adminRouter.get("/dashboard", adminController.getDashboardStats);

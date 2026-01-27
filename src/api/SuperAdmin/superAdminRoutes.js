@@ -53,6 +53,7 @@ superAdminRouter.get('/users/export/all', adminController.exportAll);
 superAdminRouter.post('/users/export/bulk', adminController.exportUsersBulk);
 
 //Community:Admin management
+superAdminRouter.get("/getAdminStats",superAdminController.getAdminStats);
 superAdminRouter.post("/createAdmins",superAdminController.createAdmin);
 superAdminRouter.get("/AllAdmins",superAdminController.getAdmins);
 superAdminRouter.get("/getAdmin/:admin_id",superAdminController.getAdmin);

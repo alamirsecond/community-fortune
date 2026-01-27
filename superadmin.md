@@ -934,22 +934,22 @@
 ```
 
 
-Updated Super Admin API Documentation (with KYC/Verification)
-Verification/KYC Management Endpoints
-24. Get Pending Verifications
-GET /verifications/pending
+# Updated Super Admin API Documentation (with KYC/Verification)
+# Verification/KYC Management Endpoints
+# 24. Get Pending Verifications
+# GET /verifications/pending
 
-Get all pending KYC/verification requests.
+# Get all pending KYC/verification requests.
 
-Query Parameters:
+# Query Parameters:
 
-page (optional): Page number (default: 1)
+# page (optional): Page number (default: 1)
 
-limit (optional): Items per page (default: 20)
+# limit (optional): Items per page (default: 20)
 
-Response:
+# Response:
 
-json
+``` json
 {
   "success": true,
   "data": {
@@ -981,18 +981,19 @@ json
     }
   }
 }
-25. Get User Verification Details
-GET /verifications/:user_id
+```
+# 25. Get User Verification Details
+# GET /verifications/:user_id
 
-Get detailed verification information for a specific user.
+# Get detailed verification information for a specific user.
 
-Path Parameters:
+# Path Parameters:
 
-user_id (required): User UUID
+# user_id (required): User UUID
 
-Response:
+# Response:
 
-json
+``` json
 {
   "success": true,
   "data": {
@@ -1039,25 +1040,27 @@ json
     ]
   }
 }
-26. Update Verification Status
-PUT /verifications/:user_id/status
+```
+# 26. Update Verification Status
+# PUT /verifications/:user_id/status
 
-Approve or reject a user's verification.
+# Approve or reject a user's verification.
 
-Path Parameters:
+# Path Parameters:
 
-user_id (required): User UUID
+# user_id (required): User UUID
 
-Request Body:
+# Request Body:
 
-json
+``` json
 {
   "status": "APPROVED" | "REJECTED",
   "rejection_reason": "Document unclear" // Optional, required if status is REJECTED
 }
-Response:
+```
+# Response:
 
-json
+``` json
 {
   "success": true,
   "message": "Verification status updated to APPROVED",
@@ -1069,22 +1072,23 @@ json
     "verified_by": "admin_uuid"
   }
 }
-27. Get All Verifications
-GET /verifications
+```
+# 27. Get All Verifications
+# GET /verifications
 
-Get all verifications with filtering.
+# Get all verifications with filtering.
 
-Query Parameters:
+# Query Parameters:
 
-page (optional): Page number (default: 1)
+# page (optional): Page number (default: 1)
 
-limit (optional): Items per page (default: 20)
+# limit (optional): Items per page (default: 20)
 
-status (optional): Filter by status (PENDING, APPROVED, REJECTED)
+# status (optional): Filter by status (PENDING, APPROVED, REJECTED)
 
-Response:
+# Response:
 
-json
+``` json
 {
   "success": true,
   "data": {
@@ -1112,11 +1116,12 @@ json
     }
   }
 }
-Updated Dashboard Stats (with Verification Data)
-From getDashboardStats endpoint:
-Response includes verification statistics:
+```
+# Updated Dashboard Stats (with Verification Data)
+# From getDashboardStats endpoint:
+# Response includes verification statistics:
 
-json
+``` json
 {
   "success": true,
   "data": {
@@ -1134,10 +1139,11 @@ json
         "total_admins": 8,
         "active_admins": 6
       }
-      // ... other stats
+     
     }
   }
 }
+```
 
 ## Notes for Frontend Developers:
 ## Authentication: Always include the Bearer token in the Authorization header
