@@ -308,6 +308,84 @@ getAdmins: async (req, res) => {
     });
   }
 },
+// Get admin dashboard statistics
+getAdminStats: async (req, res) => {
+  try {
+    const [totalAdmins] = await pool.query(
+      `SELECT COUNT(*) as total 
+       FROM users 
+       WHERE role IN ('ADMIN', 'SUPERADMIN')`
+    );
+
+    // Count admins created this month
+    const [monthlyAdmins] = await pool.query(
+      `SELECT COUNT(*) as count 
+       FROM users 
+       WHERE role IN ('ADMIN', 'SUPERADMIN') 
+       AND MONTH(created_at) = MONTH(CURRENT_DATE()) 
+       AND YEAR(created_at) = YEAR(CURRENT_DATE())`
+    );
+
+    // Count active admins (assuming active = logged in last 24 hours)
+    const [activeAdmins] = await pool.query(
+      `SELECT COUNT(*) as active 
+       FROM users 
+       WHERE role IN ('ADMIN', 'SUPERADMIN') 
+       AND is_active = TRUE 
+       AND last_login >= DATE_SUB(NOW(), INTERVAL 1 DAY)`
+    );
+
+ 
+    // If you don't have invitations table, you can track pending in users table
+    // Alternative query:
+    const [pendingInvitations] = await pool.query(
+      `SELECT COUNT(*) as pending 
+       FROM users 
+       WHERE role IN ('ADMIN', 'SUPERADMIN') 
+       AND email_verified = FALSE 
+       AND created_at >= DATE_SUB(NOW(), INTERVAL 7 DAY)`
+    );
+
+    const total = totalAdmins[0]?.total || 0;
+    const thisMonth = monthlyAdmins[0]?.count || 0;
+    const active = activeAdmins[0]?.active || 0;
+    const pending = pendingInvitations[0]?.pending || 0;
+    const onlineRate = total > 0 ? Math.round((active / total) * 100) : 0;
+
+    res.status(200).json({
+      success: true,
+      data: {
+        total,
+        thisMonth,
+        active,
+        pending,
+        onlineRate,
+        stats: {
+          totalAdmins: {
+            value: total,
+            change: thisMonth > 0 ? `+${thisMonth} this month` : 'No new admins this month',
+            trend: thisMonth > 0 ? 'up' : 'neutral'
+          },
+          activeAdmins: {
+            value: active,
+            percentage: onlineRate,
+            change: `${onlineRate}% online rate`
+          },
+          pendingInvitations: {
+            value: pending,
+            change: pending > 0 ? `${pending} pending` : 'No pending invites'
+          }
+        }
+      }
+    });
+  } catch (err) {
+    console.error("Get admin stats error:", err);
+    res.status(500).json({
+      success: false,
+      error: "Failed to fetch admin statistics"
+    });
+  }
+},
 //Get single admin by ID
 // Get single admin by ID
 getAdmin: async (req, res) => {

@@ -470,6 +470,72 @@ export const getCompetitions = async (req, res) => {
   }
 };
 
+export const getCompetitionStatsDashboard = async (req, res) => {
+  try {
+    // Get stats data from the model/service
+    const statsData = await Competition.getCompetitionStatsDashboard();
+    
+    const { active, thisMonth, completed, ending, totalTickets, soldTickets, fillRate, todayEntries } = statsData;
+    
+    // Format response matching your pattern
+    res.status(200).json({
+      success: true,
+      data: {
+        stats: {
+          activeCompetitions: {
+            value: active,
+            change: thisMonth > 0 ? `🏆 +${thisMonth} this month` : 'No new competitions this month',
+            trend: thisMonth > 0 ? 'up' : 'neutral',
+            description: 'Currently running competitions'
+          },
+          totalEntriesToday: {
+            value: todayEntries.toLocaleString(),
+            change: `Approx. ${fillRate}% fill rate`,
+            trend: parseFloat(fillRate) > 50 ? 'up' : 'down',
+            description: 'Total entries submitted today'
+          },
+          completedThisMonth: {
+            value: completed,
+            change: completed > 0 ? 'Winners announced' : 'No competitions completed',
+            trend: 'completed',
+            description: 'Competitions finalized this month'
+          },
+          endingToday: {
+            value: ending,
+            change: ending > 0 ? 'Requires attention' : 'No competitions ending',
+            attention: ending > 0,
+            trend: 'alert',
+            description: 'Competitions ending today'
+          }
+        },
+        metrics: {
+          totalActive: active,
+          totalCompleted: completed,
+          totalEnding: ending,
+          ticketMetrics: {
+            totalAvailable: totalTickets,
+            totalSold: soldTickets,
+            fillRate: `${fillRate}%`,
+            remaining: totalTickets - soldTickets
+          },
+          monthlyGrowth: thisMonth
+        }
+      }
+    });
+    
+  } catch (error) {
+    console.error('Get competition stats error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch competition statistics',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
+
+
+
 export const getCompetitionDetails = async (req, res) => {
   try {
     const { id } = req.params;

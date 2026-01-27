@@ -22,7 +22,8 @@ import {
   validateCompetitionEntry,
   bulkCreateCompetitions,
   getCompetitionTypes,
-  getCompetitionTemplates
+  getCompetitionTemplates,
+  getCompetitionStatsDashboard
 } from './competitionController.js';
 import authenticate from '../../../middleware/auth.js';
 import {
@@ -81,6 +82,9 @@ router.put('/:id',
   handleUploadError,
   updateCompetition
 );
+
+// Add to your routes
+router.get('/stats/dashboard', getCompetitionStatsDashboard);
 
 //aklilu:Upload competition gallery images
 router.post('/:id/images', 
