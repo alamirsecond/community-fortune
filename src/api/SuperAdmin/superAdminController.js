@@ -525,15 +525,15 @@ updateAdmin: async (req, res) => {
 
     const { is_active, permissions, role } = parsed.data;
 
-    // Check admin exists
+    // Check admin exists - FIXED QUERY
     const [existingAdmins] = await connection.query(
       `SELECT 
-        BIN_TO_UUID(id) AS id, 
+        BIN_TO_UUID(id) AS admin_uuid, 
         email,
         username,
-        is_active as current_is_active,
-        permissions as current_permissions,
-        role as current_role
+        is_active,
+        permissions,
+        role
       FROM users
       WHERE id = UUID_TO_BIN(?) AND role IN ('ADMIN', 'SUPERADMIN')`,
       [admin_id]
@@ -559,7 +559,7 @@ updateAdmin: async (req, res) => {
     }
 
     // Check if trying to demote last SUPERADMIN
-    if (role === 'ADMIN' && existingAdmin.current_role === 'SUPERADMIN') {
+    if (role === 'ADMIN' && existingAdmin.role === 'SUPERADMIN') {
       const [superadminCount] = await connection.query(
         `SELECT COUNT(*) as count 
         FROM users 
@@ -622,13 +622,13 @@ updateAdmin: async (req, res) => {
       });
     }
 
-    // Log activity in admin_activities table - FIXED: target_id as VARCHAR
+    // Log activity
     await connection.query(
       `INSERT INTO admin_activities (
         id, 
         admin_id, 
         action, 
-        target_id,  -- VARCHAR(255) - store as string
+        target_id,
         module,
         ip_address, 
         user_agent,
@@ -637,7 +637,7 @@ updateAdmin: async (req, res) => {
         UUID_TO_BIN(UUID()),
         UUID_TO_BIN(?),
         ?,
-        ?,  -- Pass admin_id as string
+        ?,
         ?,
         ?,
         ?,
@@ -646,7 +646,7 @@ updateAdmin: async (req, res) => {
       [
         superadminId,       
         "ADMIN_UPDATED",
-        admin_id,  // Already a string UUID
+        admin_id,
         "admin_management",
         userIp,
         userAgent
@@ -682,7 +682,25 @@ updateAdmin: async (req, res) => {
     await connection.rollback();
     console.error("Update admin error:", err);
     
+    // Log full error for debugging
+    console.error("Full error details:", {
+      message: err.message,
+      code: err.code,
+      errno: err.errno,
+      sqlState: err.sqlState,
+      sqlMessage: err.sqlMessage,
+      sql: err.sql
+    });
+    
     // Handle specific errors
+    if (err.code === 'ER_PARSE_ERROR') {
+      return res.status(400).json({
+        success: false,
+        error: "SQL syntax error",
+        details: process.env.NODE_ENV === 'development' ? err.sqlMessage : undefined
+      });
+    }
+    
     if (err.code === 'ER_NO_REFERENCED_ROW_2') {
       return res.status(404).json({
         success: false,
@@ -690,17 +708,11 @@ updateAdmin: async (req, res) => {
       });
     }
     
-    if (err.code === 'ER_DATA_TOO_LONG') {
-      return res.status(400).json({
-        success: false,
-        error: "Data too long for one of the fields",
-      });
-    }
-    
     res.status(500).json({
       success: false,
       error: "Failed to update admin",
-      details: process.env.NODE_ENV === 'development' ? err.message : undefined
+      details: process.env.NODE_ENV === 'development' ? err.message : undefined,
+      sqlError: process.env.NODE_ENV === 'development' ? err.sqlMessage : undefined
     });
   } finally {
     connection.release();
