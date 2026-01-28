@@ -8,10 +8,17 @@ const faqRouter = Router();
 faqRouter.get("/", faqController.listPublic);
 
 // Admin endpoints (JWT required)
-const ADMIN_ROLES = ["ADMIN", "SUPERADMIN", "admin", "superadmin"];
-faqRouter.get("/admin", authenticate(ADMIN_ROLES), faqController.listAdmin);
-faqRouter.get("/:id", authenticate(ADMIN_ROLES), faqController.getById);
-faqRouter.post("/", authenticate(ADMIN_ROLES), faqController.create);
+// const ADMIN_ROLES = ["ADMIN", "SUPERADMIN", "admin", "superadmin"];
+faqRouter.get(
+  "/admin",
+  //  authenticate(ADMIN_ROLES), 
+   faqController.listAdmin);
+faqRouter.get("/:id",
+  //  authenticate(ADMIN_ROLES), 
+   faqController.getById);
+faqRouter.post("/", 
+  authenticate(ADMIN_ROLES), 
+  faqController.create);
 faqRouter.put("/:id", authenticate(ADMIN_ROLES), faqController.update);
 faqRouter.patch(
   "/:id/publish",

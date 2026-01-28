@@ -12,19 +12,16 @@ legalRouter.get("/public/:type", legalController.getByType);
 // Admin routes
 legalRouter.get(
   "/all",
-  authenticate(["ADMIN", "SUPERADMIN", "USER"]),
   legalController.getAll
 );
 
 legalRouter.get(
   "/types",
-  authenticate(["ADMIN", "SUPERADMIN", "USER"]),
   legalController.getDocumentTypes
 );
 
 legalRouter.get(
   "/:id",
-  authenticate(["ADMIN", "SUPERADMIN", "LAWYER"]),
   legalController.getById
 );
 

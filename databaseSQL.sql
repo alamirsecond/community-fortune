@@ -5,6 +5,7 @@ USE community_fortune;
 -- ===========================================
 -- USERS TABLE - BINARY(16) UUIDs
 -- ===========================================
+
 CREATE TABLE users (
     id BINARY(16) PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
@@ -1151,7 +1152,7 @@ CREATE TABLE partner_applications (
 -- ===========================================
 CREATE TABLE withdrawals (
     id BINARY(16) PRIMARY KEY,
-    user_id BINARY(16),
+    user_id BINARY(16lo),
     amount DECIMAL(12,2) NOT NULL,
     payment_method ENUM('MASTERCARD', 'VISA', 'BANK_TRANSFER', 'PAYPAL') NOT NULL,
     account_details JSON NOT NULL,
