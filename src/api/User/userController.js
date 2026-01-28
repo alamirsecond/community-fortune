@@ -1131,6 +1131,19 @@ submitKycRequest: async (req, res) => {
     await connection.beginTransaction();
 
     try {
+      // Helper to get relative path
+      const getRelativePath = (absolutePath) => {
+        const normalized = absolutePath.replace(/\\/g, '/');
+        const projectRoot = process.cwd().replace(/\\/g, '/');
+        
+        // Remove project root if present
+        if (normalized.startsWith(projectRoot)) {
+          return normalized.substring(projectRoot.length + 1);
+        }
+        
+        return normalized;
+      };
+
       // 1. Reset existing KYC docs
       await connection.query(
         `DELETE FROM kyc_documents WHERE user_id = UUID_TO_BIN(?)`,
@@ -1151,14 +1164,14 @@ submitKycRequest: async (req, res) => {
         [governmentIdType, governmentIdNumber, dateOfBirth, req.user.id]
       );
 
-      // 3. Upload documents and get their UUIDs
+      // 3. Upload documents with RELATIVE paths
       let governmentIdDocUUID = null;
       let selfieDocUUID = null;
       const additionalDocUUIDs = [];
 
-      // Upload government ID and get the generated UUID
+      // Upload government ID
       const governmentIdFile = req.files.governmentId[0];
-      const governmentIdUUID = uuidv4(); // Generate UUID for the document
+      const governmentIdUUID = uuidv4();
       await connection.query(
         `INSERT INTO kyc_documents 
          (id, user_id, document_type, file_path, file_name, mime_type, file_size, status) 
@@ -1167,7 +1180,7 @@ submitKycRequest: async (req, res) => {
           governmentIdUUID,
           req.user.id,
           'government_id',
-          governmentIdFile.path,
+          getRelativePath(governmentIdFile.path), // RELATIVE PATH
           governmentIdFile.originalname,
           governmentIdFile.mimetype,
           governmentIdFile.size
@@ -1175,9 +1188,9 @@ submitKycRequest: async (req, res) => {
       );
       governmentIdDocUUID = governmentIdUUID;
 
-      // Upload selfie and get the generated UUID
+      // Upload selfie
       const selfiePhotoFile = req.files.selfiePhoto[0];
-      const selfieUUID = uuidv4(); // Generate UUID for the document
+      const selfieUUID = uuidv4();
       await connection.query(
         `INSERT INTO kyc_documents 
          (id, user_id, document_type, file_path, file_name, mime_type, file_size, status) 
@@ -1186,7 +1199,7 @@ submitKycRequest: async (req, res) => {
           selfieUUID,
           req.user.id,
           'selfie_photo',
-          selfiePhotoFile.path,
+          getRelativePath(selfiePhotoFile.path), // RELATIVE PATH
           selfiePhotoFile.originalname,
           selfiePhotoFile.mimetype,
           selfiePhotoFile.size
@@ -1197,7 +1210,7 @@ submitKycRequest: async (req, res) => {
       // Upload additional documents
       if (req.files.additionalDocuments) {
         for (const file of req.files.additionalDocuments) {
-          const additionalUUID = uuidv4(); // Generate UUID for the document
+          const additionalUUID = uuidv4();
           await connection.query(
             `INSERT INTO kyc_documents 
              (id, user_id, document_type, file_path, file_name, mime_type, file_size, status) 
@@ -1206,7 +1219,7 @@ submitKycRequest: async (req, res) => {
               additionalUUID,
               req.user.id,
               'additional_document',
-              file.path,
+              getRelativePath(file.path), // RELATIVE PATH
               file.originalname,
               file.mimetype,
               file.size
@@ -1217,7 +1230,6 @@ submitKycRequest: async (req, res) => {
       }
 
       // 4. Create verification record
-      // First get user info for first_name, last_name
       const [userRows] = await connection.query(
         `SELECT first_name, last_name FROM users WHERE id = UUID_TO_BIN(?)`,
         [req.user.id]
@@ -1254,8 +1266,8 @@ submitKycRequest: async (req, res) => {
           req.user.id,
           governmentIdType,
           governmentIdNumber,
-          governmentIdDocUUID,  // Use the actual UUID string
-          selfieDocUUID,        // Use the actual UUID string
+          governmentIdDocUUID,
+          selfieDocUUID,
           JSON.stringify(additionalDocUUIDs),
           userInfo.first_name || '',
           userInfo.last_name || '',
@@ -1280,7 +1292,7 @@ submitKycRequest: async (req, res) => {
 
       await connection.commit();
 
-      // 6. Notify admins
+      // 6. Notify admins (optional)
       try {
         const [userRows] = await pool.query(
           `SELECT username, email FROM users WHERE id = UUID_TO_BIN(?)`,
@@ -1289,7 +1301,6 @@ submitKycRequest: async (req, res) => {
         
         if (userRows.length > 0) {
           const user = userRows[0];
-          
           await pool.query(
             `INSERT INTO system_alerts (
               id, type, title, message, source
