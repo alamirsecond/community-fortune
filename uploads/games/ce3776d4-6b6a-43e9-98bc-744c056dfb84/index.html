@@ -1,0 +1,50 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Space Invaders Test Game</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="favicon.ico" type="image/x-icon">
+</head>
+<body>
+    <div class="game-container">
+        <header class="game-header">
+            <h1>Space Invaders Test Game</h1>
+            <p>A simple test game for API testing</p>
+        </header>
+        
+        <div class="game-content">
+            <div class="game-info">
+                <div class="info-box">
+                    <h3>Controls:</h3>
+                    <p><strong>← →</strong> : Move left/right</p>
+                    <p><strong>SPACE</strong> : Shoot</p>
+                    <p><strong>R</strong> : Restart game</p>
+                </div>
+                <div class="info-box">
+                    <h3>Stats:</h3>
+                    <p>Score: <span id="score">0</span></p>
+                    <p>Lives: <span id="lives">3</span></p>
+                    <p>Level: <span id="level">1</span></p>
+                </div>
+            </div>
+            
+            <canvas id="gameCanvas" width="800" height="500"></canvas>
+            
+            <div class="controls">
+                <button id="startBtn" onclick="startGame()">Start Game</button>
+                <button id="pauseBtn" onclick="togglePause()">Pause</button>
+                <button id="soundBtn" onclick="toggleSound()">Sound: ON</button>
+            </div>
+        </div>
+        
+        <footer class="game-footer">
+            <p>Game ID: <span id="gameId">TEST-GAME-001</span></p>
+            <p>This is a test game for API upload functionality</p>
+        </footer>
+    </div>
+    
+    <script src="game.js"></script>
+</body>
+</html>

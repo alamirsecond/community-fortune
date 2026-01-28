@@ -58,4 +58,4 @@ report.[0-9]*.[0-9]*.[0-9]*.[0-9]*.json
 ---
 # Application Uploads (Filesystem Storage for KYC/Profiles)
 # This ignores everything under the uploads folder
-/uploads/
+# /uploads/
