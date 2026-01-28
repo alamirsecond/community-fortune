@@ -8,7 +8,7 @@ const faqRouter = Router();
 faqRouter.get("/", faqController.listPublic);
 
 // Admin endpoints (JWT required)
-// const ADMIN_ROLES = ["ADMIN", "SUPERADMIN", "admin", "superadmin"];
+const ADMIN_ROLES = ["ADMIN", "SUPERADMIN", "admin", "superadmin"];
 faqRouter.get(
   "/admin",
   //  authenticate(ADMIN_ROLES), 
