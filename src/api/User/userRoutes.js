@@ -11,7 +11,7 @@ import { kycDocumentsUpload, handleKycUploadError } from "../../../middleware/ky
 const router = express.Router();
 
 // Public routes
-router.post("/register",loginLimiter,userController.registerUser);
+router.post("/register",userController.registerUser);
 router.post("/login",loginLimiter, userController.loginUser);
 
 // Google OAuth sign-in (register or login)

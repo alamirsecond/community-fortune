@@ -3,8 +3,8 @@ import rateLimit from "express-rate-limit";
 
 // Login rate limiter
 export const loginLimiter = rateLimit({
-  windowMs: 30 * 60 * 1000, // 30 minutes
-  max: 50, // 50 attempts per window
+  windowMs: 30 * 60 * 1000, 
+  max: 50, 
   message: {
     success: false,
     message: "Too many login attempts. Please try again in 30 minutes."
