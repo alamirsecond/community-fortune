@@ -11,7 +11,7 @@ import withdrawalController from './withdrawalController.js';
 const router = express.Router();
 
 // User routes
-router.post('/request', authenticate(['user']), withdrawalLimiter, withdrawalController.createWithdrawal);
+router.post('/request', authenticate(['']), withdrawalLimiter, withdrawalController.createWithdrawal);
 router.post('/verify-otp', authenticate(['user']), apiLimiter, withdrawalController.verifyWithdrawalOTP);
 router.get('/my-withdrawals', authenticate(['user']), apiLimiter, withdrawalController.getUserWithdrawals);
 router.get('/my-withdrawals/:id', authenticate(['user']), apiLimiter, withdrawalController.getWithdrawalById);
