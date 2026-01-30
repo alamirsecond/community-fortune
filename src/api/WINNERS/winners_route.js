@@ -6,6 +6,7 @@ const winnersRouter = express.Router();
 
 // Public routes
 winnersRouter.get("/recent", winnersController.getRecentWinners);
+
 winnersRouter.get(
   "/competition/:competition_id",
   winnersController.getCompetitionWinners

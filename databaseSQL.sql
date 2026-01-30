@@ -611,7 +611,64 @@ CREATE TABLE winners (
     INDEX idx_winners_competition_id (competition_id),
     INDEX idx_winners_user_id (user_id)
 );
+use `community_fortune`;
 
+CREATE TABLE IF NOT EXISTS prize_distributions (
+    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+    winner_id BINARY(16) NOT NULL,
+    prize_type ENUM('CASH', 'CREDIT', 'TICKETS', 'PHYSICAL', 'OTHER') NOT NULL,
+    prize_value DECIMAL(12,2) DEFAULT 0,
+    status ENUM('PENDING', 'PROCESSING', 'COMPLETED', 'FAILED') DEFAULT 'PENDING',
+    distributed_at TIMESTAMP NULL,
+    method ENUM('AUTO', 'MANUAL') DEFAULT 'AUTO',
+    transaction_id BINARY(16) NULL,
+    admin_notes TEXT,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (winner_id) REFERENCES winners(id) ON DELETE CASCADE,
+    FOREIGN KEY (transaction_id) REFERENCES transactions(id) ON DELETE SET NULL,
+    INDEX idx_prize_distributions_winner (winner_id),
+    INDEX idx_prize_distributions_status (status),
+    INDEX idx_prize_distributions_created_at (created_at)
+);
+
+-- 2. Create notifications table
+CREATE TABLE IF NOT EXISTS notifications (
+    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+    user_id BINARY(16) NOT NULL,
+    type ENUM('WINNER', 'DEPOSIT', 'WITHDRAWAL', 'KYC', 'REFERRAL', 'SYSTEM', 'MARKETING', 'COMPETITION') NOT NULL,
+    title VARCHAR(255) NOT NULL,
+    message TEXT NOT NULL,
+    data JSON,
+    is_read BOOLEAN DEFAULT FALSE,
+    read_at TIMESTAMP NULL,
+    sent_via ENUM('EMAIL', 'PUSH', 'IN_APP', 'SMS') DEFAULT 'IN_APP',
+    scheduled_for TIMESTAMP NULL,
+    sent_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_notifications_user (user_id),
+    INDEX idx_notifications_type (type),
+    INDEX idx_notifications_is_read (is_read),
+    INDEX idx_notifications_created_at (created_at)
+);
+
+-- 3. Add missing columns to winners table
+ALTER TABLE winners 
+ADD COLUMN  verification_status ENUM('PENDING', 'VERIFIED', 'REJECTED', 'EXPIRED') DEFAULT 'PENDING',
+ADD COLUMN admin_notes TEXT,
+ADD COLUMN  verified_at TIMESTAMP NULL,
+ADD COLUMN  verified_by BINARY(16) NULL,
+ADD COLUMN  prize_value DECIMAL(12,2) DEFAULT 0;
+
+-- 4. Update draw_method enum in winners table
+ALTER TABLE winners 
+MODIFY COLUMN draw_method ENUM('MANUAL', 'AUTO', 'RANDOM_DRAW', 'MANUAL_SELECTION', 'SKILL_BASED', 'FIRST_ENTRY', 'WEIGHTED_DRAW') DEFAULT 'MANUAL';
+
+-- 5. Add indexes
+CREATE INDEX  idx_winners_verification_status ON winners(verification_status);
+ALTER TABLE winners ADD FOREIGN KEY  (verified_by) REFERENCES users(id) ON DELETE SET NULL;
 -- ===========================================
 -- COMPETITION ACHIEVEMENTS
 -- ===========================================

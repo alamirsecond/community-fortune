@@ -82,9 +82,6 @@ async updateSettings(data, updatedBy) {
   return this.getSettings();
 }
 
-
-
-
   async getAllTiers() {
     const [tiers] = await pool.query(
       'SELECT * FROM referral_tiers ORDER BY min_referrals ASC'
