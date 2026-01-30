@@ -2,31 +2,48 @@ import pool from "../../../database.js"
 import { v4 as uuidv4 } from 'uuid';
 
 class ReferralSettingsService {
-  async getSettings() {
-    const [settings] = await pool.query(
-      'SELECT * FROM referral_settings ORDER BY updated_at DESC LIMIT 1'
-    );
-    
-    if (settings.length === 0) {
-      // Create default settings if none exist
-      return this.createDefaultSettings();
-    }
-    
-    return settings[0];
+async getSettings() {
+  const [rows] = await pool.query(
+    'SELECT * FROM referral_settings ORDER BY updated_at DESC LIMIT 1'
+  );
+
+  if (rows.length === 0) {
+    return this.createDefaultSettings();
   }
 
-  async updateSettings(data, updatedBy) {
-    const currentSettings = await this.getSettings();
-    const updateData = { ...currentSettings, ...data, updated_by: updatedBy };
-    
-    const [result] = await pool.query(
-      `INSERT INTO referral_settings SET ?
-       ON DUPLICATE KEY UPDATE ?`,
-      [updateData, updateData]
-    );
-    
-    return this.getSettings();
+  return rows[0];
+}
+
+async updateSettings(data, updatedBy) {
+  // 🔐 make sure updatedBy exists
+  const [[user]] = await pool.query(
+    'SELECT id FROM users WHERE id = ?',
+    [updatedBy]
+  );
+
+  if (!user) {
+    throw new Error('Invalid user for updated_by');
   }
+
+  const current = await this.getSettings();
+
+  if (!current?.id) {
+    // No row yet → create
+    await pool.query(
+      'INSERT INTO referral_settings SET ?',
+      { ...data, updated_by: updatedBy }
+    );
+  } else {
+    // Update existing row
+    await pool.query(
+      'UPDATE referral_settings SET ? WHERE id = ?',
+      [{ ...data, updated_by: updatedBy }, current.id]
+    );
+  }
+
+  return this.getSettings();
+}
+
 
   async getAllTiers() {
     const [tiers] = await pool.query(
@@ -104,28 +121,29 @@ class ReferralSettingsService {
     return true;
   }
 
-  async createDefaultSettings() {
-    const defaultSettings = {
-      total_referral_amount: 4000.00,
-      reward_per_referral: 5.00,
-      alternative_reward: 100.00,
-      condition_min_spend: 10.00,
-      total_new_user_amount: 4000.00,
-      onboarding_reward: 5.00,
-      alternative_onboarding_reward: 100.00,
-      reward_type: 'SITE_CREDIT',
-      amount_left: 2000.00,
-      is_active: true,
-      updated_by: 1 // System user
-    };
-    
-    const [result] = await pool.query(
-      'INSERT INTO referral_settings SET ?',
-      [defaultSettings]
-    );
-    
-    return defaultSettings;
-  }
+async createDefaultSettings() {
+  const defaultSettings = {
+    total_referral_amount: 4000,
+    reward_per_referral: 5,
+    alternative_reward: 100,
+    condition_min_spend: 10,
+    total_new_user_amount: 4000,
+    onboarding_reward: 5,
+    alternative_onboarding_reward: 100,
+    reward_type: 'SITE_CREDIT',
+    amount_left: 2000,
+    is_active: true,
+    updated_by: null // ✅ SAFE
+  };
+
+  await pool.query(
+    'INSERT INTO referral_settings SET ?',
+    [defaultSettings]
+  );
+
+  return this.getSettings();
+}
+
 
   // Initialize default tiers
   async initializeDefaultTiers() {
