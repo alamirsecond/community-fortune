@@ -17,7 +17,7 @@ import voucherRouter from "../api/Vouchers/voucher_routes.js";
 import faqRouter from "../api/FAQ/faq_routes.js";
 import legalRouter from "../api/Legal/legal.routes.js";
 import contactRouter from "../api/Contact/contact.routes.js";
-
+import settingsRouter from "../api/Settingss/setting_routes.js";
 const appRouter = Router();
 
 appRouter.use("/checkout", checkoutRouter);
@@ -38,6 +38,7 @@ appRouter.use("/superAdmin", superAdminRouter);
 appRouter.use("/games", gameRouter);
 appRouter.use("/vouchers", voucherRouter);
 appRouter.use("/faqs", faqRouter);
+appRouter.use("/settings", settingsRouter);
 
 
 appRouter.get("/", (req, res) => {

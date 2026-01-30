@@ -1,5 +1,5 @@
 import settingsService from "./settings_service.js";
-import { validate } from "../../middleware/validation.js";
+import { validate } from "./settings_validation.js";
 import {
   changePasswordSchema,
   maintenanceSchema,

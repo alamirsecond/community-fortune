@@ -176,3 +176,38 @@ export const systemSettingsSchema = Joi.object({
   social_sharing_enabled: Joi.boolean().optional(),
   game_leaderboard_enabled: Joi.boolean().optional()
 });
+// Validation function
+export const validate = (schema, data) => {
+  const { error, value } = schema.validate(data, {
+    abortEarly: false,
+    stripUnknown: true
+  });
+  
+  if (error) {
+    const validationError = new Error('Validation error');
+    validationError.details = error.details.map(detail => ({
+      field: detail.path.join('.'),
+      message: detail.message
+    }));
+    throw validationError;
+  }
+  
+  return value;
+};
+
+// Or export all schemas and the validate function
+export default {
+  validate,
+  changePasswordSchema,
+  maintenanceSchema,
+  paymentGatewaySchema,
+  transactionLimitsSchema,
+  securitySchema,
+  subscriptionTierSchema,
+  notificationSchema,
+  legalDocumentSchema,
+  contactSettingsSchema,
+  faqSchema,
+  voucherSchema,
+  systemSettingsSchema
+};
