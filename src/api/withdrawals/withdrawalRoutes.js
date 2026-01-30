@@ -11,18 +11,17 @@ import withdrawalController from './withdrawalController.js';
 const router = express.Router();
 
 // User routes
-router.post('/request', authenticate(['']), withdrawalLimiter, withdrawalController.createWithdrawal);
-router.post('/verify-otp', authenticate(['user']), apiLimiter, withdrawalController.verifyWithdrawalOTP);
-router.get('/my-withdrawals', authenticate(['user']), apiLimiter, withdrawalController.getUserWithdrawals);
-router.get('/my-withdrawals/:id', authenticate(['user']), apiLimiter, withdrawalController.getWithdrawalById);
-router.get('/settings', authenticate(['user']), apiLimiter, withdrawalController.getWithdrawalSettings);
-router.put('/limits', authenticate(['user']), apiLimiter, withdrawalController.updateSpendingLimits);
-
+router.post('/request', authenticate(['USER']), withdrawalLimiter, withdrawalController.createWithdrawal);
+router.post('/verify-otp', authenticate(['USER']), apiLimiter, withdrawalController.verifyWithdrawalOTP);
+router.get('/my-withdrawals', authenticate(['USER']), apiLimiter, withdrawalController.getUserWithdrawals);
+router.get('/my-withdrawals/:id', authenticate(['USER']), apiLimiter, withdrawalController.getWithdrawalById);
+router.get('/settings', authenticate(['USER']), apiLimiter, withdrawalController.getWithdrawalSettings);
+router.put('/limits', authenticate(['USER']), apiLimiter, withdrawalController.updateSpendingLimits); 
 // Admin routes
-router.get('/all', authenticate(['admin']), apiLimiter, withdrawalController.getAllWithdrawals);
-router.put('/:id/status', authenticate(['admin']), strictLimiter, withdrawalController.updateWithdrawalStatus);
-router.get('/stats', authenticate(['admin']), apiLimiter, withdrawalController.getWithdrawalStats);
-router.post('/verify-kyc', authenticate(['admin']), strictLimiter, withdrawalController.verifyKycStatus);
+router.get('/all', authenticate(["SUPERADMIN", "ADMIN"]), apiLimiter, withdrawalController.getAllWithdrawals);
+router.put('/:id/status', authenticate(8["SUPERADMIN", "ADMIN"]), strictLimiter, withdrawalController.updateWithdrawalStatus);
+router.get('/stats', authenticate(["SUPERADMIN", "ADMIN"]), apiLimiter, withdrawalController.getWithdrawalStats);
+router.post('/verify-kyc', authenticate(["SUPERADMIN", "ADMIN"]), strictLimiter, withdrawalController.verifyKycStatus);
 
 // Webhook for payment processing (external services)
 router.post('/webhook/processing', withdrawalController.handleProcessingWebhook);

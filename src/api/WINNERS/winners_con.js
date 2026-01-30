@@ -1,6 +1,28 @@
 import db from "../../../database.js";
 import winnerSchema from "./winners_zod.js";
 import { v4 as uuidv4 } from "uuid";
+import { z } from "zod";
+
+// Create a validate function for Zod schemas
+const validate = (schema, data) => {
+  try {
+    return schema.parse(data);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      const errors = {};
+      error.errors.forEach((err) => {
+        const field = err.path.join('.');
+        errors[field] = err.message;
+      });
+      
+      const validationError = new Error('Validation error');
+      validationError.errors = errors;
+      throw validationError;
+    }
+    throw error;
+  }
+};
+
 
 const winnersController = {
   // ==================== ADMIN: STATS ====================
@@ -20,25 +42,26 @@ const winnersController = {
         Math.min(365, parseInt(req.query.days, 10) || 7)
       );
 
-      const [[mainTotals]] = await db.query(
-        `SELECT
-          COUNT(*) AS total_winners,
-          COALESCE(SUM(pd.prize_value), 0) AS total_prize_value,
-          COALESCE(SUM(CASE WHEN w.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) THEN pd.prize_value ELSE 0 END), 0) AS amount_won_recent
-         FROM winners w
-         LEFT JOIN prize_distributions pd ON pd.winner_id = w.id`,
-        [days]
-      );
+  // Original query has issues with prize_distributions table
+const [[mainTotals]] = await db.query(
+  `SELECT
+    COUNT(*) AS total_winners,
+    COALESCE(SUM(w.prize_value), 0) AS total_prize_value,
+    COALESCE(SUM(CASE WHEN w.created_at >= DATE_SUB(NOW(), INTERVAL ? DAY) THEN w.prize_value ELSE 0 END), 0) AS amount_won_recent
+   FROM winners w`,
+  [days]
+);
 
-      const [[instantTotals]] = await db.query(
-        `SELECT
-          COUNT(*) AS total_winners,
-          COALESCE(SUM(iw.prize_value), 0) AS total_prize_value,
-          COALESCE(SUM(CASE WHEN iw.claimed_at >= DATE_SUB(NOW(), INTERVAL ? DAY) THEN iw.prize_value ELSE 0 END), 0) AS amount_won_recent
-         FROM instant_wins iw
-         WHERE iw.claimed_by IS NOT NULL`,
-        [days]
-      );
+// And for instant wins
+const [[instantTotals]] = await db.query(
+  `SELECT
+    COUNT(*) AS total_winners,
+    COALESCE(SUM(iw.prize_value), 0) AS total_prize_value,
+    COALESCE(SUM(CASE WHEN iw.claimed_at >= DATE_SUB(NOW(), INTERVAL ? DAY) THEN iw.prize_value ELSE 0 END), 0) AS amount_won_recent
+   FROM instant_wins iw
+   WHERE iw.claimed_by IS NOT NULL`,
+  [days]
+);
 
       const totalWinners =
         (mainTotals?.total_winners || 0) + (instantTotals?.total_winners || 0);
@@ -122,48 +145,47 @@ const winnersController = {
         ? `WHERE ${whereParts.join(" AND ")}`
         : "";
 
-      const mainSelect = `SELECT
-          'MAIN' AS source,
-          BIN_TO_UUID(w.id) AS winner_id,
-          BIN_TO_UUID(w.user_id) AS user_id,
-          BIN_TO_UUID(w.competition_id) AS competition_id,
-          BIN_TO_UUID(w.ticket_id) AS ticket_id,
-          u.username AS username,
-          u.profile_photo AS profile_photo,
-          c.title AS competition_title,
-          c.category AS competition_category,
-          c.price AS entry_price,
-          c.end_date AS date_ended,
-          w.prize_description AS prize_description,
-          COALESCE(pd.prize_value, 0) AS reward_value,
-          COALESCE(CAST(t.ticket_number AS CHAR), '') AS ticket_number,
-          w.created_at AS event_at
-        FROM winners w
-        JOIN users u ON w.user_id = u.id
-        JOIN competitions c ON w.competition_id = c.id
-        LEFT JOIN tickets t ON w.ticket_id = t.id
-        LEFT JOIN prize_distributions pd ON pd.winner_id = w.id`;
+     const mainSelect = `SELECT
+    'MAIN' AS source,
+    BIN_TO_UUID(w.id) AS winner_id,
+    BIN_TO_UUID(w.user_id) AS user_id,
+    BIN_TO_UUID(w.competition_id) AS competition_id,
+    BIN_TO_UUID(w.ticket_id) AS ticket_id,
+    u.username AS username,
+    u.profile_photo AS profile_photo,
+    c.title AS competition_title,
+    c.category AS competition_category,
+    c.price AS entry_price,
+    c.end_date AS date_ended,
+    w.prize_description AS prize_description,
+    COALESCE(w.prize_value, 0) AS reward_value,
+    COALESCE(CAST(t.ticket_number AS CHAR), '') AS ticket_number,
+    w.created_at AS event_at
+  FROM winners w
+  JOIN users u ON w.user_id = u.id
+  JOIN competitions c ON w.competition_id = c.id
+  LEFT JOIN tickets t ON w.ticket_id = t.id`;
 
-      const instantSelect = `SELECT
-          'INSTANT' AS source,
-          BIN_TO_UUID(iw.id) AS winner_id,
-          BIN_TO_UUID(iw.claimed_by) AS user_id,
-          BIN_TO_UUID(iw.competition_id) AS competition_id,
-          NULL AS ticket_id,
-          u.username AS username,
-          u.profile_photo AS profile_photo,
-          c.title AS competition_title,
-          c.category AS competition_category,
-          c.price AS entry_price,
-          c.end_date AS date_ended,
-          iw.title AS prize_description,
-          COALESCE(iw.prize_value, 0) AS reward_value,
-          COALESCE(CAST(iw.ticket_number AS CHAR), '') AS ticket_number,
-          iw.claimed_at AS event_at
-        FROM instant_wins iw
-        JOIN users u ON iw.claimed_by = u.id
-        JOIN competitions c ON iw.competition_id = c.id
-        WHERE iw.claimed_by IS NOT NULL`;
+    const instantSelect = `SELECT
+    'INSTANT' AS source,
+    BIN_TO_UUID(iw.id) AS winner_id,
+    BIN_TO_UUID(iw.claimed_by) AS user_id,
+    BIN_TO_UUID(iw.competition_id) AS competition_id,
+    NULL AS ticket_id,
+    u.username AS username,
+    u.profile_photo AS profile_photo,
+    c.title AS competition_title,
+    c.category AS competition_category,
+    c.price AS entry_price,
+    c.end_date AS date_ended,
+    iw.title AS prize_description,
+    COALESCE(iw.prize_value, 0) AS reward_value,
+    COALESCE(CAST(iw.ticket_number AS CHAR), '') AS ticket_number,
+    iw.claimed_at AS event_at
+  FROM instant_wins iw
+  JOIN users u ON iw.claimed_by = u.id
+  JOIN competitions c ON iw.competition_id = c.id
+  WHERE iw.claimed_by IS NOT NULL`;
 
       let baseQuery;
       if (source === "MAIN") {
@@ -759,36 +781,38 @@ const winnersController = {
     try {
       const { competition_id } = req.params;
 
-      const [winners] = await db.query(
-        `SELECT 
-          BIN_TO_UUID(w.id) as id,
-          BIN_TO_UUID(w.user_id) as user_id,
-          BIN_TO_UUID(w.ticket_id) as ticket_id,
-          w.prize_description,
-          w.draw_method,
-          w.created_at,
-          u.username,
-          u.profile_photo,
-          u.email,
-          t.ticket_number,
-          c.title as competition_title,
-          c.category as competition_category,
-          CASE 
-            WHEN w.draw_method = 'MANUAL' THEN 'Admin Selection'
-            WHEN w.draw_method = 'RANDOM_DRAW' THEN 'Random Draw'
-            WHEN w.draw_method = 'SKILL_BASED' THEN 'Skill Based'
-            WHEN w.draw_method = 'FIRST_ENTRY' THEN 'First Entry'
-            ELSE w.draw_method
-          END as draw_method_display
-         FROM winners w
-         JOIN users u ON w.user_id = u.id
-         JOIN competitions c ON w.competition_id = c.id
-         LEFT JOIN tickets t ON w.ticket_id = t.id
-         WHERE w.competition_id = UUID_TO_BIN(?)
-         ORDER BY w.created_at DESC`,
-        [competition_id]
-      );
-
+    const [winners] = await db.query(
+  `SELECT 
+    BIN_TO_UUID(w.id) as id,
+    BIN_TO_UUID(w.user_id) as user_id,
+    BIN_TO_UUID(w.ticket_id) as ticket_id,
+    w.prize_description,
+    w.prize_value,
+    w.draw_method,
+    w.created_at,
+    w.verification_status,
+    u.username,
+    u.profile_photo,
+    u.email,
+    t.ticket_number,
+    c.title as competition_title,
+    c.category as competition_category,
+    CASE 
+      WHEN w.draw_method = 'MANUAL' OR w.draw_method = 'MANUAL_SELECTION' THEN 'Admin Selection'
+      WHEN w.draw_method = 'RANDOM_DRAW' THEN 'Random Draw'
+      WHEN w.draw_method = 'SKILL_BASED' THEN 'Skill Based'
+      WHEN w.draw_method = 'FIRST_ENTRY' THEN 'First Entry'
+      WHEN w.draw_method = 'WEIGHTED_DRAW' THEN 'Weighted Draw'
+      ELSE w.draw_method
+    END as draw_method_display
+   FROM winners w
+   JOIN users u ON w.user_id = u.id
+   JOIN competitions c ON w.competition_id = c.id
+   LEFT JOIN tickets t ON w.ticket_id = t.id
+   WHERE w.competition_id = UUID_TO_BIN(?)
+   ORDER BY w.created_at DESC`,
+  [competition_id]
+);
       // Get instant win winners for this competition
       const [instantWins] = await db.query(
         `SELECT 
@@ -904,13 +928,12 @@ const winnersController = {
 async function selectRandomWinners(competition_id, count, category) {
   const [entries] = await db.query(
     `SELECT 
-      BIN_TO_UUID(ce.user_id) as user_id,
+      DISTINCT BIN_TO_UUID(t.user_id) as user_id,
       BIN_TO_UUID(t.id) as ticket_id,
       t.ticket_number
-     FROM competition_entries ce
-     JOIN tickets t ON ce.competition_id = t.competition_id AND ce.user_id = t.user_id
-     WHERE ce.competition_id = UUID_TO_BIN(?)
-     AND ce.status = 'ACTIVE'
+     FROM tickets t
+     WHERE t.competition_id = UUID_TO_BIN(?)
+     AND t.is_used = FALSE
      ORDER BY RAND()
      LIMIT ?`,
     [competition_id, count]
@@ -920,29 +943,26 @@ async function selectRandomWinners(competition_id, count, category) {
     user_id: entry.user_id,
     ticket_id: entry.ticket_id,
     ticket_number: entry.ticket_number,
-    prize_description: getPrizeDescription(category, 1), // Adjust based on position
+    prize_description: getPrizeDescription(category, 1),
   }));
 }
 
 // Manual Selection Method
-async function selectManualWinners(
-  competition_id,
-  user_ids,
-  prize_descriptions = []
-) {
+async function selectManualWinners(competition_id, user_ids, prize_descriptions = []) {
   const winners = [];
 
   for (let i = 0; i < user_ids.length; i++) {
     const userId = user_ids[i];
 
-    // Get user's latest ticket for this competition
+    // Get user's ticket for this competition
     const [ticket] = await db.query(
       `SELECT 
         BIN_TO_UUID(id) as ticket_id,
         ticket_number
        FROM tickets 
-       WHERE competition_id = UUID_TO_BIN(?) AND user_id = UUID_TO_BIN(?)
-       ORDER BY created_at DESC 
+       WHERE competition_id = UUID_TO_BIN(?) 
+       AND user_id = UUID_TO_BIN(?)
+       AND is_used = FALSE
        LIMIT 1`,
       [competition_id, userId]
     );
@@ -1168,41 +1188,53 @@ async function notifyWinners(competition_id, winners) {
 
 // Process prize distribution
 async function processPrizeDistribution(winner) {
-  // Determine prize type and distribute accordingly
   const prizeDescription = winner.prize_description.toLowerCase();
+  let prizeType = 'OTHER';
+  let prizeValue = winner.prize_value || 0;
 
+  // Determine prize type and value
   if (prizeDescription.includes("cash") || prizeDescription.includes("£")) {
+    prizeType = 'CASH';
+    prizeValue = extractCashAmount(prizeDescription) || prizeValue;
+    
     // Award cash to wallet
     await db.query(
       `UPDATE wallets SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP 
        WHERE user_id = UUID_TO_BIN(?) AND type = 'CASH'`,
-      [extractCashAmount(prizeDescription), winner.user_id]
+      [prizeValue, winner.user_id]
     );
   } else if (prizeDescription.includes("credit")) {
+    prizeType = 'CREDIT';
+    prizeValue = extractCreditAmount(prizeDescription) || prizeValue;
+    
     // Award site credit
     await db.query(
       `UPDATE wallets SET balance = balance + ?, updated_at = CURRENT_TIMESTAMP 
        WHERE user_id = UUID_TO_BIN(?) AND type = 'CREDIT'`,
-      [extractCreditAmount(prizeDescription), winner.user_id]
+      [prizeValue, winner.user_id]
     );
   } else if (prizeDescription.includes("ticket")) {
+    prizeType = 'TICKETS';
+    
     // Award universal tickets
     await db.query(
-      `INSERT INTO universal_tickets (id, user_id, ticket_type, source, expires_at, created_at)
-       VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'WINNER_PRIZE', 'WINNER', DATE_ADD(CURDATE(), INTERVAL 30 DAY), CURRENT_TIMESTAMP)`,
+      `INSERT INTO universal_tickets (id, user_id, ticket_type, source, quantity, expires_at, created_at)
+       VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'WINNER_PRIZE', 'WINNER', 1, DATE_ADD(CURDATE(), INTERVAL 30 DAY), CURRENT_TIMESTAMP)`,
       [winner.user_id]
     );
   }
 
-  // Log prize distribution
+  // Create prize distribution record
   await db.query(
-    `INSERT INTO prize_distributions (id, winner_id, prize_type, prize_value, distributed_at, created_at)
-     VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
-    [
-      winner.id,
-      determinePrizeType(prizeDescription),
-      extractPrizeValue(prizeDescription),
-    ]
+    `INSERT INTO prize_distributions (id, winner_id, prize_type, prize_value, status, distributed_at, created_at)
+     VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, 'COMPLETED', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)`,
+    [winner.id, prizeType, prizeValue]
+  );
+
+  // Update winner's prize value
+  await db.query(
+    `UPDATE winners SET prize_value = ?, updated_at = CURRENT_TIMESTAMP WHERE id = UUID_TO_BIN(?)`,
+    [prizeValue, winner.id]
   );
 }
 

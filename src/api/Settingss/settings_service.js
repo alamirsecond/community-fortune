@@ -635,7 +635,6 @@ class SettingsService {
         }
       }
     });
-
     return formatted;
   }
 
