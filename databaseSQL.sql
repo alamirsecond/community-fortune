@@ -1640,6 +1640,7 @@ INSERT IGNORE INTO game_categories (id, name, description, sort_order) VALUES
 (UNHEX(REPLACE('66666666-6666-6666-6666-666666666666', '-', '')), 'MULTIPLAYER', 'Games for multiple players', 6),
 (UNHEX(REPLACE('77777777-7777-7777-7777-777777777777', '-', '')), 'EDUCATIONAL', 'Learning and educational games', 7);
 
+ALTER TABLE referral_settings ADD UNIQUE KEY (is_active);
 
 
 DROP TRIGGER IF EXISTS before_legal_documents_insert;
