@@ -1,5 +1,5 @@
 import referralSettingsService from "./referralSettingsService.js"
-import {UpdateReferralSettingsSchema} from "./referralSettingValidation.js"
+import {UpdateReferralSettingsSchema, validate} from "./referralSettingValidation.js"
 
 class ReferralSettingsController {
   // Get current referral settings

@@ -95,3 +95,24 @@ export const ReferralAnalyticsQuerySchema = z.object({
   page: z.string().regex(/^\d+$/).optional().default("1"),
   limit: z.string().regex(/^\d+$/).optional().default("50")
 });
+
+export const validate = (schema, data) => {
+  try {
+    return schema.parse(data);
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      // Format Zod errors into a readable format
+      const errors = {};
+      error.errors.forEach((err) => {
+        const field = err.path.join('.');
+        errors[field] = err.message;
+      });
+      
+      const validationError = new Error('Validation error');
+      validationError.errors = errors;
+      validationError.details = error.errors;
+      throw validationError;
+    }
+    throw error;
+  }
+};
