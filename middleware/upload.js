@@ -10,7 +10,14 @@ const execAsync = promisify(exec);
 
 const competitionUploadsDir = path.resolve(process.env.COMPETITION_UPLOAD_PATH || './uploads/competitions');
 const gamesUploadDir = path.resolve(process.env.GAMES_UPLOAD_PATH || './uploads/games');
+console.log('COMPETITION_UPLOAD_PATH:', process.env.COMPETITION_UPLOAD_PATH);
+console.log('Competition uploads dir:', competitionUploadsDir);
 
+// Check if directory exists
+if (!fs.existsSync(competitionUploadsDir)) {
+  console.log('Creating competition uploads directory:', competitionUploadsDir);
+  fs.mkdirSync(competitionUploadsDir, { recursive: true });
+}
 // Ensure competition uploads directory exists
 if (!fs.existsSync(competitionUploadsDir)) {
   fs.mkdirSync(competitionUploadsDir, { recursive: true });
@@ -319,11 +326,28 @@ export const deleteUploadedFiles = (filePaths) => {
 
 // Utility function to get file URL
 export const getFileUrl = (filePath) => {
-  if (!filePath) return null;
-
-  const relativePath = path.relative(competitionUploadsDir, filePath).replace(/\\/g, '/');
-  const baseUrl = process.env.SERVER_URL || 'http://localhost:4000'; // adjust port
-  return `${baseUrl}/uploads/competitions/${relativePath}`;
+  if (!filePath) {
+    console.warn('getFileUrl called with undefined or empty filePath');
+    return null;
+  }
+  
+  console.log('getFileUrl - filePath:', filePath);
+  console.log('getFileUrl - filePath type:', typeof filePath);
+  
+  try {
+    const relativePath = path.relative(competitionUploadsDir, filePath).replace(/\\/g, '/');
+    console.log('getFileUrl - relativePath:', relativePath);
+    
+    const baseUrl = process.env.SERVER_URL || 'http://localhost:4000';
+    const url = `${baseUrl}/uploads/competitions/${relativePath}`;
+    console.log('getFileUrl - generated URL:', url);
+    
+    return url;
+  } catch (error) {
+    console.error('getFileUrl error:', error);
+    console.error('filePath that caused error:', filePath);
+    return null;
+  }
 };
 
 
