@@ -10,7 +10,6 @@ const ADMIN_ROLES = ["ADMIN",  "SUPERADMIN"];
 // Existing routes
 instantWinsRouter.post(
   "/admin/instant-wins",
-  authenticate,
   authenticate(ADMIN_ROLES),
   InstantWinController.createInstantWins
 );
@@ -18,49 +17,43 @@ instantWinsRouter.post(
 // ADMIN: Reports + Analytics + Exports
 instantWinsRouter.get(
   "/admin/reports",
-  authenticate,
   authenticate(ADMIN_ROLES),
   InstantWinController.adminInstantWinReports
 );
 
 instantWinsRouter.get(
   "/admin/analytics",
-  authenticate,
   authenticate(ADMIN_ROLES),
   InstantWinController.adminInstantWinAnalytics
 );
 
 instantWinsRouter.get(
   "/admin/export",
-  authenticate,
   authenticate(ADMIN_ROLES),
   InstantWinController.adminExportAllInstantWinsCsv
 );
 
 instantWinsRouter.get(
   "/admin/competition/:competition_id",
-  authenticate,
   authenticate(ADMIN_ROLES),
   InstantWinController.adminGetCompetitionInstantWins
 );
 
 instantWinsRouter.get(
   "/admin/competition/:competition_id/report",
-  authenticate,
   authenticate(ADMIN_ROLES),
   InstantWinController.adminCompetitionReport
 );
 
 instantWinsRouter.get(
   "/admin/competition/:competition_id/export",
-  authenticate,
   authenticate(ADMIN_ROLES),
   InstantWinController.adminExportCompetitionInstantWinsCsv
 );
 
 instantWinsRouter.get(
   "/competition/:competition_id",
-  authenticate,
+  authenticate(ADMIN_ROLES),
   InstantWinController.getCompetitionInstantWins
 );
 
@@ -73,14 +66,12 @@ instantWinsRouter.get(
 // NEW ROUTES FOR MANUAL OPERATIONS
 instantWinsRouter.post(
   "/admin/instant-wins/manual",
-  authenticate,
   authenticate(ADMIN_ROLES),
   InstantWinController.createInstantWinManually
 );
 
 instantWinsRouter.patch(
   "/admin/instant-wins/claim-status",
-  authenticate,
   authenticate(ADMIN_ROLES),
   InstantWinController.updateClaimedStatus
 );

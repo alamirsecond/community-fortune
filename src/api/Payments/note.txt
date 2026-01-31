@@ -1,0 +1,105 @@
+async getWithdrawalAccountRequirements(gateway) {
+    const requirements = {
+        PAYPAL: {
+            fields: [
+                { name: 'receiver_email', type: 'email', required: true, label: 'PayPal Email' },
+                { name: 'receiver_id', type: 'text', required: false, label: 'PayPal Payer ID' },
+                { name: 'note', type: 'text', required: false, label: 'Payment Note' }
+            ],
+            instructions: 'Enter your PayPal email address. Make sure it matches your verified PayPal account.',
+            processing_time: '1-2 business days',
+            fees: 'Free for personal accounts, small fee for business accounts'
+        },
+        STRIPE: {
+            fields: [
+                { name: 'stripe_account_id', type: 'text', required: false, label: 'Stripe Account ID' },
+                { name: 'destination', type: 'text', required: false, label: 'Bank Account/Card ID' },
+                { name: 'bank_account', type: 'text', required: false, label: 'Bank Account Details' },
+                { name: 'method', type: 'select', required: false, label: 'Payout Method', 
+                  options: ['standard', 'instant'], default: 'standard' }
+            ],
+            instructions: 'Connect your Stripe account or provide bank account details.',
+            processing_time: 'Standard: 2-7 business days, Instant: Within 30 minutes',
+            fees: 'Standard: Free, Instant: 1% fee'
+        },
+        REVOLUT: {
+            fields: [
+                { name: 'counterparty_id', type: 'text', required: false, label: 'Revolut Counterparty ID' },
+                { name: 'account_id', type: 'text', required: false, label: 'Revolut Account ID' },
+                { name: 'counterparty', type: 'object', required: false, label: 'Counterparty Details',
+                  subfields: [
+                    { name: 'name', type: 'text', required: true, label: 'Full Name' },
+                    { name: 'email', type: 'email', required: true, label: 'Email' },
+                    { name: 'phone', type: 'tel', required: false, label: 'Phone Number' },
+                    { name: 'profile_type', type: 'select', required: false, label: 'Account Type',
+                      options: ['personal', 'business'], default: 'personal' }
+                  ]
+                }
+            ],
+            instructions: 'Provide your Revolut account details or email to receive payment.',
+            processing_time: 'Instant or within 24 hours',
+            fees: 'Free for GBP transfers'
+        },
+        BANK_TRANSFER: {
+            fields: [
+                { name: 'account_holder_name', type: 'text', required: true, label: 'Account Holder Name' },
+                { name: 'account_number', type: 'text', required: true, label: 'Account Number' },
+                { name: 'sort_code', type: 'text', required: true, label: 'Sort Code (UK)', pattern: '\\d{6}' },
+                { name: 'bank_name', type: 'text', required: false, label: 'Bank Name' },
+                { name: 'reference', type: 'text', required: false, label: 'Payment Reference' }
+            ],
+            instructions: 'Enter your UK bank account details for BACS transfer.',
+            processing_time: '2-3 business days',
+            fees: 'Free'
+        }
+    };
+    
+    return requirements[gateway.toUpperCase()] || null;
+}
+
+async validateAccountDetails(gateway, accountDetails) {
+    const requirements = await this.getWithdrawalAccountRequirements(gateway);
+    
+    if (!requirements) {
+        return { valid: false, error: 'Invalid gateway' };
+    }
+    
+    const errors = [];
+    
+    for (const field of requirements.fields) {
+        if (field.required && !accountDetails[field.name]) {
+            errors.push(`${field.label} is required`);
+        }
+        
+        // Validate field types
+        if (accountDetails[field.name]) {
+            switch (field.type) {
+                case 'email':
+                    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                    if (!emailRegex.test(accountDetails[field.name])) {
+                        errors.push(`${field.label} must be a valid email`);
+                    }
+                    break;
+                    
+                case 'tel':
+                    const phoneRegex = /^[\+]?[1-9][\d]{0,15}$/;
+                    if (!phoneRegex.test(accountDetails[field.name].replace(/[\s\-\(\)]/g, ''))) {
+                        errors.push(`${field.label} must be a valid phone number`);
+                    }
+                    break;
+                    
+                case 'text':
+                    if (field.pattern && !new RegExp(field.pattern).test(accountDetails[field.name])) {
+                        errors.push(`${field.label} format is invalid`);
+                    }
+                    break;
+            }
+        }
+    }
+    
+    return {
+        valid: errors.length === 0,
+        errors: errors,
+        requirements: requirements
+    };
+}

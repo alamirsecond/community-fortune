@@ -394,7 +394,7 @@ export const getCompetitions = async (req, res) => {
       filters.user_id = req.user.id;
       
       // Filter out subscription competitions user can't access
-      if (req.user.role !== 'admin') {
+      if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPERADMIN') {
         filters.exclude_inaccessible_subscription = true;
       }
     }

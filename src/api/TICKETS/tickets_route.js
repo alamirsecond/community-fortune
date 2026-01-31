@@ -39,4 +39,10 @@ ticketRouter.get(
   TicketSystemController.getCompetitionTicketStats
 );
 
+// Bulk allocate tickets for multiple competitions
+ticketRouter.post(
+  "/allocate-bulk",
+  authenticate,
+  TicketSystemController.allocateBulkTickets
+);
 export default ticketRouter;

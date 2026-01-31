@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import instantWinSchemas from "./instantWins_zod.js";
 
 class InstantWinController {
+
   static async createInstantWins(req, res) {
     const connection = await pool.getConnection();
 
@@ -89,58 +90,51 @@ class InstantWinController {
       for (const [ticketNumber, prize] of Object.entries(prizeDistribution)) {
         const instantWinId = uuidv4();
 
-        // Build the query dynamically based on available fields
+        // Build the query dynamically - INCLUDING ALL FIELDS FROM YOUR SCHEMA
         const fields = [
           "id",
           "competition_id",
           "ticket_number",
+          "title",
           "prize_name",
+          "image_url",
           "prize_value",
+          "payout_type",
           "prize_type",
           "max_winners",
+          "current_winners",
+          "probability"  // ADDED: probability field
         ];
         const placeholders = [
           "UUID_TO_BIN(?)",
           "UUID_TO_BIN(?)",
           "?",
-          "?",
-          "?",
-          "?",
-          "?",
+          "?", // title
+          "?", // prize_name
+          "?", // image_url
+          "?", // prize_value
+          "?", // payout_type
+          "?", // prize_type
+          "?", // max_winners
+          "?", // current_winners
+          "?"  // probability
         ];
         const values = [
           instantWinId,
           competition_id,
           parseInt(ticketNumber),
+          prize.title || comp.title || "Instant Win", // Use prize.title, then comp.title
           prize.name,
+          prize.image_url || null,
           prize.value,
+          prize.payout_type || null,
           prize.type,
           prize.max_winners || 1,
+          prize.current_winners || 0, // ADDED: current_winners
+          prize.probability || 0.00   // ADDED: probability
         ];
 
         // Add optional fields if they exist
-        if (prize.title) {
-          fields.push("title");
-          placeholders.push("?");
-          values.push(prize.title);
-        } else if (comp.title) {
-          fields.push("title");
-          placeholders.push("?");
-          values.push(comp.title);
-        }
-
-        if (prize.image_url) {
-          fields.push("image_url");
-          placeholders.push("?");
-          values.push(prize.image_url);
-        }
-
-        if (prize.payout_type) {
-          fields.push("payout_type");
-          placeholders.push("?");
-          values.push(prize.payout_type);
-        }
-
         if (prize.claimed_by) {
           fields.push("claimed_by");
           placeholders.push("UUID_TO_BIN(?)");
@@ -194,7 +188,7 @@ class InstantWinController {
     }
   }
 
-  // NEW METHOD: Manual insertion with all fields
+  // Fixed createInstantWinManually - include probability
   static async createInstantWinManually(req, res) {
     const connection = await pool.getConnection();
 
@@ -221,6 +215,7 @@ class InstantWinController {
         image_url,
         max_winners = 1,
         current_winners = 0,
+        probability = 0.00,  // ADDED: probability with default
         claimed_by,
         claimed_at,
         user_details,
@@ -229,7 +224,7 @@ class InstantWinController {
       // Check if competition exists
       const [competition] = await connection.query(
         `
-        SELECT total_tickets FROM competitions 
+        SELECT total_tickets, title as comp_title FROM competitions 
         WHERE id = UUID_TO_BIN(?)
         `,
         [competition_id]
@@ -281,20 +276,20 @@ class InstantWinController {
 
       const instantWinId = uuidv4();
 
-      // Insert the instant win
+      // Insert the instant win - INCLUDING probability
       await connection.query(
         `
         INSERT INTO instant_wins (
           id, competition_id, ticket_number,
           title, prize_name, prize_value,
           prize_type, payout_type, image_url,
-          max_winners, current_winners,
+          max_winners, current_winners, probability,  -- ADDED: probability
           claimed_by, claimed_at, user_details
         ) VALUES (
           UUID_TO_BIN(?), UUID_TO_BIN(?), ?,
           ?, ?, ?,
           ?, ?, ?,
-          ?, ?,
+          ?, ?, ?,  -- ADDED: probability value
           ${claimed_by ? "UUID_TO_BIN(?)" : "NULL"}, 
           ${claimed_at ? "?" : "NULL"},
           ${user_details ? "?" : "NULL"}
@@ -304,14 +299,15 @@ class InstantWinController {
           instantWinId,
           competition_id,
           ticket_number,
-          title,
+          title || comp.comp_title || "Instant Win",
           prize_name,
           prize_value,
           prize_type,
-          payout_type,
-          image_url,
+          payout_type || null,
+          image_url || null,
           max_winners,
           current_winners,
+          probability,  // ADDED: probability value
           ...(claimed_by ? [claimed_by] : []),
           ...(claimed_at ? [claimed_at] : []),
           ...(user_details ? [JSON.stringify(user_details)] : []),
@@ -329,6 +325,7 @@ class InstantWinController {
           prize_name,
           prize_value,
           prize_type,
+          probability,  // ADDED: include in response
           claimed_by: claimed_by ? "Set" : "Not set",
           claimed_at: claimed_at || "Not set",
         },
@@ -344,6 +341,218 @@ class InstantWinController {
       connection.release();
     }
   }
+
+  // Fixed processInstantWinClaim query to include all fields
+  static async processInstantWinClaim(
+    connection,
+    instant_win_id,
+    user_id,
+    user_details = {}
+  ) {
+    const [instantWin] = await connection.query(
+      `
+      SELECT 
+        BIN_TO_UUID(id) as id,
+        BIN_TO_UUID(competition_id) as competition_id,
+        ticket_number,
+        title,
+        prize_name,
+        prize_value,
+        prize_type,
+        payout_type,
+        image_url,
+        max_winners,
+        current_winners,
+        probability,
+        claimed_by,
+        claimed_at
+      FROM instant_wins 
+      WHERE id = UUID_TO_BIN(?) 
+      AND claimed_by IS NULL
+      AND current_winners < max_winners
+      FOR UPDATE
+      `,
+      [instant_win_id]
+    );
+
+    if (!instantWin || instantWin.length === 0) {
+      throw new Error(
+        "Instant win not found, already claimed, or maximum winners reached"
+      );
+    }
+
+    const win = instantWin[0];
+
+    await connection.query(
+      `
+      UPDATE instant_wins 
+      SET claimed_by = UUID_TO_BIN(?), 
+        claimed_at = NOW(),
+        current_winners = current_winners + 1,
+        user_details = ?
+      WHERE id = UUID_TO_BIN(?)
+      `,
+      [user_id, JSON.stringify(user_details), instant_win_id]
+    );
+
+    const awardResult = await InstantWinController.awardPrize(
+      connection,
+      user_id,
+      win
+    );
+
+    // Create notification for user
+  await connection.query(
+    `
+    INSERT INTO notifications (
+      id, user_id, type, title, message, data
+    ) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'INSTANT_WIN', 
+      'Congratulations!', ?, ?)
+    `,
+    [
+      user_id,
+      `You won ${instantWin.prize_value} ${instantWin.prize_type} in an instant win!`,
+      JSON.stringify({
+        instant_win_id: win.id,
+        prize_name: win.prize_name,
+        prize_value: win.prize_value,
+        prize_type: win.prize_type,
+        ticket_number: win.ticket_number
+      })
+    ]
+  );
+
+   return {
+      success: true,
+      instant_win: {
+        id: win.id,
+        title: win.title,
+        prize_name: win.prize_name,
+        prize_value: win.prize_value,
+        prize_type: win.prize_type,
+        payout_type: win.payout_type,
+        probability: win.probability,  // ADDED: include probability
+      },
+      award_result: awardResult,
+    };
+  }
+
+  // Fixed getCompetitionInstantWins query
+  static async getCompetitionInstantWins(req, res) {
+    const connection = await pool.getConnection();
+
+    try {
+      const { competition_id } = req.params;
+      const { status, limit = 100, offset = 0 } = req.query;
+
+      let query = `
+        SELECT 
+          BIN_TO_UUID(iw.id) as id,
+          BIN_TO_UUID(iw.competition_id) as competition_id,
+          BIN_TO_UUID(iw.claimed_by) as claimed_by,
+          iw.ticket_number,
+          iw.title,
+          iw.prize_name,
+          iw.prize_value,
+          iw.prize_type,
+          iw.payout_type,
+          iw.image_url,
+          iw.max_winners,
+          iw.current_winners,
+          iw.probability,  -- ADDED: probability field
+          iw.claimed_at,
+          iw.user_details,
+          iw.created_at,
+          u.username as winner_username,
+          u.email as winner_email,
+          CASE 
+            WHEN iw.claimed_by IS NOT NULL THEN 'CLAIMED'
+            ELSE 'AVAILABLE'
+          END as status,
+          c.title as competition_title
+        FROM instant_wins iw
+        LEFT JOIN users u ON iw.claimed_by = u.id
+        JOIN competitions c ON iw.competition_id = c.id
+        WHERE iw.competition_id = UUID_TO_BIN(?)
+      `;
+
+      const params = [competition_id];
+
+      if (status) {
+        if (status === "CLAIMED") {
+          query += ` AND iw.claimed_by IS NOT NULL`;
+        } else if (status === "AVAILABLE") {
+          query += ` AND iw.claimed_by IS NULL`;
+        }
+      }
+
+      query += ` ORDER BY iw.ticket_number LIMIT ? OFFSET ?`;
+      params.push(parseInt(limit), parseInt(offset));
+
+      const [instantWins] = await connection.query(query, params);
+
+      // ... rest of the method remains the same
+      const [countResult] = await connection.query(
+        `
+        SELECT COUNT(*) as total FROM instant_wins 
+        WHERE competition_id = UUID_TO_BIN(?)
+        `,
+        [competition_id]
+      );
+
+      const [stats] = await connection.query(
+        `
+        SELECT 
+          COUNT(*) as total_wins,
+          COUNT(CASE WHEN claimed_by IS NOT NULL THEN 1 END) as claimed_wins,
+          COUNT(CASE WHEN claimed_by IS NULL THEN 1 END) as available_wins,
+          SUM(prize_value) as total_prize_value,
+          SUM(CASE WHEN claimed_by IS NOT NULL THEN prize_value ELSE 0 END) as claimed_prize_value
+        FROM instant_wins 
+        WHERE competition_id = UUID_TO_BIN(?)
+        `,
+        [competition_id]
+      );
+
+      const [prizeDistribution] = await connection.query(
+        `
+        SELECT 
+          prize_type,
+          COUNT(*) as count,
+          SUM(prize_value) as total_value,
+          COUNT(CASE WHEN claimed_by IS NOT NULL THEN 1 END) as claimed,
+          COUNT(CASE WHEN claimed_by IS NULL THEN 1 END) as available
+        FROM instant_wins 
+        WHERE competition_id = UUID_TO_BIN(?)
+        GROUP BY prize_type
+        ORDER BY prize_type
+        `,
+        [competition_id]
+      );
+
+      res.json({
+        total: countResult[0]?.total || 0,
+        statistics: stats[0] || {
+          total_wins: 0,
+          claimed_wins: 0,
+          available_wins: 0,
+          total_prize_value: 0,
+          claimed_prize_value: 0,
+        },
+        prize_distribution: prizeDistribution,
+        instant_wins: instantWins,
+      });
+    } catch (error) {
+      console.error("Get competition instant wins error:", error);
+      res.status(500).json({
+        error: "Failed to fetch instant wins",
+        details: error.message,
+      });
+    } finally {
+      connection.release();
+    }
+  };
+
 
   // NEW METHOD: Update claimed status manually
   static async updateClaimedStatus(req, res) {

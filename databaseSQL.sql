@@ -1489,6 +1489,315 @@ CREATE TABLE vouchers_archive (
     INDEX idx_original_id (id)
 );
 
+
+-- Add these to your existing database schema
+
+-- 1. PAYMENTS TABLE (UPDATED VERSION)
+CREATE TABLE IF NOT EXISTS payments (
+    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+    user_id BINARY(16) NOT NULL,
+    type ENUM('TICKET', 'WITHDRAWAL', 'PRODUCT', 'GENERAL', 'SUBSCRIPTION', 'DEPOSIT', 'SITE_CREDIT') NOT NULL,
+    reference_id BINARY(16) NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    currency VARCHAR(3) DEFAULT 'GBP',
+    status ENUM('PENDING', 'COMPLETED', 'FAILED', 'REFUNDED', 'PARTIALLY_REFUNDED', 'CANCELLED') DEFAULT 'PENDING',
+    gateway ENUM('PAYPAL', 'STRIPE', 'CREDIT_WALLET', 'CASH_WALLET', 'BANK_TRANSFER') NOT NULL,
+    gateway_reference VARCHAR(255),
+    gateway_capture_id VARCHAR(255),
+    gateway_response JSON,
+    metadata JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    completed_at TIMESTAMP NULL,
+    
+    -- Indexes
+    INDEX idx_payments_user_id (user_id),
+    INDEX idx_payments_status (status),
+    INDEX idx_payments_gateway_reference (gateway_reference),
+    INDEX idx_payments_type (type),
+    INDEX idx_payments_created_at (created_at),
+    
+    -- Foreign key
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+);
+-- Payment requests table (missing from your schema)
+CREATE TABLE IF NOT EXISTS payment_requests (
+    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+    user_id BINARY(16) NOT NULL,
+    type ENUM('DEPOSIT', 'WITHDRAWAL', 'SUBSCRIPTION', 'TICKET') NOT NULL,
+    gateway VARCHAR(50) NOT NULL,
+    amount DECIMAL(10,2) NOT NULL,
+    currency VARCHAR(3) DEFAULT 'GBP',
+    fee_amount DECIMAL(10,2) DEFAULT 0.00,
+    net_amount DECIMAL(10,2) NOT NULL,
+    status VARCHAR(50) DEFAULT 'PENDING',
+    deposit_to_wallet VARCHAR(50),
+    withdrawal_id BINARY(16),
+    payment_method_id BINARY(16),
+    requires_admin_approval BOOLEAN DEFAULT FALSE,
+    gateway_order_id VARCHAR(200),
+    gateway_payment_id VARCHAR(200),
+    gateway_capture_id VARCHAR(200),
+    gateway_response JSON,
+    payment_id BINARY(16),
+    admin_notes TEXT,
+    retry_of BINARY(16),
+    completed_at TIMESTAMP NULL,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    FOREIGN KEY (withdrawal_id) REFERENCES withdrawals(id) ON DELETE SET NULL,
+    FOREIGN KEY (payment_method_id) REFERENCES user_payment_methods(id) ON DELETE SET NULL,
+    FOREIGN KEY (retry_of) REFERENCES payment_requests(id) ON DELETE SET NULL,
+    INDEX idx_payment_requests_user (user_id),
+    INDEX idx_payment_requests_status (status),
+    INDEX idx_payment_requests_type (type)
+);
+
+-- User payment methods table (missing from your schema)
+CREATE TABLE IF NOT EXISTS user_payment_methods (
+    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+    user_id BINARY(16) NOT NULL,
+    gateway VARCHAR(50) NOT NULL,
+    method_type VARCHAR(50) NOT NULL,
+    gateway_account_id VARCHAR(200),
+    display_name VARCHAR(100),
+    last_four VARCHAR(4),
+    expiry_month INT,
+    expiry_year INT,
+    card_brand VARCHAR(50),
+    bank_name VARCHAR(100),
+    account_name VARCHAR(100),
+    email VARCHAR(255),
+    is_default BOOLEAN DEFAULT FALSE,
+    is_active BOOLEAN DEFAULT TRUE,
+    metadata JSON,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_user_payment_methods_user (user_id),
+    INDEX idx_user_payment_methods_gateway (gateway),
+    INDEX idx_user_payment_methods_active (is_active)
+);
+-- 2. REFUNDS TABLE
+CREATE TABLE IF NOT EXISTS refunds (
+    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+    payment_id BINARY(16) NOT NULL,
+    amount DECIMAL(12,2) NOT NULL,
+    currency VARCHAR(3) DEFAULT 'GBP',
+    reason TEXT,
+    gateway_refund_id VARCHAR(255),
+    status ENUM('PENDING', 'COMPLETED', 'FAILED') DEFAULT 'PENDING',
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    processed_at TIMESTAMP NULL,
+    
+    -- Indexes
+    INDEX idx_refunds_payment_id (payment_id),
+    INDEX idx_refunds_status (status),
+    
+    -- Foreign key
+    FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE CASCADE
+);
+
+-- 3. UPDATE EXISTING PURCHASES TABLE TO LINK WITH PAYMENTS
+ALTER TABLE purchases
+ADD COLUMN payment_id BINARY(16) NULL AFTER id,
+ADD FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL,
+ADD INDEX idx_purchases_payment (payment_id);
+
+-- 4. UPDATE EXISTING CREDIT_PURCHASES TABLE TO LINK WITH PAYMENTS
+ALTER TABLE credit_purchases
+ADD COLUMN payment_id BINARY(16) NULL AFTER id,
+ADD FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL,
+ADD INDEX idx_credit_purchases_payment (payment_id);
+
+-- 5. UPDATE EXISTING WITHDRAWALS TABLE TO LINK WITH PAYMENTS
+ALTER TABLE withdrawals
+ADD COLUMN payment_id BINARY(16) NULL AFTER id,
+ADD FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL,
+ADD INDEX idx_withdrawals_payment (payment_id);
+
+-- 6. UPDATE EXISTING USER_SUBSCRIPTIONS TABLE FOR PAYMENT LINKING
+ALTER TABLE user_subscriptions
+ADD COLUMN payment_id BINARY(16) NULL AFTER id,
+ADD FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL,
+ADD INDEX idx_user_subscriptions_payment (payment_id);
+
+use `community_fortune`;
+
+-- ===========================================
+-- SYSTEM SETTINGS TABLE (ADD THIS)
+-- ===========================================
+CREATE TABLE IF NOT EXISTS system_settings (
+    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+    setting_key VARCHAR(100) NOT NULL UNIQUE,
+    setting_value TEXT,
+    description VARCHAR(500),
+    setting_type ENUM('STRING', 'NUMBER', 'BOOLEAN', 'JSON', 'ARRAY') DEFAULT 'STRING',
+    category ENUM('MAINTENANCE', 'SECURITY', 'PAYMENT', 'NOTIFICATION', 'LEGAL', 'GENERAL', 'EMAIL', 'SYSTEM') DEFAULT 'GENERAL',
+    is_public BOOLEAN DEFAULT FALSE,
+    updated_by BINARY(16),
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    
+    INDEX idx_system_settings_key (setting_key),
+    INDEX idx_system_settings_category (category),
+    INDEX idx_system_settings_public (is_public),
+    
+    FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- ===========================================
+-- PAYMENT GATEWAY SETTINGS TABLE (ADD THIS)
+-- ===========================================
+CREATE TABLE IF NOT EXISTS payment_gateway_settings (
+    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
+    gateway ENUM('PAYPAL', 'STRIPE', 'REVOLUT') NOT NULL,
+    display_name VARCHAR(100) NOT NULL,
+    environment ENUM('SANDBOX', 'LIVE') NOT NULL DEFAULT 'SANDBOX',
+    is_enabled BOOLEAN DEFAULT FALSE,
+    
+    -- Gateway-specific credentials
+    client_id VARCHAR(500),
+    client_secret VARCHAR(500),
+    api_key VARCHAR(500),
+    webhook_secret VARCHAR(500),
+    public_key VARCHAR(500),
+    private_key VARCHAR(500),
+    
+    -- Transaction limits
+    min_deposit DECIMAL(12,2) DEFAULT 1.00,
+    max_deposit DECIMAL(12,2) DEFAULT 5000.00,
+    min_withdrawal DECIMAL(12,2) DEFAULT 5.00,
+    max_withdrawal DECIMAL(12,2) DEFAULT 10000.00,
+    
+    -- Processing settings
+    processing_fee_percent DECIMAL(5,2) DEFAULT 0.00,
+    fixed_fee DECIMAL(12,2) DEFAULT 0.00,
+    settlement_days INT DEFAULT 2,
+    allowed_countries JSON,
+    restricted_countries JSON,
+    
+    -- Display settings
+    logo_url VARCHAR(500),
+    sort_order INT DEFAULT 0,
+    is_default BOOLEAN DEFAULT FALSE,
+    
+    -- Status tracking
+    last_test_success TIMESTAMP NULL,
+    last_live_success TIMESTAMP NULL,
+    error_message TEXT,
+    
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    updated_by BINARY(16),
+    
+    INDEX idx_gateway_settings_gateway (gateway),
+    INDEX idx_gateway_settings_enabled (is_enabled),
+    INDEX idx_gateway_settings_environment (environment),
+    UNIQUE KEY unique_gateway_env (gateway, environment),
+    
+    FOREIGN KEY (updated_by) REFERENCES users(id) ON DELETE SET NULL
+);
+
+-- ===========================================
+-- FIX EXISTING TABLES
+-- ===========================================
+-- Fix withdrawals table typo
+ALTER TABLE withdrawals 
+CHANGE COLUMN user_id user_id BINARY(16) NOT NULL;
+
+ALTER TABLE community_fortune.payment_gateway_settings
+ADD COLUMN  secret_key VARCHAR(255) DEFAULT NULL;
+-- ===========================================
+-- INSERT DEFAULT SETTINGS
+-- ===========================================
+-- Insert initial system settings
+INSERT IGNORE INTO system_settings (setting_key, setting_value, description, category) VALUES
+-- Maintenance settings
+('maintenance_mode', 'false', 'Maintenance mode status', 'MAINTENANCE'),
+('maintenance_allowed_ips', '[]', 'Allowed IPs during maintenance', 'MAINTENANCE'),
+('maintenance_message', 'System is under maintenance. Please try again later.', 'Maintenance message', 'MAINTENANCE'),
+('maintenance_estimated_duration', '2 hours', 'Estimated maintenance duration', 'MAINTENANCE'),
+
+-- Payment settings
+('payment_enabled_methods', '["credit_debit_card", "paypal", "bank_transfer", "revolut"]', 'Enabled payment methods', 'PAYMENT'),
+
+-- Transaction limits
+('transaction_limit_min_deposit', '10.00', 'Minimum deposit amount', 'PAYMENT'),
+('transaction_limit_max_deposit', '10000.00', 'Maximum deposit amount', 'PAYMENT'),
+('transaction_limit_min_withdrawal', '20.00', 'Minimum withdrawal amount', 'PAYMENT'),
+('transaction_limit_max_withdrawal', '5000.00', 'Maximum withdrawal amount', 'PAYMENT'),
+('transaction_limit_daily_deposit_limit', '5000.00', 'Daily deposit limit', 'PAYMENT'),
+('transaction_limit_daily_withdrawal_limit', '2000.00', 'Daily withdrawal limit', 'PAYMENT'),
+
+-- Security settings
+('security_admin_session_timeout', '30', 'Admin session timeout in minutes', 'SECURITY'),
+('security_enable_captcha_failed_attempts', 'true', 'Enable CAPTCHA after failed attempts', 'SECURITY'),
+('security_failed_attempts_threshold', '5', 'Failed login attempts threshold', 'SECURITY'),
+('security_lock_account_minutes', '30', 'Account lock duration in minutes', 'SECURITY'),
+('security_two_factor_enabled', 'false', 'Enable two-factor authentication', 'SECURITY'),
+('security_password_min_length', '8', 'Minimum password length', 'SECURITY'),
+('security_password_require_special', 'true', 'Require special characters in password', 'SECURITY'),
+
+-- Notification settings
+('notification_user_welcome_email', 'true', 'User notification: welcome email', 'NOTIFICATION'),
+('notification_user_competition_entry_confirmation', 'true', 'User notification: competition entry confirmation', 'NOTIFICATION'),
+('notification_user_winner_notification', 'true', 'User notification: winner notification', 'NOTIFICATION'),
+('notification_user_marketing_emails', 'false', 'User notification: marketing emails', 'NOTIFICATION'),
+('notification_user_deposit_notification', 'true', 'User notification: deposit notification', 'NOTIFICATION'),
+('notification_user_withdrawal_notification', 'true', 'User notification: withdrawal notification', 'NOTIFICATION'),
+('notification_user_kyc_status_update', 'true', 'User notification: KYC status update', 'NOTIFICATION'),
+('notification_user_referral_reward', 'true', 'User notification: referral reward', 'NOTIFICATION'),
+
+-- Email templates
+('email_template_welcome_subject', 'Welcome to Community Fortune!', 'Welcome email subject', 'EMAIL'),
+('email_template_welcome_body', 'Welcome {{username}}! Thank you for joining our community.', 'Welcome email body', 'EMAIL'),
+('email_template_winner_subject', 'Congratulations! You Won!', 'Winner email subject', 'EMAIL'),
+('email_template_winner_body', 'Congratulations {{username}}! You won {{prize}} in {{competition}}.', 'Winner email body', 'EMAIL'),
+
+-- Age verification
+('age_verification_required', 'true', 'Require age verification (18+)', 'LEGAL'),
+
+-- System settings
+('site_name', 'Community Fortune', 'Site name', 'SYSTEM'),
+('site_url', 'https://community-fortune.com', 'Site URL', 'SYSTEM'),
+('support_email', 'support@community-fortune.com', 'Support email', 'SYSTEM'),
+('default_currency', 'GBP', 'Default currency', 'SYSTEM'),
+('timezone', 'UTC', 'System timezone', 'SYSTEM'),
+('date_format', 'YYYY-MM-DD', 'Date format', 'SYSTEM'),
+('items_per_page', '20', 'Items per page', 'SYSTEM'),
+('enable_registration', 'true', 'Enable user registration', 'SYSTEM'),
+('enable_email_verification', 'true', 'Enable email verification', 'SYSTEM'),
+('enable_kyc_verification', 'true', 'Enable KYC verification', 'SYSTEM'),
+('referral_enabled', 'true', 'Enable referral system', 'SYSTEM'),
+('social_sharing_enabled', 'true', 'Enable social sharing', 'SYSTEM'),
+('game_leaderboard_enabled', 'true', 'Enable game leaderboard', 'SYSTEM');
+
+-- Insert default payment gateway settings
+INSERT IGNORE INTO payment_gateway_settings 
+(id, gateway, display_name, environment, is_enabled, sort_order, is_default, min_deposit, max_deposit, min_withdrawal, max_withdrawal) VALUES
+-- PayPal
+(UUID_TO_BIN(UUID()), 'PAYPAL', 'PayPal', 'SANDBOX', TRUE, 1, TRUE, 1.00, 5000.00, 5.00, 10000.00),
+(UUID_TO_BIN(UUID()), 'PAYPAL', 'PayPal', 'LIVE', FALSE, 1, TRUE, 1.00, 5000.00, 5.00, 10000.00),
+-- Stripe (Credit/Debit Cards)
+(UUID_TO_BIN(UUID()), 'STRIPE', 'Credit/Debit Cards (Visa, Mastercard, Amex)', 'SANDBOX', TRUE, 2, FALSE, 1.00, 5000.00, 5.00, 10000.00),
+(UUID_TO_BIN(UUID()), 'STRIPE', 'Credit/Debit Cards (Visa, Mastercard, Amex)', 'LIVE', FALSE, 2, FALSE, 1.00, 5000.00, 5.00, 10000.00),
+-- Revolut
+(UUID_TO_BIN(UUID()), 'REVOLUT', 'Revolut', 'SANDBOX', TRUE, 3, FALSE, 1.00, 5000.00, 5.00, 10000.00),
+(UUID_TO_BIN(UUID()), 'REVOLUT', 'Revolut', 'LIVE', FALSE, 3, FALSE, 1.00, 5000.00, 5.00, 10000.00),
+-- Bank Transfer
+(UUID_TO_BIN(UUID()), 'BANK_TRANSFER', 'Bank Transfer', 'LIVE', TRUE, 4, FALSE, 10.00, 10000.00, 20.00, 5000.00);
+-- 11. UPDATE TRANSACTIONS TABLE TO LINK WITH PAYMENTS
+ALTER TABLE transactions
+ADD COLUMN payment_id BINARY(16) NULL AFTER reference_id,
+ADD FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL,
+ADD INDEX idx_transactions_payment (payment_id);
+
+-- 12. ADD PAYMENT COLUMN TO VOUCHER_USAGE
+ALTER TABLE voucher_usage
+ADD COLUMN payment_id BINARY(16) NULL AFTER transaction_id,
+ADD FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL,
+ADD INDEX idx_voucher_usage_payment (payment_id);
 -- Create triggers
 DELIMITER //
 

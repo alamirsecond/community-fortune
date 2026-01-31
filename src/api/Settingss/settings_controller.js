@@ -1,28 +1,17 @@
 import settingsService from "./settings_service.js";
-import { validate } from "./settings_validation.js";
-import {
-  changePasswordSchema,
-  maintenanceSchema,
-  paymentGatewaySchema,
-  transactionLimitsSchema,
-  securitySchema,
-  subscriptionTierSchema,
-  notificationSchema,
-  legalDocumentSchema,
-  contactSettingsSchema,
-  faqSchema,
-  voucherSchema,
-  systemSettingsSchema
-} from "./settings_validation.js";
 
 class SettingsController {
   // ==================== PASSWORD SETTINGS ====================
   async changeAdminPassword(req, res) {
     try {
-      const validatedData = validate(changePasswordSchema, req.body);
       const adminId = req.user.id;
+      const { oldPassword, newPassword, confirmNewPassword } = req.body;
       
-      await settingsService.changeAdminPassword(adminId, validatedData);
+      await settingsService.changeAdminPassword(adminId, { 
+        oldPassword, 
+        newPassword, 
+        confirmNewPassword 
+      });
       
       return res.status(200).json({
         success: true,
@@ -56,10 +45,8 @@ class SettingsController {
 
   async updateMaintenanceSettings(req, res) {
     try {
-      const validatedData = validate(maintenanceSchema, req.body);
       const adminId = req.user.id;
-      
-      const settings = await settingsService.updateMaintenanceSettings(validatedData, adminId);
+      const settings = await settingsService.updateMaintenanceSettings(req.body, adminId);
       
       return res.status(200).json({
         success: true,
@@ -92,17 +79,70 @@ class SettingsController {
     }
   }
 
-  async updatePaymentGateways(req, res) {
+  async getAllGateways(req, res) {
     try {
-      const validatedData = validate(paymentGatewaySchema, req.body);
-      const adminId = req.user.id;
-      
-      const gateways = await settingsService.updatePaymentGateways(validatedData, adminId);
+      const gateways = await settingsService.getAllPaymentGateways();
       
       return res.status(200).json({
         success: true,
-        message: 'Payment gateways updated successfully',
         data: gateways
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch payment gateways',
+        error: error.message
+      });
+    }
+  }
+
+  async enablePaymentGateway(req, res) {
+    try {
+      const adminId = req.user.id;
+      const { gateway, environment } = req.body;
+      
+      await settingsService.enablePaymentGateway(gateway, environment, adminId);
+      
+      return res.status(200).json({
+        success: true,
+        message: `Payment gateway ${gateway} enabled successfully`
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  async disablePaymentGateway(req, res) {
+    try {
+      const adminId = req.user.id;
+      const { gateway, environment } = req.body;
+      
+      await settingsService.disablePaymentGateway(gateway, environment, adminId);
+      
+      return res.status(200).json({
+        success: true,
+        message: `Payment gateway ${gateway} disabled successfully`
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  async configurePaymentGateway(req, res) {
+    try {
+      const adminId = req.user.id;
+      const gateway = await settingsService.configurePaymentGateway(req.body, adminId);
+      
+      return res.status(200).json({
+        success: true,
+        message: 'Payment gateway configured successfully',
+        data: gateway
       });
     } catch (error) {
       return res.status(400).json({
@@ -131,10 +171,8 @@ class SettingsController {
 
   async updateTransactionLimits(req, res) {
     try {
-      const validatedData = validate(transactionLimitsSchema, req.body);
       const adminId = req.user.id;
-      
-      const limits = await settingsService.updateTransactionLimits(validatedData, adminId);
+      const limits = await settingsService.updateTransactionLimits(req.body, adminId);
       
       return res.status(200).json({
         success: true,
@@ -152,11 +190,11 @@ class SettingsController {
   // ==================== SECURITY & AUTHENTICATION ====================
   async getSecuritySettings(req, res) {
     try {
-      const securitySettings = await settingsService.getSecuritySettings();
+      const settings = await settingsService.getSecuritySettings();
       
       return res.status(200).json({
         success: true,
-        data: securitySettings
+        data: settings
       });
     } catch (error) {
       return res.status(500).json({
@@ -169,10 +207,8 @@ class SettingsController {
 
   async updateSecuritySettings(req, res) {
     try {
-      const validatedData = validate(securitySchema, req.body);
       const adminId = req.user.id;
-      
-      const settings = await settingsService.updateSecuritySettings(validatedData, adminId);
+      const settings = await settingsService.updateSecuritySettings(req.body, adminId);
       
       return res.status(200).json({
         success: true,
@@ -224,10 +260,8 @@ class SettingsController {
 
   async createSubscriptionTier(req, res) {
     try {
-      const validatedData = validate(subscriptionTierSchema, req.body);
       const adminId = req.user.id;
-      
-      const tier = await settingsService.createSubscriptionTier(validatedData, adminId);
+      const tier = await settingsService.createSubscriptionTier(req.body, adminId);
       
       return res.status(201).json({
         success: true,
@@ -245,10 +279,8 @@ class SettingsController {
   async updateSubscriptionTier(req, res) {
     try {
       const { id } = req.params;
-      const validatedData = validate(subscriptionTierSchema, req.body);
       const adminId = req.user.id;
-      
-      const tier = await settingsService.updateSubscriptionTier(id, validatedData, adminId);
+      const tier = await settingsService.updateSubscriptionTier(id, req.body, adminId);
       
       return res.status(200).json({
         success: true,
@@ -298,17 +330,70 @@ class SettingsController {
     }
   }
 
-  async updateNotificationSettings(req, res) {
+  async getNotificationTypes(req, res) {
     try {
-      const validatedData = validate(notificationSchema, req.body);
-      const adminId = req.user.id;
-      
-      const settings = await settingsService.updateNotificationSettings(validatedData, adminId);
+      const types = await settingsService.getNotificationTypes();
       
       return res.status(200).json({
         success: true,
-        message: 'Notification settings updated successfully',
-        data: settings
+        data: types
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch notification types',
+        error: error.message
+      });
+    }
+  }
+
+  async enableNotificationType(req, res) {
+    try {
+      const adminId = req.user.id;
+      const { type, category } = req.body;
+      
+      await settingsService.enableNotificationType(type, category, adminId);
+      
+      return res.status(200).json({
+        success: true,
+        message: 'Notification type enabled successfully'
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  async disableNotificationType(req, res) {
+    try {
+      const adminId = req.user.id;
+      const { type, category } = req.body;
+      
+      await settingsService.disableNotificationType(type, category, adminId);
+      
+      return res.status(200).json({
+        success: true,
+        message: 'Notification type disabled successfully'
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
+  async updateEmailTemplates(req, res) {
+    try {
+      const adminId = req.user.id;
+      const templates = await settingsService.updateEmailTemplates(req.body, adminId);
+      
+      return res.status(200).json({
+        success: true,
+        message: 'Email templates updated successfully',
+        data: templates
       });
     } catch (error) {
       return res.status(400).json({
@@ -356,10 +441,8 @@ class SettingsController {
   async updateLegalDocument(req, res) {
     try {
       const { type } = req.params;
-      const validatedData = validate(legalDocumentSchema, req.body);
       const adminId = req.user.id;
-      
-      const document = await settingsService.updateLegalDocument(type, validatedData, adminId);
+      const document = await settingsService.updateLegalDocument(type, req.body, adminId);
       
       return res.status(200).json({
         success: true,
@@ -393,10 +476,8 @@ class SettingsController {
 
   async updateAgeVerificationSettings(req, res) {
     try {
-      const { requireAgeVerification } = req.body;
       const adminId = req.user.id;
-      
-      const settings = await settingsService.updateAgeVerificationSettings(requireAgeVerification, adminId);
+      const settings = await settingsService.updateAgeVerificationSettings(req.body, adminId);
       
       return res.status(200).json({
         success: true,
@@ -431,10 +512,8 @@ class SettingsController {
 
   async updateContactSettings(req, res) {
     try {
-      const validatedData = validate(contactSettingsSchema, req.body);
       const adminId = req.user.id;
-      
-      const settings = await settingsService.updateContactSettings(validatedData, adminId);
+      const settings = await settingsService.updateContactSettings(req.body, adminId);
       
       return res.status(200).json({
         success: true,
@@ -487,10 +566,8 @@ class SettingsController {
 
   async createFaq(req, res) {
     try {
-      const validatedData = validate(faqSchema, req.body);
       const adminId = req.user.id;
-      
-      const faq = await settingsService.createFaq(validatedData, adminId);
+      const faq = await settingsService.createFaq(req.body, adminId);
       
       return res.status(201).json({
         success: true,
@@ -508,9 +585,7 @@ class SettingsController {
   async updateFaq(req, res) {
     try {
       const { id } = req.params;
-      const validatedData = validate(faqSchema, req.body);
-      
-      const faq = await settingsService.updateFaq(id, validatedData);
+      const faq = await settingsService.updateFaq(id, req.body);
       
       return res.status(200).json({
         success: true,
@@ -562,10 +637,8 @@ class SettingsController {
 
   async createVoucher(req, res) {
     try {
-      const validatedData = validate(voucherSchema, req.body);
       const adminId = req.user.id;
-      
-      const voucher = await settingsService.createVoucher(validatedData, adminId);
+      const voucher = await settingsService.createVoucher(req.body, adminId);
       
       return res.status(201).json({
         success: true,
@@ -583,9 +656,7 @@ class SettingsController {
   async updateVoucher(req, res) {
     try {
       const { id } = req.params;
-      const validatedData = validate(voucherSchema, req.body);
-      
-      const voucher = await settingsService.updateVoucher(id, validatedData);
+      const voucher = await settingsService.updateVoucher(id, req.body);
       
       return res.status(200).json({
         success: true,
@@ -637,10 +708,8 @@ class SettingsController {
 
   async updateSystemSettings(req, res) {
     try {
-      const validatedData = validate(systemSettingsSchema, req.body);
       const adminId = req.user.id;
-      
-      const settings = await settingsService.updateSystemSettings(validatedData, adminId);
+      const settings = await settingsService.updateSystemSettings(req.body, adminId);
       
       return res.status(200).json({
         success: true,

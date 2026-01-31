@@ -1,6 +1,5 @@
 import pool from "../../../database.js";
 import bcrypt from "bcrypt";
-import { v4 as uuidv4 } from 'uuid';
 
 class SettingsService {
   // ==================== PASSWORD SETTINGS ====================
@@ -11,7 +10,7 @@ class SettingsService {
 
       // Get admin current password
       const [admin] = await connection.query(
-        'SELECT password_hash FROM users WHERE id = ? AND role IN ("SUPERADMIN", "ADMIN")',
+        'SELECT password_hash FROM users WHERE id = UUID_TO_BIN(?) AND role IN ("SUPERADMIN", "ADMIN")',
         [adminId]
       );
 
@@ -30,19 +29,24 @@ class SettingsService {
         throw new Error('New passwords do not match');
       }
 
+      // Validate password strength
+      if (newPassword.length < 8) {
+        throw new Error('Password must be at least 8 characters long');
+      }
+
       // Hash new password
       const saltRounds = 10;
       const hashedPassword = await bcrypt.hash(newPassword, saltRounds);
 
       // Update password
       await connection.query(
-        'UPDATE users SET password_hash = ? WHERE id = ?',
+        'UPDATE users SET password_hash = ? WHERE id = UUID_TO_BIN(?)',
         [hashedPassword, adminId]
       );
 
       // Log activity
       await connection.query(
-        'INSERT INTO admin_activities (id, admin_id, action, module) VALUES (UUID_TO_BIN(UUID()), ?, ?, ?)',
+        'INSERT INTO admin_activities (id, admin_id, action, module) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?)',
         [adminId, 'CHANGE_PASSWORD', 'SETTINGS']
       );
 
@@ -58,15 +62,13 @@ class SettingsService {
 
   // ==================== MAINTENANCE MODE ====================
   async getMaintenanceSettings() {
-    // Store maintenance settings in system_settings table
     const [settings] = await pool.query(
       `SELECT 
         setting_key,
         setting_value,
         description
        FROM system_settings
-       WHERE setting_key LIKE 'maintenance_%'
-       OR setting_key = 'maintenance_mode'`
+       WHERE setting_key LIKE 'maintenance_%'`
     );
 
     const formatted = {
@@ -80,7 +82,11 @@ class SettingsService {
       if (setting.setting_key === 'maintenance_mode') {
         formatted.maintenance_mode = setting.setting_value === 'true';
       } else if (setting.setting_key === 'maintenance_allowed_ips') {
-        formatted.allowed_ips = JSON.parse(setting.setting_value || '[]');
+        try {
+          formatted.allowed_ips = JSON.parse(setting.setting_value || '[]');
+        } catch {
+          formatted.allowed_ips = [];
+        }
       } else if (setting.setting_key === 'maintenance_message') {
         formatted.maintenance_message = setting.setting_value;
       } else if (setting.setting_key === 'maintenance_estimated_duration') {
@@ -106,7 +112,7 @@ class SettingsService {
       for (const [key, value, description] of settings) {
         await connection.query(
           `INSERT INTO system_settings (id, setting_key, setting_value, description, updated_by)
-           VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?)
+           VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, UUID_TO_BIN(?))
            ON DUPLICATE KEY UPDATE 
            setting_value = VALUES(setting_value),
            description = VALUES(description),
@@ -118,7 +124,7 @@ class SettingsService {
 
       // Log activity
       await connection.query(
-        'INSERT INTO admin_activities (id, admin_id, action, module, details) VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?)',
+        'INSERT INTO admin_activities (id, admin_id, action, module, details) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)',
         [adminId, 'UPDATE_MAINTENANCE', 'SETTINGS', JSON.stringify({ mode: data.maintenance_mode })]
       );
 
@@ -134,112 +140,280 @@ class SettingsService {
 
   // ==================== PAYMENT GATEWAY ====================
   async getPaymentGateways() {
-    const [gateways] = await pool.query(
-      `SELECT 
-        setting_key,
-        setting_value,
-        description
-       FROM system_settings
-       WHERE setting_key LIKE 'payment_gateway_%'`
+    // Get enabled methods from system settings
+    const [enabledMethods] = await pool.query(
+      `SELECT setting_value FROM system_settings 
+       WHERE setting_key = 'payment_enabled_methods'`
     );
 
-    const formatted = {
-      enabled_methods: ['credit_debit_card', 'paypal', 'bank_transfer', 'revolut'],
-      gateways: {
-        stripe: { enabled: false, publishable_key: '', secret_key: '' },
-        paypal: { enabled: false, client_id: '', secret: '' },
-        revolut: { enabled: false, api_key: '' }
+    const methods = enabledMethods[0] ? JSON.parse(enabledMethods[0].setting_value || '[]') : [
+      'credit_debit_card', 'paypal', 'bank_transfer', 'revolut'
+    ];
+
+    return {
+      enabled_methods: methods,
+      display_names: {
+        credit_debit_card: 'Credit/Debit Cards (Visa, Mastercard, Amex)',
+        paypal: 'PayPal',
+        bank_transfer: 'Bank Transfer',
+        revolut: 'Revolut'
       }
     };
-
-    gateways.forEach(setting => {
-      const key = setting.setting_key.replace('payment_gateway_', '');
-      if (key === 'enabled_methods') {
-        formatted.enabled_methods = JSON.parse(setting.setting_value || '[]');
-      } else if (key.startsWith('stripe_')) {
-        const stripeKey = key.replace('stripe_', '');
-        formatted.gateways.stripe[stripeKey] = setting.setting_value;
-      } else if (key.startsWith('paypal_')) {
-        const paypalKey = key.replace('paypal_', '');
-        formatted.gateways.paypal[paypalKey] = setting.setting_value;
-      } else if (key.startsWith('revolut_')) {
-        const revolutKey = key.replace('revolut_', '');
-        formatted.gateways.revolut[revolutKey] = setting.setting_value;
-      }
-    });
-
-    return formatted;
   }
 
-  async updatePaymentGateways(data, adminId) {
+  async getAllPaymentGateways() {
+    const connection = await pool.getConnection();
+    try {
+      // Get all payment gateway configurations
+      const [gateways] = await connection.query(
+        `SELECT 
+          BIN_TO_UUID(id) as id,
+          gateway,
+          display_name,
+          environment,
+          is_enabled,
+          min_deposit,
+          max_deposit,
+          min_withdrawal,
+          max_withdrawal,
+          processing_fee_percent,
+          fixed_fee,
+          logo_url,
+          is_default,
+          created_at,
+          updated_at
+         FROM payment_gateway_settings
+         ORDER BY sort_order, gateway`
+      );
+
+      // Get enabled methods
+      const [enabledMethods] = await connection.query(
+        `SELECT setting_value FROM system_settings 
+         WHERE setting_key = 'payment_enabled_methods'`
+      );
+
+      const methods = enabledMethods[0] ? JSON.parse(enabledMethods[0].setting_value || '[]') : [];
+
+      return {
+        gateways,
+        enabled_methods: methods
+      };
+    } finally {
+      connection.release();
+    }
+  }
+
+  async enablePaymentGateway(gateway, environment, adminId) {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
 
-      // Update enabled methods
+      // Update payment_gateway_settings
       await connection.query(
-        `INSERT INTO system_settings (id, setting_key, setting_value, description, updated_by)
-         VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?)
-         ON DUPLICATE KEY UPDATE 
-         setting_value = VALUES(setting_value),
-         updated_by = VALUES(updated_by),
-         updated_at = CURRENT_TIMESTAMP`,
-        ['payment_gateway_enabled_methods', JSON.stringify(data.enabled_methods), 'Enabled payment methods', adminId]
+        `UPDATE payment_gateway_settings 
+         SET is_enabled = TRUE,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE gateway = ? AND environment = ?`,
+        [gateway, environment]
       );
 
-      // Update Stripe settings
-      if (data.stripe) {
-        for (const [key, value] of Object.entries(data.stripe)) {
-          await connection.query(
-            `INSERT INTO system_settings (id, setting_key, setting_value, description, updated_by)
-             VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE 
-             setting_value = VALUES(setting_value),
-             updated_by = VALUES(updated_by),
-             updated_at = CURRENT_TIMESTAMP`,
-            [`payment_gateway_stripe_${key}`, value, `Stripe ${key}`, adminId]
-          );
-        }
-      }
+      // Update enabled methods in system_settings
+      const [currentMethods] = await connection.query(
+        `SELECT setting_value FROM system_settings 
+         WHERE setting_key = 'payment_enabled_methods'`
+      );
 
-      // Update PayPal settings
-      if (data.paypal) {
-        for (const [key, value] of Object.entries(data.paypal)) {
-          await connection.query(
-            `INSERT INTO system_settings (id, setting_key, setting_value, description, updated_by)
-             VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE 
-             setting_value = VALUES(setting_value),
-             updated_by = VALUES(updated_by),
-             updated_at = CURRENT_TIMESTAMP`,
-            [`payment_gateway_paypal_${key}`, value, `PayPal ${key}`, adminId]
-          );
-        }
-      }
+      let methods = currentMethods[0] ? JSON.parse(currentMethods[0].setting_value) : [];
+      
+      // Map gateway to method key
+      const methodMap = {
+        'PAYPAL': 'paypal',
+        'STRIPE': 'credit_debit_card',
+        'REVOLUT': 'revolut'
+      };
 
-      // Update Revolut settings
-      if (data.revolut) {
-        for (const [key, value] of Object.entries(data.revolut)) {
-          await connection.query(
-            `INSERT INTO system_settings (id, setting_key, setting_value, description, updated_by)
-             VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?)
-             ON DUPLICATE KEY UPDATE 
-             setting_value = VALUES(setting_value),
-             updated_by = VALUES(updated_by),
-             updated_at = CURRENT_TIMESTAMP`,
-            [`payment_gateway_revolut_${key}`, value, `Revolut ${key}`, adminId]
-          );
-        }
+      const methodKey = methodMap[gateway];
+      if (methodKey && !methods.includes(methodKey)) {
+        methods.push(methodKey);
+        
+        await connection.query(
+          `INSERT INTO system_settings (id, setting_key, setting_value, description, updated_by)
+           VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, UUID_TO_BIN(?))
+           ON DUPLICATE KEY UPDATE 
+           setting_value = VALUES(setting_value),
+           updated_by = VALUES(updated_by),
+           updated_at = CURRENT_TIMESTAMP`,
+          ['payment_enabled_methods', JSON.stringify(methods), 'Enabled payment methods', adminId]
+        );
       }
 
       // Log activity
       await connection.query(
-        'INSERT INTO admin_activities (id, admin_id, action, module) VALUES (UUID_TO_BIN(UUID()), ?, ?, ?)',
-        [adminId, 'UPDATE_PAYMENT_GATEWAYS', 'SETTINGS']
+        'INSERT INTO admin_activities (id, admin_id, action, module, details) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)',
+        [adminId, 'ENABLE_PAYMENT_GATEWAY', 'SETTINGS', JSON.stringify({ gateway, environment })]
       );
 
       await connection.commit();
-      return this.getPaymentGateways();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async disablePaymentGateway(gateway, environment, adminId) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      // Update payment_gateway_settings
+      await connection.query(
+        `UPDATE payment_gateway_settings 
+         SET is_enabled = FALSE,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE gateway = ? AND environment = ?`,
+        [gateway, environment]
+      );
+
+      // Update enabled methods in system_settings
+      const [currentMethods] = await connection.query(
+        `SELECT setting_value FROM system_settings 
+         WHERE setting_key = 'payment_enabled_methods'`
+      );
+
+      let methods = currentMethods[0] ? JSON.parse(currentMethods[0].setting_value) : [];
+      
+      // Map gateway to method key
+      const methodMap = {
+        'PAYPAL': 'paypal',
+        'STRIPE': 'credit_debit_card',
+        'REVOLUT': 'revolut'
+      };
+
+      const methodKey = methodMap[gateway];
+      if (methodKey && methods.includes(methodKey)) {
+        methods = methods.filter(m => m !== methodKey);
+        
+        await connection.query(
+          `INSERT INTO system_settings (id, setting_key, setting_value, description, updated_by)
+           VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, UUID_TO_BIN(?))
+           ON DUPLICATE KEY UPDATE 
+           setting_value = VALUES(setting_value),
+           updated_by = VALUES(updated_by),
+           updated_at = CURRENT_TIMESTAMP`,
+          ['payment_enabled_methods', JSON.stringify(methods), 'Enabled payment methods', adminId]
+        );
+      }
+
+      // Log activity
+      await connection.query(
+        'INSERT INTO admin_activities (id, admin_id, action, module, details) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)',
+        [adminId, 'DISABLE_PAYMENT_GATEWAY', 'SETTINGS', JSON.stringify({ gateway, environment })]
+      );
+
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async configurePaymentGateway(data, adminId) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const {
+        gateway,
+        environment,
+        display_name,
+        client_id,
+        client_secret,
+        api_key,
+        webhook_secret,
+        public_key,
+        private_key,
+        min_deposit,
+        max_deposit,
+        min_withdrawal,
+        max_withdrawal,
+        processing_fee_percent,
+        fixed_fee,
+        logo_url,
+        is_default,
+        allowed_countries,
+        restricted_countries
+      } = data;
+
+      // Update or insert gateway configuration
+      await connection.query(
+        `INSERT INTO payment_gateway_settings (
+          id, gateway, display_name, environment, client_id, client_secret, api_key,
+          webhook_secret, public_key, private_key, min_deposit, max_deposit,
+          min_withdrawal, max_withdrawal, processing_fee_percent, fixed_fee,
+          logo_url, is_default, allowed_countries, restricted_countries, updated_by
+        ) VALUES (
+          UUID_TO_BIN(UUID()), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UUID_TO_BIN(?)
+        ) ON DUPLICATE KEY UPDATE
+          display_name = VALUES(display_name),
+          client_id = VALUES(client_id),
+          client_secret = VALUES(client_secret),
+          api_key = VALUES(api_key),
+          webhook_secret = VALUES(webhook_secret),
+          public_key = VALUES(public_key),
+          private_key = VALUES(private_key),
+          min_deposit = VALUES(min_deposit),
+          max_deposit = VALUES(max_deposit),
+          min_withdrawal = VALUES(min_withdrawal),
+          max_withdrawal = VALUES(max_withdrawal),
+          processing_fee_percent = VALUES(processing_fee_percent),
+          fixed_fee = VALUES(fixed_fee),
+          logo_url = VALUES(logo_url),
+          is_default = VALUES(is_default),
+          allowed_countries = VALUES(allowed_countries),
+          restricted_countries = VALUES(restricted_countries),
+          updated_by = VALUES(updated_by),
+          updated_at = CURRENT_TIMESTAMP`,
+        [
+          gateway, display_name, environment, client_id || null, client_secret || null, api_key || null,
+          webhook_secret || null, public_key || null, private_key || null, min_deposit || 1.00,
+          max_deposit || 5000.00, min_withdrawal || 5.00, max_withdrawal || 10000.00,
+          processing_fee_percent || 0.00, fixed_fee || 0.00, logo_url || null, is_default || false,
+          allowed_countries ? JSON.stringify(allowed_countries) : null,
+          restricted_countries ? JSON.stringify(restricted_countries) : null,
+          adminId
+        ]
+      );
+
+      // If this gateway is set as default, unset others
+      if (is_default) {
+        await connection.query(
+          `UPDATE payment_gateway_settings 
+           SET is_default = FALSE 
+           WHERE gateway != ? AND environment = ?`,
+          [gateway, environment]
+        );
+      }
+
+      // Log activity
+      await connection.query(
+        'INSERT INTO admin_activities (id, admin_id, action, module, details) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)',
+        [adminId, 'CONFIGURE_PAYMENT_GATEWAY', 'SETTINGS', JSON.stringify({ gateway, environment })]
+      );
+
+      await connection.commit();
+
+      // Return updated gateway
+      const [updatedGateway] = await connection.query(
+        `SELECT BIN_TO_UUID(id) as id, * FROM payment_gateway_settings 
+         WHERE gateway = ? AND environment = ?`,
+        [gateway, environment]
+      );
+
+      return updatedGateway[0];
     } catch (error) {
       await connection.rollback();
       throw error;
@@ -294,7 +468,7 @@ class SettingsService {
       for (const [key, value, description] of limits) {
         await connection.query(
           `INSERT INTO system_settings (id, setting_key, setting_value, description, updated_by)
-           VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?)
+           VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, UUID_TO_BIN(?))
            ON DUPLICATE KEY UPDATE 
            setting_value = VALUES(setting_value),
            description = VALUES(description),
@@ -306,7 +480,7 @@ class SettingsService {
 
       // Log activity
       await connection.query(
-        'INSERT INTO admin_activities (id, admin_id, action, module) VALUES (UUID_TO_BIN(UUID()), ?, ?, ?)',
+        'INSERT INTO admin_activities (id, admin_id, action, module) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?)',
         [adminId, 'UPDATE_TRANSACTION_LIMITS', 'SETTINGS']
       );
 
@@ -381,7 +555,7 @@ class SettingsService {
       for (const [key, value, description] of securitySettings) {
         await connection.query(
           `INSERT INTO system_settings (id, setting_key, setting_value, description, updated_by)
-           VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?)
+           VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, UUID_TO_BIN(?))
            ON DUPLICATE KEY UPDATE 
            setting_value = VALUES(setting_value),
            description = VALUES(description),
@@ -393,7 +567,7 @@ class SettingsService {
 
       // Log activity
       await connection.query(
-        'INSERT INTO admin_activities (id, admin_id, action, module) VALUES (UUID_TO_BIN(UUID()), ?, ?, ?)',
+        'INSERT INTO admin_activities (id, admin_id, action, module) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?)',
         [adminId, 'UPDATE_SECURITY_SETTINGS', 'SETTINGS']
       );
 
@@ -406,6 +580,166 @@ class SettingsService {
       connection.release();
     }
   }
+
+  // ==================== NOTIFICATION SETTINGS ====================
+  async getNotificationSettings() {
+    // Get user notification settings
+    const [settings] = await pool.query(
+      `SELECT 
+        setting_key,
+        setting_value,
+        description
+       FROM system_settings
+       WHERE setting_key LIKE 'notification_user_%'`
+    );
+
+    const userNotifications = {
+      welcome_email: { enabled: true, mandatory: true },
+      competition_entry_confirmation: { enabled: true, mandatory: false },
+      winner_notification: { enabled: true, mandatory: true },
+      marketing_emails: { enabled: false, mandatory: false },
+      deposit_notification: { enabled: true, mandatory: false },
+      withdrawal_notification: { enabled: true, mandatory: false },
+      kyc_status_update: { enabled: true, mandatory: false },
+      referral_reward: { enabled: true, mandatory: false }
+    };
+
+    settings.forEach(setting => {
+      const key = setting.setting_key.replace('notification_user_', '');
+      if (userNotifications.hasOwnProperty(key)) {
+        userNotifications[key].enabled = setting.setting_value === 'true';
+      }
+    });
+
+    return {
+      user_notifications: userNotifications,
+      admin_notifications: {
+        new_user_signup: true,
+        new_deposit: true,
+        new_withdrawal: true,
+        kyc_submission: true,
+        competition_winner: true,
+        system_alerts: true
+      }
+    };
+  }
+
+  async getNotificationTypes() {
+    return {
+      user: [
+        { key: 'welcome_email', name: 'Welcome Email (on signup)', mandatory: true },
+        { key: 'competition_entry_confirmation', name: 'Competition Entry Confirmation', mandatory: false },
+        { key: 'winner_notification', name: 'Winner Notification', mandatory: true },
+        { key: 'marketing_emails', name: 'Marketing Emails', mandatory: false },
+        { key: 'deposit_notification', name: 'Deposit Notification', mandatory: false },
+        { key: 'withdrawal_notification', name: 'Withdrawal Notification', mandatory: false },
+        { key: 'kyc_status_update', name: 'KYC Status Update', mandatory: false },
+        { key: 'referral_reward', name: 'Referral Reward Notification', mandatory: false }
+      ],
+      admin: [
+        { key: 'new_user_signup', name: 'New User Signup' },
+        { key: 'new_deposit', name: 'New Deposit' },
+        { key: 'new_withdrawal', name: 'New Withdrawal' },
+        { key: 'kyc_submission', name: 'KYC Submission' },
+        { key: 'competition_winner', name: 'Competition Winner' },
+        { key: 'system_alerts', name: 'System Alerts' }
+      ]
+    };
+  }
+
+  async enableNotificationType(type, category, adminId) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      await connection.query(
+        `INSERT INTO system_settings (id, setting_key, setting_value, description, updated_by)
+         VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, UUID_TO_BIN(?))
+         ON DUPLICATE KEY UPDATE 
+         setting_value = VALUES(setting_value),
+         updated_by = VALUES(updated_by),
+         updated_at = CURRENT_TIMESTAMP`,
+        [`notification_${category}_${type}`, 'true', `${category} notification: ${type}`, adminId]
+      );
+
+      // Log activity
+      await connection.query(
+        'INSERT INTO admin_activities (id, admin_id, action, module, details) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)',
+        [adminId, 'ENABLE_NOTIFICATION', 'SETTINGS', JSON.stringify({ type, category })]
+      );
+
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async disableNotificationType(type, category, adminId) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      await connection.query(
+        `INSERT INTO system_settings (id, setting_key, setting_value, description, updated_by)
+         VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, UUID_TO_BIN(?))
+         ON DUPLICATE KEY UPDATE 
+         setting_value = VALUES(setting_value),
+         updated_by = VALUES(updated_by),
+         updated_at = CURRENT_TIMESTAMP`,
+        [`notification_${category}_${type}`, 'false', `${category} notification: ${type}`, adminId]
+      );
+
+      // Log activity
+      await connection.query(
+        'INSERT INTO admin_activities (id, admin_id, action, module, details) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)',
+        [adminId, 'DISABLE_NOTIFICATION', 'SETTINGS', JSON.stringify({ type, category })]
+      );
+
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  async updateEmailTemplates(data, adminId) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      for (const [key, value] of Object.entries(data)) {
+        await connection.query(
+          `INSERT INTO system_settings (id, setting_key, setting_value, description, updated_by)
+           VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, UUID_TO_BIN(?))
+           ON DUPLICATE KEY UPDATE 
+           setting_value = VALUES(setting_value),
+           updated_by = VALUES(updated_by),
+           updated_at = CURRENT_TIMESTAMP`,
+          [`email_template_${key}`, value, `Email template: ${key}`, adminId]
+        );
+      }
+
+      // Log activity
+      await connection.query(
+        'INSERT INTO admin_activities (id, admin_id, action, module) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?)',
+        [adminId, 'UPDATE_EMAIL_TEMPLATES', 'SETTINGS']
+      );
+
+      await connection.commit();
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  // Note: Other methods (subscription tiers, legal, contact, faq, voucher, system)
 
   // ==================== SUBSCRIPTION TIERS ====================
   async getSubscriptionTiers() {
