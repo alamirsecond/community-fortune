@@ -1,7 +1,7 @@
 import Competition from './models/Competition.js';
 import fs from 'fs';
 import path from 'path';
-import { getFileUrl, deleteUploadedFiles } from '../../../middleware/upload.js';
+import { getFileUrl, deleteUploadedFiles, getRelativeFilePath } from '../../../middleware/upload.js';
 import { 
   createCompetitionSchema, 
   updateCompetitionSchema, 
@@ -87,12 +87,12 @@ console.log('=== FILES DEBUG ===');
     };
 
     // Combine body and uploaded files
-    const competitionData = {
+  const competitionData = {
       ...bodyData,
-      featured_image: files.featured_image?.[0] ? getFileUrl(files.featured_image[0].path) : null,
-      featured_video: files.featured_video?.[0] ? getFileUrl(files.featured_video[0].path) : null,
-      banner_image: files.banner_image?.[0] ? getFileUrl(files.banner_image[0].path) : null,
-      gallery_images: files.gallery_images?.map(f => getFileUrl(f.path)) || []
+      featured_image: files.featured_image?.[0] ? getRelativeFilePath(files.featured_image[0].path) : null,
+      featured_video: files.featured_video?.[0] ? getRelativeFilePath(files.featured_video[0].path) : null,
+      banner_image: files.banner_image?.[0] ? getRelativeFilePath(files.banner_image[0].path) : null,
+      gallery_images: files.gallery_images?.map(f => getRelativeFilePath(f.path)) || []
     };
 
     // Validate with Zod
@@ -192,6 +192,12 @@ console.log('=== FILES DEBUG ===');
       message: 'Competition created successfully',
       data: {
         competitionId,
+        relative_paths: {
+          featured_image: validatedData.featured_image,
+          featured_video: validatedData.featured_video,
+          banner_image: validatedData.banner_image,
+          gallery_images: validatedData.gallery_images
+        },
         category: validatedData.category,
         files: {
           featured_image: validatedData.featured_image,

@@ -318,91 +318,35 @@ export const deleteUploadedFiles = (filePaths) => {
 };
 
 // Utility function to get file URL
-// src/middleware/upload.js
+// In src/middleware/upload.js
 
+// Change from this:
 export const getFileUrl = (filePath) => {
-  if (!filePath) {
-    console.warn('getFileUrl called with undefined or empty filePath');
-    return null;
-  }
-  
-  console.log('getFileUrl input:', filePath);
-  console.log('Environment:', process.env.NODE_ENV);
-  
-  try {
-    // On Render/Linux, handle paths differently
-    if (process.env.RENDER || process.env.NODE_ENV === 'production') {
-      return getFileUrlForProduction(filePath);
-    } else {
-      return getFileUrlForDevelopment(filePath);
-    }
-    
-  } catch (error) {
-    console.error('getFileUrl error:', error);
-    console.error('filePath that caused error:', filePath);
-    return null;
-  }
+  if (!filePath) return null;
+  const relativePath = path.relative(competitionUploadsDir, filePath).replace(/\\/g, '/');
+  const baseUrl = process.env.SERVER_URL || 'http://localhost:4000';
+  return `${baseUrl}/uploads/competitions/${relativePath}`;
 };
 
-// Separate function for production (Render)
-const getFileUrlForProduction = (filePath) => {
-  // Convert backslashes to forward slashes for consistency
-  const normalizedPath = filePath.replace(/\\/g, '/');
+// To this (store relative paths):
+export const getRelativeFilePath = (filePath) => {
+  if (!filePath) return null;
   
-  console.log('Production - normalizedPath:', normalizedPath);
+  // Get path relative to competitions directory
+  const relativePath = path.relative(competitionUploadsDir, filePath).replace(/\\/g, '/');
   
-  // Extract the important part of the path
-  // Looking for patterns like: /tmp/uploads/competitions/temp/featured/filename.jpg
-  // or: /tmp/uploads/competitions/{competitionId}/gallery/filename.jpg
-  
-  let relativePath;
-  
-  // Try different extraction methods
-  if (normalizedPath.includes('/uploads/competitions/')) {
-    // Extract everything after '/uploads/competitions/'
-    const parts = normalizedPath.split('/uploads/competitions/');
-    relativePath = parts[1] || parts[0];
-  } else if (normalizedPath.includes('competitions/')) {
-    // Extract everything after 'competitions/'
-    const parts = normalizedPath.split('competitions/');
-    relativePath = parts[1] || parts[0];
-  } else {
-    // Last resort: just use the filename
-    relativePath = path.basename(normalizedPath);
-    console.warn('Could not extract relative path, using filename:', relativePath);
-  }
-  
-  console.log('Production - relativePath:', relativePath);
-  
-  // Determine base URL 
-  const baseUrl = 'https://community-fortune-api.onrender.com';
-  
-  const url = `${baseUrl}/uploads/competitions/${relativePath}`;
-  console.log('Production - generated URL:', url);
-  
-  return url;
+  // Return just the relative path, not full URL
+  return relativePath;
 };
 
-// Function for development (local)
-const getFileUrlForDevelopment = (filePath) => {
-  const normalizedPath = filePath.replace(/\\/g, '/');
+// Keep old getFileUrl for backward compatibility if needed
+// export const getFileUrl = (filePath) => {
+//   const relativePath = getRelativeFilePath(filePath);
+//   if (!relativePath) return null;
   
-  try {
-    const relativePath = path.relative(competitionUploadsDir, normalizedPath).replace(/\\/g, '/');
-    const baseUrl = process.env.SERVER_URL || 'http://localhost:4000';
-    const url = `${baseUrl}/uploads/competitions/${relativePath}`;
-    return url;
-  } catch (error) {
-    console.error('Development getFileUrl error:', error);
-    // Fallback: try to extract path manually
-    if (normalizedPath.includes('uploads/competitions/')) {
-      const parts = normalizedPath.split('uploads/competitions/');
-      const baseUrl = process.env.SERVER_URL || 'http://localhost:4000';
-      return `${baseUrl}/uploads/competitions/${parts[1] || parts[0]}`;
-    }
-    return null;
-  }
-};
+//   const baseUrl = process.env.SERVER_URL || 'http://localhost:4000';
+//   return `${baseUrl}/uploads/competitions/${relativePath}`;
+// };
 
 
 // ============================================
