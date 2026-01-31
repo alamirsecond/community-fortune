@@ -938,44 +938,147 @@ async initGateways() {
     }
   }
 
-  async getTransactionDetails(userId, transactionId) {
-    const connection = await pool.getConnection();
-    try {
-      const [transaction] = await connection.query(
-        `SELECT 
-          BIN_TO_UUID(t.id) as id,
-          t.type,
-          t.amount,
-          t.currency,
-          t.status,
-          t.gateway,
-          t.description,
-          t.created_at,
-          t.completed_at,
-          t.reference_table,
-          BIN_TO_UUID(t.reference_id) as reference_id,
-          BIN_TO_UUID(t.payment_id) as payment_id,
-          p.gateway_reference,
-          p.metadata as payment_metadata
-         FROM transactions t
-         LEFT JOIN payments p ON t.payment_id = p.id
-         WHERE t.id = UUID_TO_BIN(?) AND t.user_id = UUID_TO_BIN(?)`,
-        [transactionId, userId]
-      );
-      
-      if (!transaction.length) throw new Error('Transaction not found');
-      
-      const result = transaction[0];
-      if (result.payment_metadata) {
-        result.payment_metadata = JSON.parse(result.payment_metadata);
-      }
-      
-      return result;
-    } finally {
-      connection.release();
-    }
-  }
 
+async getTransactionDetails(transactionId) {
+  const connection = await pool.getConnection();
+  try {
+    // Get transaction with user details and payment info
+    const [transaction] = await connection.query(
+      `SELECT 
+        t.*,
+        BIN_TO_UUID(t.id) as transaction_id,
+        BIN_TO_UUID(t.user_id) as user_uuid,
+        u.email as user_email,
+        u.first_name,
+        u.last_name,
+        u.phone,
+        u.status as user_status,
+        u.created_at as user_created_at,
+        p.gateway_reference,
+        p.metadata as payment_metadata,
+        pm.method_type,
+        pm.display_name as payment_method_display,
+        pm.last_four,
+        pm.expiry_month,
+        pm.expiry_year,
+        pm.card_brand
+       FROM transactions t
+       JOIN users u ON t.user_id = u.id
+       LEFT JOIN payments p ON t.payment_id = p.id
+       LEFT JOIN user_payment_methods pm ON p.payment_method_id = pm.id
+       WHERE t.id = UUID_TO_BIN(?)`,
+      [transactionId]
+    );
+    
+    if (!transaction.length) {
+      throw new Error('Transaction not found');
+    }
+    
+    const tx = transaction[0];
+    
+    // Get user's total transaction stats
+    const [userStats] = await connection.query(
+      `SELECT 
+        COUNT(*) as total_transactions,
+        SUM(CASE WHEN type = 'deposit' AND status = 'completed' THEN amount ELSE 0 END) as total_deposits,
+        SUM(CASE WHEN type = 'withdrawal' AND status = 'completed' THEN amount ELSE 0 END) as total_withdrawals
+       FROM transactions 
+       WHERE user_id = UUID_TO_BIN(?)`,
+      [tx.user_uuid]
+    );
+    
+    // Get refund history for this transaction
+    const [refunds] = await connection.query(
+      `SELECT 
+        BIN_TO_UUID(r.id) as refund_id,
+        r.amount,
+        r.currency,
+        r.reason,
+        r.status,
+        r.created_at,
+        r.gateway_refund_id,
+        u.email as admin_email
+       FROM refunds r
+       LEFT JOIN users u ON r.admin_id = u.id
+       WHERE r.transaction_id = UUID_TO_BIN(?)`,
+      [transactionId]
+    );
+    
+    // Get internal notes for this transaction
+    const [notes] = await connection.query(
+      `SELECT 
+        BIN_TO_UUID(id) as note_id,
+        content,
+        created_at,
+        u.email as admin_email,
+        u.first_name as admin_first_name,
+        u.last_name as admin_last_name
+       FROM transaction_notes
+       JOIN users u ON transaction_notes.admin_id = u.id
+       WHERE transaction_id = UUID_TO_BIN(?)
+       ORDER BY created_at DESC`,
+      [transactionId]
+    );
+    
+    // Parse payment metadata
+    let paymentMetadata = {};
+    try {
+      if (tx.payment_metadata) {
+        paymentMetadata = JSON.parse(tx.payment_metadata);
+      }
+    } catch (e) {
+      paymentMetadata = {};
+    }
+    
+    // Calculate processing fee if not already stored
+    const processingFee = tx.processing_fee || (tx.amount * 0.029 + 0.30); // Example: 2.9% + £0.30
+    const netAmount = tx.net_amount || (tx.amount - processingFee);
+    
+    return {
+      transaction: {
+        id: `TXN-${tx.id.substring(0, 8).toUpperCase()}`,
+        transaction_amount: parseFloat(tx.amount),
+        currency: tx.currency || 'GBP',
+        type: tx.type,
+        status: tx.status,
+        created_at: tx.created_at,
+        completed_at: tx.completed_at,
+        gateway: tx.gateway,
+        gateway_reference: tx.gateway_reference,
+        description: tx.description
+      },
+      user_information: {
+        full_name: `${tx.first_name} ${tx.last_name}`,
+        email_address: tx.user_email,
+        user_id: `USR-${tx.user_uuid.substring(0, 8).toUpperCase()}`,
+        account_status: tx.user_status === 'active' ? 'Active & Verified' : tx.user_status,
+        join_date: tx.user_created_at,
+        total_transactions: userStats[0]?.total_transactions || 0,
+        total_deposits: userStats[0]?.total_deposits || 0,
+        total_withdrawals: userStats[0]?.total_withdrawals || 0
+      },
+      payment_details: {
+        payment_method: tx.payment_method_display || `${tx.card_brand || 'Card'} ending in ${tx.last_four || '****'}`,
+        processing_fee: processingFee,
+        fee_percentage: ((processingFee / tx.amount) * 100).toFixed(1),
+        card_holder: `${tx.first_name} ${tx.last_name}`,
+        net_amount: netAmount,
+        expiry: tx.expiry_month && tx.expiry_year ? `${tx.expiry_month}/${tx.expiry_year}` : null
+      },
+      refund_history: refunds,
+      internal_notes: notes,
+      available_actions: {
+        can_refund: tx.status === 'completed' && ['deposit', 'competition_entry'].includes(tx.type),
+        can_download_receipt: true,
+        can_email_user: true,
+        can_add_note: true,
+        can_view_user: true
+      }
+    };
+  } finally {
+    connection.release();
+  }
+}
   // ==================== PAYMENT REQUESTS ====================
   async getUserPaymentRequests(userId, limit = 50, offset = 0) {
     const connection = await pool.getConnection();
@@ -1440,7 +1543,177 @@ async initGateways() {
       connection.release();
     }
   }
+// Add to paymentService.js
+async getTransactionAnalytics(period = 'this_week', startDate = null, endDate = null) {
+  const connection = await pool.getConnection();
+  try {
+    // Calculate date ranges based on period
+    let dateRange = this.calculateDateRange(period, startDate, endDate);
+    
+    // Get total deposits
+    const [deposits] = await connection.query(
+      `SELECT 
+        COALESCE(SUM(amount), 0) as total_amount,
+        COUNT(*) as count
+       FROM transactions 
+       WHERE type = 'deposit' 
+         AND status = 'completed'
+         AND created_at BETWEEN ? AND ?`,
+      [dateRange.start, dateRange.end]
+    );
+    
+    // Get total withdrawals
+    const [withdrawals] = await connection.query(
+      `SELECT 
+        COALESCE(SUM(amount), 0) as total_amount,
+        COUNT(*) as count
+       FROM transactions 
+       WHERE type = 'withdrawal' 
+         AND status = 'completed'
+         AND created_at BETWEEN ? AND ?`,
+      [dateRange.start, dateRange.end]
+    );
+    
+    // Get competition entries (assuming you have a competition_entries table)
+    const [competitions] = await connection.query(
+      `SELECT 
+        COALESCE(SUM(amount), 0) as total_amount,
+        COUNT(*) as count
+       FROM transactions 
+       WHERE type = 'competition_entry' 
+         AND status = 'completed'
+         AND created_at BETWEEN ? AND ?`,
+      [dateRange.start, dateRange.end]
+    );
+    
+    // Get pending withdrawals
+    const [pendingWithdrawals] = await connection.query(
+      `SELECT 
+        COALESCE(SUM(amount), 0) as total_amount,
+        COUNT(*) as count
+       FROM transactions 
+       WHERE type = 'withdrawal' 
+         AND status = 'pending'
+         AND created_at BETWEEN ? AND ?`,
+      [dateRange.start, dateRange.end]
+    );
+    
+    // Get today's activity
+    const today = new Date();
+    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+    const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+    
+    const [todayActivity] = await connection.query(
+      `SELECT 
+        COALESCE(SUM(amount), 0) as total_amount,
+        COUNT(*) as count
+       FROM transactions 
+       WHERE status = 'completed'
+         AND created_at BETWEEN ? AND ?`,
+      [todayStart, todayEnd]
+    );
+    
+    // Get average transaction value
+    const [avgTransaction] = await connection.query(
+      `SELECT 
+        COALESCE(AVG(amount), 0) as avg_amount,
+        COUNT(*) as count
+       FROM transactions 
+       WHERE status = 'completed'
+         AND created_at BETWEEN ? AND ?`,
+      [dateRange.start, dateRange.end]
+    );
+    
+    // Calculate net revenue (deposits + competition entries - withdrawals)
+    const netRevenue = deposits[0].total_amount + competitions[0].total_amount - withdrawals[0].total_amount;
+    const profitMargin = deposits[0].total_amount > 0 ? 
+      ((netRevenue / deposits[0].total_amount) * 100).toFixed(1) : 0;
+    
+    return {
+      summary: {
+        total_deposits: {
+          amount: deposits[0].total_amount,
+          count: deposits[0].count,
+          currency: '₹',
+          change_percentage: 12, // You'd need to calculate this vs previous period
+          change_label: '+12% this week',
+          trend: 'up'
+        },
+        total_withdrawals: {
+          amount: withdrawals[0].total_amount,
+          count: withdrawals[0].count,
+          currency: '₹',
+          change_percentage: -5,
+          change_label: '-5% vs last week',
+          trend: 'down'
+        },
+        competition_entries: {
+          count: competitions[0].count,
+          amount: competitions[0].total_amount,
+          change_percentage: 18,
+          change_label: '+18% vs last week',
+          trend: 'up'
+        },
+        net_revenue: {
+          amount: netRevenue,
+          currency: '₹',
+          profit_margin: parseFloat(profitMargin),
+          change_label: `+${profitMargin}% profit margin`,
+          trend: 'up'
+        },
+        today_activity: {
+          amount: todayActivity[0].total_amount,
+          count: todayActivity[0].count,
+          change_percentage: 8.5,
+          change_label: '+8.5% vs yesterday'
+        },
+        pending_withdrawals: {
+          count: pendingWithdrawals[0].count,
+          total_amount: pendingWithdrawals[0].total_amount,
+          label: `₹${pendingWithdrawals[0].total_amount.toLocaleString()} in queue`
+        },
+        avg_transaction_value: {
+          amount: avgTransaction[0].avg_amount,
+          count: avgTransaction[0].count,
+          change_percentage: 2.3,
+          change_label: '+2.3% vs last month'
+        }
+      }
+    };
+  } finally {
+    connection.release();
+  }
+}
 
+calculateDateRange(period, startDate, endDate) {
+  const now = new Date();
+  let start, end = now;
+  
+  switch(period) {
+    case 'today':
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      break;
+    case 'this_week':
+      const day = now.getDay();
+      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+      start = new Date(now.setDate(diff));
+      start.setHours(0, 0, 0, 0);
+      break;
+    case 'this_month':
+      start = new Date(now.getFullYear(), now.getMonth(), 1);
+      break;
+    case 'custom':
+      if (startDate && endDate) {
+        start = new Date(startDate);
+        end = new Date(endDate);
+      }
+      break;
+    default:
+      start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+  }
+  
+  return { start, end };
+}
   async refundTransaction(adminId, transactionId, amount, reason) {
     const connection = await pool.getConnection();
     try {

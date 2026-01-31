@@ -42,9 +42,6 @@ settingsRouter.post("/notifications/disable", settingsController.disableNotifica
 settingsRouter.post("/notifications/email-templates", settingsController.updateEmailTemplates);
 
 // ==================== LEGAL & COMPLIANCE ====================
-settingsRouter.get("/legal", settingsController.getLegalSettings);
-settingsRouter.get("/legal/:type", settingsController.getLegalDocument);
-settingsRouter.post("/legal/:type", settingsController.updateLegalDocument);
 settingsRouter.get("/age-verification", settingsController.getAgeVerificationSettings);
 settingsRouter.post("/age-verification", settingsController.updateAgeVerificationSettings);
 
@@ -52,18 +49,6 @@ settingsRouter.post("/age-verification", settingsController.updateAgeVerificatio
 settingsRouter.get("/contact", settingsController.getContactSettings);
 settingsRouter.post("/contact", settingsController.updateContactSettings);
 
-// ==================== FAQ SETTINGS ====================
-settingsRouter.get("/faqs", settingsController.getFaqs);
-settingsRouter.get("/faqs/:scope", settingsController.getFaqsByScope);
-settingsRouter.post("/faqs", settingsController.createFaq);
-settingsRouter.put("/faqs/:id", settingsController.updateFaq);
-settingsRouter.delete("/faqs/:id", settingsController.deleteFaq);
-
-// ==================== VOUCHER SETTINGS ====================
-settingsRouter.get("/vouchers", settingsController.getVoucherSettings);
-settingsRouter.post("/vouchers", settingsController.createVoucher);
-settingsRouter.put("/vouchers/:id", settingsController.updateVoucher);
-settingsRouter.delete("/vouchers/:id", settingsController.deleteVoucher);
 
 // ==================== SYSTEM SETTINGS ====================
 settingsRouter.get("/system", settingsController.getSystemSettings);
