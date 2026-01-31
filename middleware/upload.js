@@ -318,12 +318,61 @@ export const deleteUploadedFiles = (filePaths) => {
 };
 
 // Utility function to get file URL
+// In upload.js - FIX THE getFileUrl FUNCTION
 export const getFileUrl = (filePath) => {
-  if (!filePath) return null;
+  if (!filePath) {
+    console.error('getFileUrl called with undefined filePath');
+    return null;
+  }
 
-  const relativePath = path.relative(competitionUploadsDir, filePath).replace(/\\/g, '/');
-  const baseUrl = process.env.SERVER_URL || 'http://localhost:4000'; // adjust port
-  return `${baseUrl}/uploads/competitions/${relativePath}`;
+  console.log('getFileUrl - Input filePath:', filePath);
+  console.log('getFileUrl - filePath type:', typeof filePath);
+  
+  try {
+    // On Render, use a different approach
+    if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
+      return getFileUrlForRender(filePath);
+    } else {
+      // Local development
+      const relativePath = path.relative(competitionUploadsDir, filePath).replace(/\\/g, '/');
+      const baseUrl = process.env.SERVER_URL || 'http://localhost:4000';
+      return `${baseUrl}/uploads/competitions/${relativePath}`;
+    }
+  } catch (error) {
+    console.error('Error in getFileUrl:', error.message);
+    // Fallback: return a simple path
+    return `uploads/competitions/${path.basename(filePath)}`;
+  }
+};
+
+// Special function for Render
+const getFileUrlForRender = (filePath) => {
+  console.log('Render - filePath:', filePath);
+  
+  // Extract filename
+  const filename = path.basename(filePath);
+  
+  // Check if it's a gallery image (moved to competition folder)
+  if (filePath.includes('/gallery/')) {
+    // Extract competition ID from path
+    const pathParts = filePath.split('/');
+    const competitionIndex = pathParts.findIndex(part => part.length === 36); // UUID
+    if (competitionIndex !== -1) {
+      const competitionId = pathParts[competitionIndex];
+      return `https://community-fortune-api.onrender.com/uploads/competitions/${competitionId}/gallery/${filename}`;
+    }
+  }
+  
+  // Otherwise, assume it's in temp folder
+  const baseUrl = process.env.SERVER_URL || 'https://community-fortune-api.onrender.com';
+  
+  // Determine folder based on file type
+  let folder = 'temp';
+  if (filePath.includes('/featured/')) folder = 'temp/featured';
+  if (filePath.includes('/banners/')) folder = 'temp/banners';
+  if (filePath.includes('/gallery/')) folder = 'temp/gallery';
+  
+  return `${baseUrl}/uploads/competitions/${folder}/${filename}`;
 };
 
 
