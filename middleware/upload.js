@@ -374,11 +374,8 @@ const getFileUrlForProduction = (filePath) => {
   
   console.log('Production - relativePath:', relativePath);
   
-  // Determine base URL
-  const baseUrl = process.env.SERVER_URL || 
-                  (process.env.RENDER_EXTERNAL_URL ? 
-                   `https://${process.env.RENDER_EXTERNAL_URL}` : 
-                   'https://community-fortune-api.onrender.com');
+  // Determine base URL 
+  const baseUrl = 'https://community-fortune-api.onrender.com';
   
   const url = `${baseUrl}/uploads/competitions/${relativePath}`;
   console.log('Production - generated URL:', url);
