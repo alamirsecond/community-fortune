@@ -342,7 +342,16 @@ class PaymentController {
       res.status(500).json({ success: false, error: error.message });
     }
   }
-
+async getTransactionAnalytics(req, res) {
+  try {
+    const { period = 'this_week', startDate, endDate } = req.query;
+    const result = await paymentService.getTransactionAnalytics(period, startDate, endDate);
+    res.status(200).json({ success: true, data: result });
+  } catch (error) {
+    console.error('Get transaction analytics error:', error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+}
   async refundTransaction(req, res) {
     try {
       const adminId = req.user.id;

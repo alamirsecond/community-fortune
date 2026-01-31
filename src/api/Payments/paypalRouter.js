@@ -40,7 +40,6 @@ paymentRouter.get("/withdrawals/:withdrawalId", idValidator, paymentController.g
 paymentRouter.post("/withdrawals/:withdrawalId/cancel", idValidator, paymentController.cancelWithdrawal);
 
 paymentRouter.get("/transactions", paginationValidator, paymentController.getUserTransactions);
-paymentRouter.get("/transactions/:transactionId", idValidator, paymentController.getTransactionDetails);
 
 paymentRouter.get("/requests", paginationValidator, paymentController.getUserPaymentRequests);
 paymentRouter.get("/requests/:requestId", idValidator, paymentController.getPaymentRequestDetails);
@@ -53,7 +52,11 @@ paymentRouter.post("/requests/:requestId/reject", idValidator, refundValidator, 
 paymentRouter.post("/requests/:requestId/complete", idValidator, paymentController.completePaymentRequest);
 paymentRouter.post("/requests/:requestId/refund", idValidator, refundValidator, paymentController.refundPayment);
 
+paymentRouter.use(authenticate(["ADMIN", "SUPERADMIN"]));
+
 paymentRouter.get("/transactions/all", paginationValidator, paymentController.getAllTransactions);
+paymentRouter.get("/transactions/analytics", authenticate(["ADMIN", "SUPERADMIN"]), paymentController.getTransactionAnalytics);
+paymentRouter.get("/transactions/:transactionId/details", idValidator, paymentController.getTransactionDetails);
 paymentRouter.post("/transactions/:transactionId/refund", idValidator, refundValidator, paymentController.refundTransaction);
 
 paymentRouter.get("/withdrawals/all", paginationValidator, paymentController.getAllWithdrawals);
