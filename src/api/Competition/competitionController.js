@@ -1,7 +1,7 @@
 import Competition from './models/Competition.js';
 import fs from 'fs';
 import path from 'path';
-import { getFileUrl, deleteUploadedFiles, getRelativeFilePath } from '../../../middleware/upload.js';
+import { getFileUrl, deleteUploadedFiles } from '../../../middleware/upload.js';
 import { 
   createCompetitionSchema, 
   updateCompetitionSchema, 
@@ -50,27 +50,7 @@ const toMySQLDateTime = (date) => {
 export const createCompetition = async (req, res) => {
   try {
     const files = req.files || {};
-console.log('=== FILES DEBUG ===');
-    console.log('Files object:', files);
-    console.log('Files keys:', Object.keys(files));
-    
-    Object.keys(files).forEach(key => {
-      console.log(`File field "${key}":`, files[key]);
-      if (files[key] && Array.isArray(files[key])) {
-        files[key].forEach((file, index) => {
-          console.log(`  [${index}] path:`, file.path);
-          console.log(`  [${index}] path type:`, typeof file.path);
-          console.log(`  [${index}] full file object:`, file);
-        });
-      }
-    });
-    
-    // Test getFileUrl with the actual path
-    if (files.featured_image?.[0]?.path) {
-      console.log('Testing getFileUrl with featured image path:', files.featured_image[0].path);
-      const testUrl = getFileUrl(files.featured_image[0].path);
-      console.log('Test URL result:', testUrl);
-    }
+
     // Normalize request body: numbers, booleans, and dates
     const bodyData = {
       ...req.body,
@@ -87,12 +67,12 @@ console.log('=== FILES DEBUG ===');
     };
 
     // Combine body and uploaded files
-  const competitionData = {
+    const competitionData = {
       ...bodyData,
-      featured_image: files.featured_image?.[0] ? getRelativeFilePath(files.featured_image[0].path) : null,
-      featured_video: files.featured_video?.[0] ? getRelativeFilePath(files.featured_video[0].path) : null,
-      banner_image: files.banner_image?.[0] ? getRelativeFilePath(files.banner_image[0].path) : null,
-      gallery_images: files.gallery_images?.map(f => getRelativeFilePath(f.path)) || []
+      featured_image: files.featured_image?.[0] ? getFileUrl(files.featured_image[0].path) : null,
+      featured_video: files.featured_video?.[0] ? getFileUrl(files.featured_video[0].path) : null,
+      banner_image: files.banner_image?.[0] ? getFileUrl(files.banner_image[0].path) : null,
+      gallery_images: files.gallery_images?.map(f => getFileUrl(f.path)) || []
     };
 
     // Validate with Zod
@@ -192,12 +172,6 @@ console.log('=== FILES DEBUG ===');
       message: 'Competition created successfully',
       data: {
         competitionId,
-        relative_paths: {
-          featured_image: validatedData.featured_image,
-          featured_video: validatedData.featured_video,
-          banner_image: validatedData.banner_image,
-          gallery_images: validatedData.gallery_images
-        },
         category: validatedData.category,
         files: {
           featured_image: validatedData.featured_image,
@@ -221,7 +195,6 @@ console.log('=== FILES DEBUG ===');
     });
   }
 };
-
 
 export const updateCompetition = async (req, res) => {
   try {
