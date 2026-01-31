@@ -50,7 +50,27 @@ const toMySQLDateTime = (date) => {
 export const createCompetition = async (req, res) => {
   try {
     const files = req.files || {};
-
+console.log('=== FILES DEBUG ===');
+    console.log('Files object:', files);
+    console.log('Files keys:', Object.keys(files));
+    
+    Object.keys(files).forEach(key => {
+      console.log(`File field "${key}":`, files[key]);
+      if (files[key] && Array.isArray(files[key])) {
+        files[key].forEach((file, index) => {
+          console.log(`  [${index}] path:`, file.path);
+          console.log(`  [${index}] path type:`, typeof file.path);
+          console.log(`  [${index}] full file object:`, file);
+        });
+      }
+    });
+    
+    // Test getFileUrl with the actual path
+    if (files.featured_image?.[0]?.path) {
+      console.log('Testing getFileUrl with featured image path:', files.featured_image[0].path);
+      const testUrl = getFileUrl(files.featured_image[0].path);
+      console.log('Test URL result:', testUrl);
+    }
     // Normalize request body: numbers, booleans, and dates
     const bodyData = {
       ...req.body,
@@ -67,13 +87,13 @@ export const createCompetition = async (req, res) => {
     };
 
     // Combine body and uploaded files
-    const competitionData = {
-      ...bodyData,
-      featured_image: files.featured_image?.[0] ? getFileUrl(files.featured_image[0].path) : null,
-      featured_video: files.featured_video?.[0] ? getFileUrl(files.featured_video[0].path) : null,
-      banner_image: files.banner_image?.[0] ? getFileUrl(files.banner_image[0].path) : null,
-      gallery_images: files.gallery_images?.map(f => getFileUrl(f.path)) || []
-    };
+const competitionData = {
+  ...bodyData,
+  featured_image: files.featured_image?.[0]?.path ? getFileUrl(files.featured_image[0].path) : null,
+  featured_video: files.featured_video?.[0]?.path ? getFileUrl(files.featured_video[0].path) : null,
+  banner_image: files.banner_image?.[0]?.path ? getFileUrl(files.banner_image[0].path) : null,
+  gallery_images: files.gallery_images?.filter(f => f && f.path).map(f => getFileUrl(f.path)) || []
+};
 
     // Validate with Zod
     const validationResult = validateRequest(createCompetitionSchema, { body: competitionData });
@@ -195,8 +215,6 @@ export const createCompetition = async (req, res) => {
     });
   }
 };
-
-
 
 
 export const updateCompetition = async (req, res) => {
