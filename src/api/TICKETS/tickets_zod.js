@@ -1,18 +1,25 @@
-import { z } from "zod";
+import { z } from 'zod';
 
-const ticketSchemas = {
-  allocateTickets: z.object({
-    competition_id: z.string().uuid(),
-    quantity: z.number().int().positive().max(100),
-    use_universal_tickets: z.boolean().default(false),
-    purchase_id: z.string().uuid().optional(),
-    payment_method: z.string().optional(),
-  }),
+const allocateTickets = z.object({
+  competition_id: z.string().uuid(),
+  quantity: z.number().int().positive().min(1).max(100),
+  use_universal_tickets: z.boolean().optional().default(false),
+  payment_method: z.enum(['PAYPAL', 'CREDIT_WALLET', 'CASH_WALLET']).optional().default('CREDIT_WALLET'),
+  payment_id: z.string().uuid().optional().nullable(),
+  voucher_code: z.string().optional().nullable()
+});
 
-  useUniversalTicket: z.object({
+const allocateBulkTickets = z.object({
+  allocations: z.array(z.object({
     competition_id: z.string().uuid(),
-    universal_ticket_ids: z.array(z.string().uuid()).optional(),
-  }),
+    quantity: z.number().int().positive().min(1).max(50)
+  })).min(1).max(10),
+  payment_method: z.enum(['PAYPAL', 'CREDIT_WALLET']),
+  payment_id: z.string().uuid().optional().nullable(),
+  voucher_code: z.string().optional().nullable()
+});
+
+export default {
+  allocateTickets,
+  allocateBulkTickets
 };
-
-export default ticketSchemas;

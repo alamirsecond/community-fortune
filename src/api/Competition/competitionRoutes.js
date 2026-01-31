@@ -117,11 +117,11 @@ router.post('/:id/documents',
 );
 
 //aklilu:Other admin routes
-router.post('/:id/duplicate', authenticate(['admin']), duplicateCompetition);
-router.post('/:id/status', authenticate(['admin']), updateCompetitionStatus);
-router.post('/jackpot/start-countdown', authenticate(['admin']), startJackpotCountdown);
-router.post('/winners/select', authenticate(['admin']), selectWinners);
-router.post('/subscription/auto-subscribe', authenticate(['admin']), autoSubscribeUsers);
-router.get('/export/:id', authenticate(['admin']), exportCompetitionData);
+router.post('/:id/duplicate', authenticate(['ADMIN','SUPERADMIN']), duplicateCompetition);
+router.post('/:id/status', authenticate(['ADMIN','SUPERADMIN']), updateCompetitionStatus);
+router.post('/jackpot/start-countdown', authenticate(['ADMIN','SUPERADMIN']), startJackpotCountdown);
+router.post('/winners/select', authenticate(['ADMIN','SUPERADMIN']), selectWinners);
+router.post('/subscription/auto-subscribe', authenticate(['ADMIN','SUPERADMIN']), autoSubscribeUsers);
+router.get('/export/:id', authenticate(['ADMIN','SUPERADMIN']), exportCompetitionData);
 
 export default router;

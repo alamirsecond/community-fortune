@@ -1232,43 +1232,50 @@ static async getCompetitionStatsDashboard() {
   }
 
   // ==================== ADDITIONAL METHODS ====================
-  
-  static async getAnalytics(competitionId, period = '7d') {
-    let dateCondition = '';
-    
-    switch (period) {
-      case '1d':
-        dateCondition = 'AND DATE(created_at) = CURDATE()';
-        break;
-      case '7d':
-        dateCondition = 'AND created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)';
-        break;
-      case '30d':
-        dateCondition = 'AND created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)';
-        break;
-      case 'all':
-      default:
-        dateCondition = '';
-        break;
-    }
+static async getAnalytics(competitionId, period = '7d') {
+  let dateCondition = '';
 
-    const [rows] = await pool.execute(
-      `SELECT 
-        DATE(created_at) as date,
-        COUNT(*) as entries,
-        SUM(CASE WHEN entry_type = 'PAID_ENTRY' THEN 1 ELSE 0 END) as paid_entries,
-        SUM(CASE WHEN entry_type = 'FREE_ENTRY' THEN 1 ELSE 0 END) as free_entries,
-        COUNT(DISTINCT user_id) as unique_users
-       FROM competition_entries
-       WHERE competition_id = UUID_TO_BIN(?)
-       ${dateCondition}
-       GROUP BY DATE(created_at)
-       ORDER BY date`,
-      [this.uuidToBinary(competitionId)]
-    );
+  switch (period) {
+    case '1d':
+      dateCondition = 'AND DATE(c.created_at) = CURDATE()';
+      break;
 
-    return rows;
+    case '7d':
+      dateCondition = 'AND c.created_at >= DATE_SUB(CURDATE(), INTERVAL 7 DAY)';
+      break;
+
+    case '30d':
+      dateCondition = 'AND c.created_at >= DATE_SUB(CURDATE(), INTERVAL 30 DAY)';
+      break;
+
+    case 'all':
+    default:
+      dateCondition = '';
+      break;
   }
+
+  const [rows] = await pool.execute(
+    `
+    SELECT 
+      DATE(c.created_at) AS date,
+      COUNT(e.id) AS entries,
+      SUM(CASE WHEN e.entry_type = 'PAID_ENTRY' THEN 1 ELSE 0 END) AS paid_entries,
+      SUM(CASE WHEN e.entry_type = 'FREE_ENTRY' THEN 1 ELSE 0 END) AS free_entries,
+      COUNT(DISTINCT e.user_id) AS unique_users
+    FROM competition_entries e
+    INNER JOIN competitions c 
+      ON c.id = e.competition_id
+    WHERE e.competition_id = UUID_TO_BIN(?)
+    ${dateCondition}
+    GROUP BY DATE(c.created_at)
+    ORDER BY date
+    `,
+    [this.uuidToBinary(competitionId)]
+  );
+
+  return rows;
+}
+
 
   static async getRevenueStats(competitionId) {
     const [rows] = await pool.execute(
