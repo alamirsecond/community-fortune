@@ -318,35 +318,13 @@ export const deleteUploadedFiles = (filePaths) => {
 };
 
 // Utility function to get file URL
-// In src/middleware/upload.js
-
-// Change from this:
 export const getFileUrl = (filePath) => {
   if (!filePath) return null;
+
   const relativePath = path.relative(competitionUploadsDir, filePath).replace(/\\/g, '/');
-  const baseUrl = process.env.SERVER_URL || 'http://localhost:4000';
+  const baseUrl = process.env.SERVER_URL || 'http://localhost:4000'; // adjust port
   return `${baseUrl}/uploads/competitions/${relativePath}`;
 };
-
-// To this (store relative paths):
-export const getRelativeFilePath = (filePath) => {
-  if (!filePath) return null;
-  
-  // Get path relative to competitions directory
-  const relativePath = path.relative(competitionUploadsDir, filePath).replace(/\\/g, '/');
-  
-  // Return just the relative path, not full URL
-  return relativePath;
-};
-
-// Keep old getFileUrl for backward compatibility if needed
-// export const getFileUrl = (filePath) => {
-//   const relativePath = getRelativeFilePath(filePath);
-//   if (!relativePath) return null;
-  
-//   const baseUrl = process.env.SERVER_URL || 'http://localhost:4000';
-//   return `${baseUrl}/uploads/competitions/${relativePath}`;
-// };
 
 
 // ============================================
