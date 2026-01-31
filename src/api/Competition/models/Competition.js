@@ -899,26 +899,28 @@ static async getCompetitionStatsDashboard() {
         break;
     }
 
-    const [rows] = await pool.execute(
-      `SELECT 
-        ROW_NUMBER() OVER (ORDER BY MAX(mgs.score) DESC) as rank,
-        BIN_TO_UUID(u.id) as user_id,
-        u.username,
-        u.profile_photo,
-        MAX(mgs.score) as high_score,
-        AVG(mgs.score) as avg_score,
-        COUNT(mgs.id) as play_count,
-        SUM(mgs.time_taken) as total_time,
-        MAX(mgs.level_reached) as max_level
-       FROM mini_game_scores mgs
-       JOIN users u ON mgs.user_id = u.id
-       WHERE mgs.competition_id = UUID_TO_BIN(?)
-       ${dateCondition}
-       GROUP BY u.id, u.username, u.profile_photo
-       ORDER BY high_score DESC
-       LIMIT ?`,
-      [competitionId, limit]
-    );
+ const [rows] = await pool.query(
+  `
+  SELECT
+    BIN_TO_UUID(u.id) AS user_id,
+    u.username,
+    u.profile_photo,
+    MAX(mgs.score) AS high_score,
+    AVG(mgs.score) AS avg_score,
+    COUNT(mgs.id) AS play_count,
+    SUM(mgs.time_taken) AS total_time,
+    MAX(mgs.level_reached) AS max_level
+  FROM mini_game_scores mgs
+  JOIN users u ON mgs.user_id = u.id
+  WHERE mgs.competition_id = UUID_TO_BIN(?)
+  ${dateCondition}
+  GROUP BY u.id, u.username, u.profile_photo
+  ORDER BY high_score DESC
+  LIMIT ?
+  `,
+  [competitionId, limit]
+);
+
 
     return rows;
   }
@@ -1254,24 +1256,25 @@ static async getAnalytics(competitionId, period = '7d') {
       break;
   }
 
-  const [rows] = await pool.execute(
-    `
-    SELECT 
-      DATE(c.created_at) AS date,
-      COUNT(e.id) AS entries,
-      SUM(CASE WHEN e.entry_type = 'PAID_ENTRY' THEN 1 ELSE 0 END) AS paid_entries,
-      SUM(CASE WHEN e.entry_type = 'FREE_ENTRY' THEN 1 ELSE 0 END) AS free_entries,
-      COUNT(DISTINCT e.user_id) AS unique_users
-    FROM competition_entries e
-    INNER JOIN competitions c 
-      ON c.id = e.competition_id
-    WHERE e.competition_id = UUID_TO_BIN(?)
-    ${dateCondition}
-    GROUP BY DATE(c.created_at)
-    ORDER BY date
-    `,
-    [this.uuidToBinary(competitionId)]
-  );
+const [rows] = await pool.execute(
+  `
+  SELECT 
+    DATE(c.created_at) AS date,
+    COUNT(e.id) AS entries,
+    SUM(CASE WHEN e.entry_type = 'PAID_ENTRY' THEN 1 ELSE 0 END) AS paid_entries,
+    SUM(CASE WHEN e.entry_type = 'FREE_ENTRY' THEN 1 ELSE 0 END) AS free_entries,
+    COUNT(DISTINCT e.user_id) AS unique_users
+  FROM competition_entries e
+  INNER JOIN competitions c 
+    ON c.id = e.competition_id
+  WHERE e.competition_id = UUID_TO_BIN(?)
+  ${dateCondition}
+  GROUP BY DATE(c.created_at)
+  ORDER BY date
+  `,
+  [competitionId] // 👈 STRING UUID
+);
+
 
   return rows;
 }
@@ -1288,8 +1291,8 @@ static async getAnalytics(competitionId, period = '7d') {
        FROM purchases p
        WHERE p.competition_id = UUID_TO_BIN(?)
        AND p.status = 'PAID'`,
-      [this.uuidToBinary(competitionId)]
-    );
+      [competitionId]
+       );
 
     return rows[0] || null;
   }
@@ -1307,7 +1310,7 @@ static async getAnalytics(competitionId, period = '7d') {
          WHERE competition_id = UUID_TO_BIN(?)
          GROUP BY user_id
        ) as user_entries`,
-      [this.uuidToBinary(competitionId)]
+  [competitionId]
     );
 
     return rows[0] || null;

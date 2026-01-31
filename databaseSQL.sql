@@ -1622,7 +1622,6 @@ ADD COLUMN payment_id BINARY(16) NULL AFTER id,
 ADD FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL,
 ADD INDEX idx_user_subscriptions_payment (payment_id);
 
-use `community_fortune`;
 
 -- ===========================================
 -- SYSTEM SETTINGS TABLE (ADD THIS)
