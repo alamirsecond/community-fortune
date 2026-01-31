@@ -137,19 +137,29 @@ export const createCompetition = async (req, res) => {
     const competitionId = await Competition.create(validatedData);
 
     // Process gallery images
-    if (files.gallery_images?.length > 0) {
-      const galleryDir = path.join(process.env.COMPETITION_UPLOAD_PATH, competitionId, 'gallery');
-      if (!fs.existsSync(galleryDir)) fs.mkdirSync(galleryDir, { recursive: true });
+    // Process gallery images - with Render workaround
+if (files.gallery_images?.length > 0) {
+  // On Render, skip file moving and just use the original paths
+  if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
+    console.log('Render detected - using original file paths for gallery');
+    const galleryUrls = files.gallery_images.map(file => getFileUrl(file.path));
+    await Competition.update(competitionId, { gallery_images: galleryUrls });
+    validatedData.gallery_images = galleryUrls;
+  } else {
+    // Local processing
+    const galleryDir = path.join(process.env.COMPETITION_UPLOAD_PATH, competitionId, 'gallery');
+    if (!fs.existsSync(galleryDir)) fs.mkdirSync(galleryDir, { recursive: true });
 
-      const galleryUrls = [];
-      for (const file of files.gallery_images) {
-        const newPath = path.join(galleryDir, path.basename(file.path));
-        fs.renameSync(file.path, newPath);
-        galleryUrls.push(getFileUrl(newPath));
-      }
-      await Competition.update(competitionId, { gallery_images: galleryUrls });
-      validatedData.gallery_images = galleryUrls;
+    const galleryUrls = [];
+    for (const file of files.gallery_images) {
+      const newPath = path.join(galleryDir, path.basename(file.path));
+      fs.renameSync(file.path, newPath);
+      galleryUrls.push(getFileUrl(newPath));
     }
+    await Competition.update(competitionId, { gallery_images: galleryUrls });
+    validatedData.gallery_images = galleryUrls;
+  }
+}
 
     // Instant wins
     if (validatedData.instant_wins?.length > 0) {
