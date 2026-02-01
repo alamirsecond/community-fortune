@@ -67,13 +67,30 @@ export const createCompetition = async (req, res) => {
     };
 
     // Combine body and uploaded files
-    const competitionData = {
-      ...bodyData,
-      featured_image: files.featured_image?.[0] ? getFileUrl(files.featured_image[0].path) : null,
-      featured_video: files.featured_video?.[0] ? getFileUrl(files.featured_video[0].path) : null,
-      banner_image: files.banner_image?.[0] ? getFileUrl(files.banner_image[0].path) : null,
-      gallery_images: files.gallery_images?.map(f => getFileUrl(f.path)) || []
-    };
+   const competitionData = {
+  ...bodyData,
+
+  featured_image:
+    files?.featured_image?.[0]
+      ? getFileUrl(files.featured_image[0].path)
+      : null,
+
+  featured_video:
+    files?.featured_video?.[0]
+      ? getFileUrl(files.featured_video[0].path)
+      : null,
+
+  banner_image:
+    files?.banner_image?.[0]
+      ? getFileUrl(files.banner_image[0].path)
+      : null,
+
+  gallery_images:
+    files?.gallery_images?.length
+      ? files.gallery_images.map(f => getFileUrl(f.path))
+      : []
+};
+
 
     // Validate with Zod
     const validationResult = validateRequest(createCompetitionSchema, { body: competitionData });

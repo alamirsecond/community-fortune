@@ -723,7 +723,7 @@ async initGateways() {
           w.payment_method as gateway,
           w.account_details,
           w.status,
-          w.created_at,
+          w.requested_at,
           w.updated_at,
           w.admin_notes,
           pr.fee_amount,
@@ -1819,70 +1819,44 @@ calculateDateRange(period, startDate, endDate) {
   }
 
   // ==================== WITHDRAWAL MANAGEMENT ====================
-  async getAllWithdrawals(filters = {}, limit = 50, offset = 0) {
-    const connection = await pool.getConnection();
-    try {
-      let query = `SELECT 
-          BIN_TO_UUID(w.id) as id,
-          BIN_TO_UUID(w.user_id) as user_id,
-          w.amount,
-          w.payment_method as gateway,
-          w.status,
-          w.created_at,
-          w.updated_at,
-          w.admin_notes,
-          w.gateway_reference,
-          u.email as user_email,
-          u.first_name,
-          u.last_name
-         FROM withdrawals w
-         JOIN users u ON w.user_id = u.id
-         WHERE 1=1`;
-      
-      const queryParams = [];
-      
-      if (filters.status) {
-        query += ` AND w.status = ?`;
-        queryParams.push(filters.status);
-      }
-      
-      if (filters.gateway) {
-        query += ` AND w.payment_method = ?`;
-        queryParams.push(filters.gateway);
-      }
-      
-      if (filters.startDate) {
-        query += ` AND w.created_at >= ?`;
-        queryParams.push(filters.startDate);
-      }
-      
-      if (filters.endDate) {
-        query += ` AND w.created_at <= ?`;
-        queryParams.push(filters.endDate);
-      }
-      
-      query += ` ORDER BY w.created_at DESC LIMIT ? OFFSET ?`;
-      queryParams.push(limit, offset);
-      
-      const [withdrawals] = await connection.query(query, queryParams);
-      
-      const [total] = await connection.query(
-        `SELECT COUNT(*) as total FROM withdrawals w WHERE 1=1`,
-        queryParams.slice(0, -2)
-      );
-      
-      return {
-        withdrawals,
-        pagination: {
-          total: total[0].total,
-          limit,
-          offset
-        }
-      };
-    } finally {
-      connection.release();
+async getWithdrawalDetails(withdrawalId, userId) {
+  const connection = await pool.getConnection();
+
+  try {
+    let query = `
+      SELECT
+        BIN_TO_UUID(w.id) AS id,
+        w.amount,
+        w.payment_method AS gateway,
+        w.account_details,
+        w.status,
+        w.requested_at,
+        w.updated_at,
+        w.admin_notes,
+        pr.fee_amount,
+        pr.net_amount,
+        pr.gateway_payment_id
+      FROM withdrawals w
+      LEFT JOIN payment_requests pr ON w.payment_id = pr.payment_id
+      WHERE w.user_id = UUID_TO_BIN(?)
+    `;
+
+    const params = [userId];
+
+    // ✅ Only filter by ID if it's a real UUID
+    if (withdrawalId && withdrawalId !== 'all') {
+      query += ` AND w.id = UUID_TO_BIN(?)`;
+      params.push(withdrawalId);
     }
+
+    const [rows] = await connection.query(query, params);
+    return withdrawalId === 'all' ? rows : rows[0] || [];
+
+  } finally {
+    connection.release();
   }
+}
+
 
  async processWithdrawal(adminId, withdrawalId, transactionReference) {
     const connection = await pool.getConnection();
