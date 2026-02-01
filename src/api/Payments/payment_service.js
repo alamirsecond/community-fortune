@@ -47,13 +47,7 @@ async initGateways() {
     });
     console.log(`Revolut initialized in ${environment} mode`);
   }
-    console.log('Available gateway configs:', gateways.map(g => ({
-  gateway: g.gateway,
-  environment: g.environment,
-  enabled: g.is_enabled,
-  hasClientId: !!g.client_id,
-  hasClientSecret: !!g.client_secret
-})));
+
 }
   // ==================== HELPER METHODS ====================
   async getGatewayConfigurations() {
@@ -2296,45 +2290,75 @@ calculateDateRange(period, startDate, endDate) {
   }
 
   // ==================== SUPERADMIN ROUTES ====================
-  async getGatewayConfigurations() {
-    const connection = await pool.getConnection();
-    try {
-      const [configs] = await connection.query(
-        `SELECT 
-          BIN_TO_UUID(id) as id,
-          gateway,
-          environment,
-          display_name,
-          client_id,
-          client_secret,
-          api_key,
-          webhook_secret,
-          is_enabled,
-          min_deposit,
-          max_deposit,
-          min_withdrawal,
-          max_withdrawal,
-          processing_fee_percent,
-          fixed_fee,
-          allowed_countries,
-          restricted_countries,
-          sort_order,
-          logo_url,
-          created_at,
-          updated_at
-         FROM payment_gateway_settings
-         ORDER BY gateway, environment`
-      );
-      
-      return configs.map(config => ({
-        ...config,
-        allowed_countries: config.allowed_countries ? JSON.parse(config.allowed_countries) : [],
-        restricted_countries: config.restricted_countries ? JSON.parse(config.restricted_countries) : []
-      }));
-    } finally {
-      connection.release();
+async getGatewayConfigurations() {
+  const connection = await pool.getConnection();
+
+  const parseCountries = (value) => {
+    if (!value) return [];
+
+    // Already an array (some drivers return JSON as objects)
+    if (Array.isArray(value)) return value;
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+
+      // JSON array string
+      if (trimmed.startsWith('[')) {
+        try {
+          return JSON.parse(trimmed);
+        } catch {
+          return [];
+        }
+      }
+
+      // CSV fallback: "GB,US,CA,AU"
+      return trimmed
+        .split(',')
+        .map(v => v.trim())
+        .filter(Boolean);
     }
+
+    return [];
+  };
+
+  try {
+    const [configs] = await connection.query(
+      `SELECT 
+        BIN_TO_UUID(id) AS id,
+        gateway,
+        environment,
+        display_name,
+        client_id,
+        client_secret,
+        api_key,
+        webhook_secret,
+        is_enabled,
+        min_deposit,
+        max_deposit,
+        min_withdrawal,
+        max_withdrawal,
+        processing_fee_percent,
+        fixed_fee,
+        allowed_countries,
+        restricted_countries,
+        sort_order,
+        logo_url,
+        created_at,
+        updated_at
+       FROM payment_gateway_settings
+       ORDER BY gateway, environment`
+    );
+
+    return configs.map(config => ({
+      ...config,
+      allowed_countries: parseCountries(config.allowed_countries),
+      restricted_countries: parseCountries(config.restricted_countries)
+    }));
+  } finally {
+    connection.release();
   }
+}
+
 
   async updateGatewayConfiguration(configData) {
     const connection = await pool.getConnection();

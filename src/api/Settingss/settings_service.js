@@ -321,15 +321,41 @@ class SettingsService {
     }
   }
 
-  async configurePaymentGateway(data, adminId) {
-    const connection = await pool.getConnection();
-    try {
-      await connection.beginTransaction();
+async configurePaymentGateway(data, adminId) {
+  const connection = await pool.getConnection();
 
-      const {
+  try {
+    await connection.beginTransaction();
+
+    const {
+      gateway,
+      environment,
+      display_name,
+      client_id,
+      client_secret,
+      api_key,
+      webhook_secret,
+      public_key,
+      private_key,
+      min_deposit,
+      max_deposit,
+      min_withdrawal,
+      max_withdrawal,
+      processing_fee_percent,
+      fixed_fee,
+      logo_url,
+      is_default,
+      allowed_countries,
+      restricted_countries
+    } = data;
+
+    // Insert or update payment gateway configuration
+    await connection.query(
+      `INSERT INTO payment_gateway_settings (
+        id,
         gateway,
-        environment,
         display_name,
+        environment,
         client_id,
         client_secret,
         api_key,
@@ -345,82 +371,129 @@ class SettingsService {
         logo_url,
         is_default,
         allowed_countries,
-        restricted_countries
-      } = data;
+        restricted_countries,
+        updated_by
+      ) VALUES (
+        UUID_TO_BIN(UUID()),
+        ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UUID_TO_BIN(?)
+      )
+      ON DUPLICATE KEY UPDATE
+        display_name = VALUES(display_name),
+        client_id = VALUES(client_id),
+        client_secret = VALUES(client_secret),
+        api_key = VALUES(api_key),
+        webhook_secret = VALUES(webhook_secret),
+        public_key = VALUES(public_key),
+        private_key = VALUES(private_key),
+        min_deposit = VALUES(min_deposit),
+        max_deposit = VALUES(max_deposit),
+        min_withdrawal = VALUES(min_withdrawal),
+        max_withdrawal = VALUES(max_withdrawal),
+        processing_fee_percent = VALUES(processing_fee_percent),
+        fixed_fee = VALUES(fixed_fee),
+        logo_url = VALUES(logo_url),
+        is_default = VALUES(is_default),
+        allowed_countries = VALUES(allowed_countries),
+        restricted_countries = VALUES(restricted_countries),
+        updated_by = VALUES(updated_by),
+        updated_at = CURRENT_TIMESTAMP`,
+      [
+        gateway,
+        display_name,
+        environment,
+        client_id || null,
+        client_secret || null,
+        api_key || null,
+        webhook_secret || null,
+        public_key || null,
+        private_key || null,
+        min_deposit ?? 1.0,
+        max_deposit ?? 5000.0,
+        min_withdrawal ?? 5.0,
+        max_withdrawal ?? 10000.0,
+        processing_fee_percent ?? 0.0,
+        fixed_fee ?? 0.0,
+        logo_url || null,
+        !!is_default,
+        allowed_countries ? JSON.stringify(allowed_countries) : null,
+        restricted_countries ? JSON.stringify(restricted_countries) : null,
+        adminId
+      ]
+    );
 
-      // Update or insert gateway configuration
+    // If set as default, unset others in same environment
+    if (is_default) {
       await connection.query(
-        `INSERT INTO payment_gateway_settings (
-          id, gateway, display_name, environment, client_id, client_secret, api_key,
-          webhook_secret, public_key, private_key, min_deposit, max_deposit,
-          min_withdrawal, max_withdrawal, processing_fee_percent, fixed_fee,
-          logo_url, is_default, allowed_countries, restricted_countries, updated_by
-        ) VALUES (
-          UUID_TO_BIN(UUID()), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, UUID_TO_BIN(?)
-        ) ON DUPLICATE KEY UPDATE
-          display_name = VALUES(display_name),
-          client_id = VALUES(client_id),
-          client_secret = VALUES(client_secret),
-          api_key = VALUES(api_key),
-          webhook_secret = VALUES(webhook_secret),
-          public_key = VALUES(public_key),
-          private_key = VALUES(private_key),
-          min_deposit = VALUES(min_deposit),
-          max_deposit = VALUES(max_deposit),
-          min_withdrawal = VALUES(min_withdrawal),
-          max_withdrawal = VALUES(max_withdrawal),
-          processing_fee_percent = VALUES(processing_fee_percent),
-          fixed_fee = VALUES(fixed_fee),
-          logo_url = VALUES(logo_url),
-          is_default = VALUES(is_default),
-          allowed_countries = VALUES(allowed_countries),
-          restricted_countries = VALUES(restricted_countries),
-          updated_by = VALUES(updated_by),
-          updated_at = CURRENT_TIMESTAMP`,
-        [
-          gateway, display_name, environment, client_id || null, client_secret || null, api_key || null,
-          webhook_secret || null, public_key || null, private_key || null, min_deposit || 1.00,
-          max_deposit || 5000.00, min_withdrawal || 5.00, max_withdrawal || 10000.00,
-          processing_fee_percent || 0.00, fixed_fee || 0.00, logo_url || null, is_default || false,
-          allowed_countries ? JSON.stringify(allowed_countries) : null,
-          restricted_countries ? JSON.stringify(restricted_countries) : null,
-          adminId
-        ]
-      );
-
-      // If this gateway is set as default, unset others
-      if (is_default) {
-        await connection.query(
-          `UPDATE payment_gateway_settings 
-           SET is_default = FALSE 
-           WHERE gateway != ? AND environment = ?`,
-          [gateway, environment]
-        );
-      }
-
-      // Log activity
-      await connection.query(
-        'INSERT INTO admin_activities (id, admin_id, action, module, details) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)',
-        [adminId, 'CONFIGURE_PAYMENT_GATEWAY', 'SETTINGS', JSON.stringify({ gateway, environment })]
-      );
-
-      await connection.commit();
-
-      // Return updated gateway
-      const [updatedGateway] = await connection.query(
-        `SELECT BIN_TO_UUID(id) as id, * FROM payment_gateway_settings 
-         WHERE gateway = ? AND environment = ?`,
+        `UPDATE payment_gateway_settings
+         SET is_default = FALSE
+         WHERE gateway != ? AND environment = ?`,
         [gateway, environment]
       );
-
-      return updatedGateway[0];
-    } catch (error) {
-      await connection.rollback();
-      throw error;
-    } finally {
-      connection.release();
     }
+
+    // Log admin activity (make sure `details` column exists)
+    await connection.query(
+      `INSERT INTO admin_activities
+       (id, admin_id, action, module, details)
+       VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)`,
+      [
+        adminId,
+        'CONFIGURE_PAYMENT_GATEWAY',
+        'SETTINGS',
+        JSON.stringify({ gateway, environment })
+      ]
+    );
+
+    await connection.commit();
+
+    // Fetch and return updated gateway (FIXED SELECT)
+    const [rows] = await connection.query(
+      `SELECT
+  BIN_TO_UUID(id) AS id,
+  gateway,
+  display_name,
+  environment,
+  is_enabled,
+  client_id,
+  client_secret,
+  api_key,
+  webhook_secret,
+  public_key,
+  private_key,
+  min_deposit,
+  max_deposit,
+  min_withdrawal,
+  max_withdrawal,
+  processing_fee_percent,
+  fixed_fee,
+  settlement_days,
+  allowed_countries,
+  restricted_countries,
+  logo_url,
+  sort_order,
+  is_default,
+  last_test_success,
+  last_live_success,
+  error_message,
+  created_at,
+  updated_at,
+  BIN_TO_UUID(updated_by) AS updated_by
+FROM payment_gateway_settings
+WHERE gateway = ? AND environment = ?
+`,
+      [gateway, environment]
+    );
+
+    return rows[0] || null;
+
+  } catch (error) {
+    await connection.rollback();
+    throw error;
+  } finally {
+    connection.release();
   }
+}
+
 
   async getTransactionLimits() {
     const [limits] = await pool.query(

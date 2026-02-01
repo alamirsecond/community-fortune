@@ -611,7 +611,6 @@ CREATE TABLE winners (
     INDEX idx_winners_competition_id (competition_id),
     INDEX idx_winners_user_id (user_id)
 );
-use `community_fortune`;
 
 CREATE TABLE IF NOT EXISTS prize_distributions (
     id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
@@ -1042,14 +1041,9 @@ CREATE TABLE user_notes (
   INDEX idx_created_at (created_at)
 );
 
--- Create verifications table
--- ===========================================
--- VERIFICATIONS TABLE (UPDATED TO MATCH YOUR FUNCTION)
--- ===========================================
--- First, drop the existing table if it exists
 
--- Recreate with correct enum values
-CREATE TABLE verifications (
+
+ CREATE TABLE verifications (
   id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
   user_id BINARY(16) NOT NULL REFERENCES users(id),
   status ENUM('PENDING', 'APPROVED', 'REJECTED', 'EXPIRED') DEFAULT 'PENDING',
@@ -1313,9 +1307,7 @@ INSERT IGNORE INTO contact_settings (setting_key, setting_value, description) VA
 ('phone_number', '+44 1234 567890', 'Phone number'),
 ('response_time', '24-48 hours', 'Expected response time');
 
--- ===========================================
--- TRANSACTIONS TABLE
--- ===========================================
+
 CREATE TABLE IF NOT EXISTS transactions (
     id BINARY(16) PRIMARY KEY,
     user_id BINARY(16),
@@ -1490,8 +1482,6 @@ CREATE TABLE vouchers_archive (
 );
 
 
--- Add these to your existing database schema
-
 -- 1. PAYMENTS TABLE (UPDATED VERSION)
 CREATE TABLE IF NOT EXISTS payments (
     id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
@@ -1626,7 +1616,8 @@ ADD INDEX idx_user_subscriptions_payment (payment_id);
 -- ===========================================
 -- SYSTEM SETTINGS TABLE (ADD THIS)
 -- ===========================================
-CREATE TABLE IF NOT EXISTS system_settings (
+
+ CREATE TABLE IF NOT EXISTS system_settings (
     id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
     setting_key VARCHAR(100) NOT NULL UNIQUE,
     setting_value TEXT,
@@ -1791,6 +1782,10 @@ ALTER TABLE transactions
 ADD COLUMN payment_id BINARY(16) NULL AFTER reference_id,
 ADD FOREIGN KEY (payment_id) REFERENCES payments(id) ON DELETE SET NULL,
 ADD INDEX idx_transactions_payment (payment_id);
+
+ALTER TABLE admin_activities
+ADD COLUMN details JSON NULL;
+
 
 -- 12. ADD PAYMENT COLUMN TO VOUCHER_USAGE
 ALTER TABLE voucher_usage
