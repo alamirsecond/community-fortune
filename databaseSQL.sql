@@ -6,7 +6,7 @@ USE community_fortune;
 -- USERS TABLE - BINARY(16) UUIDs
 -- ===========================================
 
-CREATE TABLE users (
+ CREATE TABLE users (
     id BINARY(16) PRIMARY KEY,
     email VARCHAR(255) UNIQUE NOT NULL,
     phone VARCHAR(20) UNIQUE,
@@ -86,7 +86,7 @@ CREATE TABLE users (
 -- ===========================================
 -- USERS Activities TABLE - BINARY(16) UUIDs
 -- ===========================================
-CREATE TABLE user_activities (
+ CREATE TABLE user_activities (
     id BINARY(16) PRIMARY KEY,
     user_id BINARY(16),
     action VARCHAR(255) NOT NULL,
@@ -304,6 +304,11 @@ CREATE TABLE competitions (
     INDEX idx_competitions_prize_option (prize_option),
     INDEX idx_competitions_game_type (game_type)
 );
+ALTER TABLE competitions
+MODIFY featured_image VARCHAR(255) NULL,
+MODIFY featured_video VARCHAR(255) NULL;
+
+
 
 -- ===========================================
 -- COMPETITION TYPE CONFIG TABLE - BINARY(16) UUIDs
@@ -1245,7 +1250,8 @@ CREATE INDEX idx_alert_dedupe ON system_alerts (type, title, created_at);
 -- ===========================================
 -- REVENUE TABLES
 -- ===========================================
-CREATE TABLE IF NOT EXISTS revenue_summary (
+
+ CREATE TABLE IF NOT EXISTS revenue_summary (
     id BINARY(16) PRIMARY KEY,
     date DATE NOT NULL,
     total_revenue DECIMAL(15, 2) DEFAULT 0.00,
@@ -1639,7 +1645,8 @@ ADD INDEX idx_user_subscriptions_payment (payment_id);
 -- ===========================================
 -- PAYMENT GATEWAY SETTINGS TABLE (ADD THIS)
 -- ===========================================
-CREATE TABLE IF NOT EXISTS payment_gateway_settings (
+
+ CREATE TABLE IF NOT EXISTS payment_gateway_settings (
     id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
     gateway ENUM('PAYPAL', 'STRIPE', 'REVOLUT') NOT NULL,
     display_name VARCHAR(100) NOT NULL,
