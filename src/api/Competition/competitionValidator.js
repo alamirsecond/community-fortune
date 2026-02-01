@@ -36,22 +36,21 @@ const jackpotSchema = {
   prize_option: z.enum(['A', 'B', 'C', 'CUSTOM']).optional().default('A'),
   ticket_model: z.enum(['MODEL_1', 'MODEL_2', 'CUSTOM']).optional().default('MODEL_1'),
   threshold_type: z.enum(['AUTOMATIC', 'MANUAL']).optional().default('AUTOMATIC'),
-  threshold_value: z.number().int().min(0).optional().default(1200),
-  min_ticket_price: z.number().min(10, "Jackpot minimum ticket price is £10").optional().default(10),
-  jackpot_amount: z.number().min(1000, "Jackpot amount must be at least £1000").optional(),
-  max_instant_wins: z.number().int().min(0).optional().default(0),
-  guaranteed_winners: z.number().int().min(0).optional()
+  threshold_value: z.coerce.number().int().min(0).optional().default(1200), // Use coerce
+  min_ticket_price: z.coerce.number().min(10, "Jackpot minimum ticket price is £10").optional().default(10), // Use coerce
+  jackpot_amount: z.coerce.number().min(1000, "Jackpot amount must be at least £1000").optional(), // Use coerce
+  max_instant_wins: z.coerce.number().int().min(0).optional().default(0), // Use coerce
+  guaranteed_winners: z.coerce.number().int().min(0).optional() // Use coerce
 };
 
 // Subscription-specific schema - UPDATED per PDF
 const subscriptionSchema = {
   subscription_tier: z.enum(['TIER_1', 'TIER_2', 'TIER_3', 'CUSTOM']).optional(),
-  auto_entry_enabled: z.boolean().default(true),
+  auto_entry_enabled: z.coerce.boolean().default(true), // Add coerce
   subscriber_competition_type: z.enum(['CHAMPION_SUB_COMPETITION', 'HERO_SUB_COMPETITION', 'CUSTOM_SUB_COMPETITION']).optional(),
-  max_subscribers: z.number().int().positive().optional(),
-  subscription_required: z.boolean().default(true)
+  max_subscribers: z.coerce.number().int().positive().optional(), // Add coerce
+  subscription_required: z.coerce.boolean().default(true) // Add coerce
 };
-
 // Mini-game specific schema - UPDATED per PDF
 const miniGameSchema = {
   game_id: z.string().uuid("Invalid game ID").optional(),
@@ -59,12 +58,11 @@ const miniGameSchema = {
   leaderboard_type: z.enum(['DAILY', 'WEEKLY', 'MONTHLY']).optional(),
   game_name: z.string().optional(),
   game_code: z.string().optional(),
-  points_per_play: z.number().int().min(0).default(0),
-  max_plays_per_user: z.number().int().min(1).optional(),
+  points_per_play: z.coerce.number().int().min(0).default(0), // Add coerce
+  max_plays_per_user: z.coerce.number().int().min(1).optional(), // Add coerce
   game_rules: z.string().optional(),
   difficulty_level: z.enum(['EASY', 'MEDIUM', 'HARD']).optional()
 };
-
 // Instant Win schema - NEW per PDF
 const instantWinSchema = {
   instant_wins: z.array(z.object({

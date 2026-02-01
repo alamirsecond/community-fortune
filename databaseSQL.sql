@@ -86,6 +86,7 @@ USE community_fortune;
 -- ===========================================
 -- USERS Activities TABLE - BINARY(16) UUIDs
 -- ===========================================
+
  CREATE TABLE user_activities (
     id BINARY(16) PRIMARY KEY,
     user_id BINARY(16),
@@ -1210,7 +1211,7 @@ CREATE TABLE withdrawals (
     id BINARY(16) PRIMARY KEY,
     user_id BINARY(16lo),
     amount DECIMAL(12,2) NOT NULL,
-    payment_method ENUM('MASTERCARD', 'VISA', 'BANK_TRANSFER', 'PAYPAL') NOT NULL,
+    payment_method ENUM('REVOLT', 'STRIPE', 'BANK_TRANSFER', 'PAYPAL') NOT NULL,
     account_details JSON NOT NULL,
     paypal_email VARCHAR(255),
     bank_account_last_four VARCHAR(8),
