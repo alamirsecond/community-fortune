@@ -632,58 +632,105 @@ const withdrawalController = {
   },
 
   // Admin: Get all withdrawals with filtering
-  getAllWithdrawals: async (req, res) => {
-    try {
-      const { error, value } = withdrawalSchemas.withdrawalQuerySchema.validate(req.query);
-      if (error) return res.status(400).json({ success: false, message: error.details[0].message });
+getAllWithdrawals: async (req, res) => {
+  try {
+    const { error, value } = withdrawalSchemas.withdrawalQuerySchema.validate(req.query);
+    if (error) return res.status(400).json({ success: false, message: error.details[0].message });
 
-      const { status, page, limit, startDate, endDate, minAmount, maxAmount, paymentMethod, userId, sortBy, sortOrder } = value;
-      const offset = (page - 1) * limit;
+    const { status, page, limit, startDate, endDate, minAmount, maxAmount, paymentMethod, userId, sortBy, sortOrder } = value;
+    const offset = (page - 1) * limit;
 
-  let query = `
-  SELECT
-    BIN_TO_UUID(w.id)        AS id,
-    BIN_TO_UUID(w.user_id)  AS user_id,
-    w.amount,
-    w.payment_method,
-    w.account_details,
-    w.paypal_email,
-    w.bank_account_last_four,
-    w.bank_name,
-    w.status,
-    w.reason,
-    w.admin_notes,
-    BIN_TO_UUID(w.admin_id) AS admin_id,
-    w.requested_at,
-    w.updated_at,
-    w.is_payment_method
-  FROM withdrawals w
-  WHERE 1=1
-`;
+    // Base query with JOIN to users table
+    let query = `
+      SELECT
+        -- Withdrawal details
+        BIN_TO_UUID(w.id) AS id,
+        w.amount,
+        w.payment_method,
+        w.account_details,
+        w.paypal_email,
+        w.bank_account_last_four,
+        w.bank_name,
+        w.status,
+        w.reason,
+        w.admin_notes,
+        BIN_TO_UUID(w.admin_id) AS admin_id,
+        w.requested_at,
+        w.updated_at,
+        w.is_payment_method,
+        
+        -- User details
+        BIN_TO_UUID(u.id) AS user_id,
+        u.email AS user_email,
+        u.username AS user_username,
+        u.first_name AS user_first_name,
+        u.last_name AS user_last_name,
+        u.profile_photo AS user_profile_photo,
+        u.country AS user_country,
+        u.kyc_status AS user_kyc_status,
+        u.role AS user_role,
+        u.is_active AS user_is_active
+      FROM withdrawals w
+      LEFT JOIN users u ON w.user_id = u.id
+      WHERE 1=1
+    `;
 
-      const params = [];
+    // Count query
+    let countQuery = `
+      SELECT COUNT(*) as total 
+      FROM withdrawals w
+      LEFT JOIN users u ON w.user_id = u.id
+      WHERE 1=1
+    `;
 
-      if (status) { query += ' AND w.status = ?'; params.push(status); }
-      if (startDate) { query += ' AND w.requested_at >= ?'; params.push(startDate); }
-      if (endDate) { query += ' AND w.requested_at <= ?'; params.push(endDate); }
-      if (minAmount) { query += ' AND w.amount >= ?'; params.push(minAmount); }
-      if (maxAmount) { query += ' AND w.amount <= ?'; params.push(maxAmount); }
-      if (paymentMethod) { query += ' AND w.payment_method = ?'; params.push(paymentMethod); }
-      if (userId) { query += ' AND w.user_id = ?'; params.push(userId); }
+    const params = [];
+    const countParams = [];
 
-      query += ` ORDER BY w.${sortBy || 'requested_at'} ${sortOrder === 'asc' ? 'ASC' : 'DESC'} LIMIT ? OFFSET ?`;
-      params.push(limit, offset);
+    // Add filters to both queries
+    const addFilter = (condition, param) => {
+      if (condition) {
+        query += ' AND ' + condition;
+        countQuery += ' AND ' + condition;
+        params.push(param);
+        countParams.push(param);
+      }
+    };
 
-      const [rows] = await pool.query(query, params);
-      const [countRes] = await pool.query(`SELECT COUNT(*) as total FROM withdrawals WHERE 1=1`);
+    if (status) addFilter('w.status = ?', status);
+    if (startDate) addFilter('w.requested_at >= ?', startDate);
+    if (endDate) addFilter('w.requested_at <= ?', endDate);
+    if (minAmount) addFilter('w.amount >= ?', minAmount);
+    if (maxAmount) addFilter('w.amount <= ?', maxAmount);
+    if (paymentMethod) addFilter('w.payment_method = ?', paymentMethod);
+    if (userId) addFilter('w.user_id = UUID_TO_BIN(?)', userId);
 
-      res.json({ success: true, data: { withdrawals: rows, total: countRes[0].total, page, limit } });
-    } catch (error) {
-      console.error('Get all withdrawals error:', error);
-      res.status(500).json({ success: false, message: 'Internal server error' });
-    }
-  },
+    // Sorting and pagination
+    const validSortColumns = ['requested_at', 'updated_at', 'amount', 'status'];
+    const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'requested_at';
+    const order = sortOrder === 'asc' ? 'ASC' : 'DESC';
+    
+    query += ` ORDER BY w.${sortColumn} ${order} LIMIT ? OFFSET ?`;
+    params.push(limit, offset);
 
+    // Execute both queries
+    const [rows] = await pool.query(query, params);
+    const [countRes] = await pool.query(countQuery, countParams);
+
+    res.json({ 
+      success: true, 
+      data: { 
+        withdrawals: rows, 
+        total: countRes[0].total, 
+        page, 
+        limit,
+        totalPages: Math.ceil(countRes[0].total / limit)
+      } 
+    });
+  } catch (error) {
+    console.error('Get all withdrawals error:', error);
+    res.status(500).json({ success: false, message: 'Internal server error' });
+  }
+},
   // Webhook handler for external payment processors
   handleProcessingWebhook: async (req, res) => {
     try {
