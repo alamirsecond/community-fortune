@@ -640,7 +640,27 @@ const withdrawalController = {
       const { status, page, limit, startDate, endDate, minAmount, maxAmount, paymentMethod, userId, sortBy, sortOrder } = value;
       const offset = (page - 1) * limit;
 
-      let query = `SELECT w.* FROM withdrawals w WHERE 1=1`;
+  let query = `
+  SELECT
+    BIN_TO_UUID(w.id)        AS id,
+    BIN_TO_UUID(w.user_id)  AS user_id,
+    w.amount,
+    w.payment_method,
+    w.account_details,
+    w.paypal_email,
+    w.bank_account_last_four,
+    w.bank_name,
+    w.status,
+    w.reason,
+    w.admin_notes,
+    BIN_TO_UUID(w.admin_id) AS admin_id,
+    w.requested_at,
+    w.updated_at,
+    w.is_payment_method
+  FROM withdrawals w
+  WHERE 1=1
+`;
+
       const params = [];
 
       if (status) { query += ' AND w.status = ?'; params.push(status); }
