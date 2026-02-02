@@ -2,7 +2,7 @@
 ## Overview
 ## This API manages legal documents (Terms & Conditions, Privacy Policy, etc.) with versioning and activation capabilities.
 
-## Base URL as before 
+## Base URL as before
 
 ## /api/legal
 ##  Authentication

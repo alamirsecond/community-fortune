@@ -695,6 +695,7 @@ WHERE gateway = ? AND environment = ?
         system_alerts: true
       }
     };
+    
   }
 
   async getNotificationTypes() {
@@ -812,7 +813,6 @@ WHERE gateway = ? AND environment = ?
     }
   }
 
-  // Note: Other methods (subscription tiers, legal, contact, faq, voucher, system)
 
   // ==================== SUBSCRIPTION TIERS ====================
   async getSubscriptionTiers() {
