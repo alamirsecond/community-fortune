@@ -19,6 +19,7 @@ import legalRouter from "../api/Legal/legal.routes.js";
 import contactRouter from "../api/Contact/contact.routes.js";
 import settingsRouter from "../api/Settingss/setting_routes.js";
 import paypalRouter from "../api/Payments/paypalRouter.js";
+import analyticsRoutes from "../api/Analytics/analyticsRoutes.js";
 const appRouter = Router();
 
 appRouter.use("/checkout", checkoutRouter);
@@ -41,6 +42,7 @@ appRouter.use("/vouchers", voucherRouter);
 appRouter.use("/faqs", faqRouter);
 appRouter.use("/settings", settingsRouter);
 appRouter.use("/payments", paypalRouter);
+appRouter.use('/analytics', analyticsRoutes);
 
 
 appRouter.get("/", (req, res) => {
