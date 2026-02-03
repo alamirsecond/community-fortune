@@ -441,6 +441,117 @@ static async getCompetitionStatsDashboard() {
     }
   }
 
+  // ==================== UPDATE COMPETITION STATUS ====================
+
+  static async updateStatus(competitionId, status, reason = null, changedBy = null, meta = {}) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const binaryCompetitionId = this.uuidToBinary(competitionId);
+
+      const [rows] = await connection.execute(
+        `SELECT status FROM competitions WHERE id = ?`,
+        [binaryCompetitionId]
+      );
+
+      if (!rows.length) {
+        await connection.rollback();
+        return false;
+      }
+
+      const oldStatus = rows[0].status;
+
+      await connection.execute(
+        `UPDATE competitions SET status = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        [status, binaryCompetitionId]
+      );
+
+      await connection.execute(
+        `INSERT INTO competition_audit (
+           id,
+           competition_id,
+           changed_by,
+           change_type,
+           old_values,
+           new_values,
+           change_reason,
+           ip_address,
+           user_agent
+         ) VALUES (UUID_TO_BIN(UUID()), ?, ?, 'STATUS_CHANGE', ?, ?, ?, ?, ?)`
+        ,
+        [
+          binaryCompetitionId,
+          changedBy ? this.uuidToBinary(changedBy) : null,
+          JSON.stringify({ status: oldStatus }),
+          JSON.stringify({ status }),
+          reason || null,
+          meta.ip_address || null,
+          meta.user_agent || null
+        ]
+      );
+
+      await connection.commit();
+      return true;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
+  // ==================== DELETE COMPETITION ====================
+  static async deleteCompetition(competitionId, changedBy = null, meta = {}) {
+    const connection = await pool.getConnection();
+    try {
+      await connection.beginTransaction();
+
+      const binaryCompetitionId = this.uuidToBinary(competitionId);
+
+      // Check if competition exists and fetch current row for audit
+      const [rows] = await connection.execute(
+        `SELECT * FROM competitions WHERE id = ?`,
+        [binaryCompetitionId]
+      );
+
+      if (!rows.length) {
+        await connection.rollback();
+        return false;
+      }
+
+      const oldRow = rows[0];
+
+      // Log audit for deletion with optional changed_by and meta (store old values before deleting)
+      await connection.execute(
+        `INSERT INTO competition_audit (id, competition_id, changed_by, change_type, old_values, new_values, change_reason, ip_address, user_agent)
+         VALUES (UUID_TO_BIN(UUID()), ?, ?, 'DELETE', ?, NULL, ?, ?, ?)`,
+        [
+          binaryCompetitionId,
+          changedBy ? this.uuidToBinary(changedBy) : null,
+          JSON.stringify(oldRow),
+          meta.reason || null,
+          meta.ip_address || null,
+          meta.user_agent || null
+        ]
+      );
+
+      // Delete competition (rely on FK ON DELETE CASCADE for related data)
+      const [result] = await connection.execute(
+        `DELETE FROM competitions WHERE id = ?`,
+        [binaryCompetitionId]
+      );
+
+      await connection.commit();
+      return result.affectedRows > 0;
+    } catch (error) {
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  }
+
   // ==================== CHECK USER CAN ENTER ====================
   
   static async canUserEnter(competitionId, userId) {

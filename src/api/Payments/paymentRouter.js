@@ -1,6 +1,6 @@
 import { Router } from "express";
 import authenticate from "../../../middleware/auth.js";
-import paymentController from "./paypalController.js";
+import paymentController from "../withdrawals/withdrawalController.js";
 import {
   paymentMethodValidator,
   depositValidator,
