@@ -426,6 +426,10 @@ const [[instantTotals]] = await db.query(
       // Mini-game winners (highest scores)
       const [miniGameWinners] = await db.query(
         `SELECT 
+          BIN_TO_UUID(mgs.id) as id,
+          BIN_TO_UUID(mgs.user_id) as user_id,
+          BIN_TO_UUID(mgs.game_id) as game_id,
+          BIN_TO_UUID(mgs.competition_id) as competition_id,
           mgs.score,
           mgs.created_at,
           u.username,
@@ -444,7 +448,14 @@ const [[instantTotals]] = await db.query(
       // Subscription competition winners
       const [subscriptionWinners] = await db.query(
         `SELECT 
-          w.*,
+          BIN_TO_UUID(w.id) as id,
+          BIN_TO_UUID(w.competition_id) as competition_id,
+          BIN_TO_UUID(w.user_id) as user_id,
+          BIN_TO_UUID(w.ticket_id) as ticket_id,
+          w.prize_description,
+          w.prize_value,
+          w.draw_method,
+          w.created_at,
           c.title as competition_title,
           c.subscription_tier,
           u.username,
@@ -460,12 +471,18 @@ const [[instantTotals]] = await db.query(
       // Jackpot winners
       const [jackpotWinners] = await db.query(
         `SELECT 
-          w.*,
+          BIN_TO_UUID(w.id) as id,
+          BIN_TO_UUID(w.competition_id) as competition_id,
+          BIN_TO_UUID(w.user_id) as user_id,
+          BIN_TO_UUID(w.ticket_id) as ticket_id,
+          w.prize_description,
+          w.prize_value,
+          w.draw_method,
+          w.created_at,
           c.title as competition_title,
           c.prize_option,
           u.username,
-          u.profile_photo,
-          w.prize_description
+          u.profile_photo
          FROM winners w
          JOIN competitions c ON w.competition_id = c.id
          JOIN users u ON w.user_id = u.id
@@ -544,7 +561,7 @@ const [[instantTotals]] = await db.query(
 
       // Update competition status if all winners have been selected
       const [competition] = await db.query(
-        `SELECT status, total_tickets, sold_tickets 
+        `SELECT category, status, total_tickets, sold_tickets, BIN_TO_UUID(game_id) as game_id
          FROM competitions 
          WHERE id = UUID_TO_BIN(?)`,
         [competition_id]
@@ -564,6 +581,24 @@ const [[instantTotals]] = await db.query(
             `UPDATE competitions SET status = 'COMPLETED', updated_at = CURRENT_TIMESTAMP WHERE id = UUID_TO_BIN(?)`,
             [competition_id]
           );
+        }
+        // If this is a mini-game competition, also add a mini_game_scores record
+        try {
+          if (competition[0].category === 'MINI_GAME') {
+            const gameId = competition[0].game_id; // BIN_TO_UUID(game_id) returned as string
+            if (!gameId) {
+              console.warn(`Mini-game competition ${competition_id} has no game_id; skipping mini_game_scores insert`);
+            } else {
+              // Use a score of 0 for manual admin-declared winners unless caller provides a score in future
+              await db.query(
+                `INSERT INTO mini_game_scores (id, user_id, game_id, competition_id, score, created_at)
+                 VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), UUID_TO_BIN(?), UUID_TO_BIN(?), ?, CURRENT_TIMESTAMP)`,
+                [user_id, gameId, competition_id, 0]
+              );
+            }
+          }
+        } catch (e) {
+          console.error('Failed to insert mini_game_scores for manual winner declare:', e.message);
         }
       }
 
@@ -1117,6 +1152,21 @@ async function selectWeightedWinners(competition_id, count, criteria) {
 // Record winners in database
 async function recordWinners(competition_id, winners, method) {
   const recordedWinners = [];
+  // Fetch competition meta to determine if this is a MINI_GAME and get game_id
+  let competitionCategory = null;
+  let competitionGameId = null;
+  try {
+    const [compRows] = await db.query(
+      `SELECT category, BIN_TO_UUID(game_id) as game_id FROM competitions WHERE id = UUID_TO_BIN(?)`,
+      [competition_id]
+    );
+    if (compRows && compRows[0]) {
+      competitionCategory = compRows[0].category;
+      competitionGameId = compRows[0].game_id;
+    }
+  } catch (e) {
+    console.warn('Unable to fetch competition meta for recordWinners:', e.message);
+  }
 
   for (const winner of winners) {
     const winnerId = uuidv4();
@@ -1155,6 +1205,23 @@ async function recordWinners(competition_id, winners, method) {
 
     if (recordedWinner[0]) {
       recordedWinners.push(recordedWinner[0]);
+      // If this is a mini-game competition, insert a matching mini_game_scores record
+      try {
+        if (competitionCategory === 'MINI_GAME') {
+          if (!competitionGameId) {
+            console.warn(`Mini-game competition ${competition_id} has no game_id; skipping mini_game_scores insert`);
+          } else {
+            const scoreToInsert = typeof winner.score !== 'undefined' ? winner.score : 0;
+            await db.query(
+              `INSERT INTO mini_game_scores (id, user_id, game_id, competition_id, score, created_at)
+               VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), UUID_TO_BIN(?), UUID_TO_BIN(?), ?, CURRENT_TIMESTAMP)`,
+              [winner.user_id, competitionGameId, competition_id, scoreToInsert]
+            );
+          }
+        }
+      } catch (e) {
+        console.error('Failed to insert mini_game_scores for recorded winner:', e.message);
+      }
     }
   }
 
