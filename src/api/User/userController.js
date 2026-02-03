@@ -6,6 +6,7 @@ import userSchemas from './userSchemas.js';
 import referralService from '../services/referralService.js';
 import fs from 'fs';
 import sendEmail, { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail } from '../../Utils/emailSender.js';
+import systemSettingsCache from '../../Utils/systemSettingsCache.js';
 
 // Generate 6-digit OTP
 const generateOTP = () => {
@@ -1405,6 +1406,18 @@ submitKycRequest: async (req, res) => {
       }
 
       const user = users[0];
+
+      const maintenanceAccess = await systemSettingsCache.evaluateMaintenanceAccess(req, user.role);
+      if (!maintenanceAccess.allowed) {
+        return res.status(503).json({
+          success: false,
+          message: maintenanceAccess.settings.maintenance_message,
+          maintenance: {
+            estimatedDuration: maintenanceAccess.settings.estimated_duration,
+            clientIp: maintenanceAccess.clientIp,
+          },
+        });
+      }
 
       const isValidPassword = await bcrypt.compare(
         password,

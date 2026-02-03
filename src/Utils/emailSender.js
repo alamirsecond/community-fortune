@@ -1,4 +1,5 @@
 import nodemailer from "nodemailer";
+import systemSettingsCache from "./systemSettingsCache.js";
 
 export const sendEmail = async (
   user_email,
@@ -550,6 +551,15 @@ const getTemplate = (templateName, data) => {
   return templates[templateName] || null;
 };
 
+const isNotificationAllowed = async (notificationKey) => {
+  try {
+    return await systemSettingsCache.isNotificationEnabled(notificationKey);
+  } catch (error) {
+    console.warn(`Failed to evaluate notification setting for ${notificationKey}:`, error.message);
+    return true;
+  }
+};
+
 
 // Helper functions for common email sending scenarios
 export const sendVerificationEmail = async (email, username, verificationToken) => {
@@ -557,50 +567,83 @@ export const sendVerificationEmail = async (email, username, verificationToken) 
 };
 
 export const sendWelcomeEmail = async (email, username) => {
+  if (!(await isNotificationAllowed("welcome_email"))) {
+    return { success: true, message: "Welcome email suppressed by settings", suppressed: true };
+  }
   return await sendEmail(email, "welcome", { username });
 };
 
 export const sendPasswordResetEmail = async (email, username, resetToken) => {
+  if (!(await isNotificationAllowed("password_reset"))) {
+    return { success: true, message: "Password reset email suppressed by settings", suppressed: true };
+  }
   return await sendEmail(email, "passwordReset", { username, resetToken });
 };
 
 export const sendWithdrawalRequestEmail = async (email, username, amount, withdrawalId) => {
+  if (!(await isNotificationAllowed("withdrawal_notification"))) {
+    return { success: true, message: "Withdrawal request email suppressed by settings", suppressed: true };
+  }
   return await sendEmail(email, "withdrawalRequest", { username, amount, withdrawalId });
 };
 
 export const sendWithdrawalApprovalEmail = async (email, username, amount) => {
+  if (!(await isNotificationAllowed("withdrawal_notification"))) {
+    return { success: true, message: "Withdrawal approval email suppressed by settings", suppressed: true };
+  }
   return await sendEmail(email, "withdrawalApproved", { username, amount });
 };
 
 export const sendWithdrawalRejectionEmail = async (email, username, amount, reason) => {
+  if (!(await isNotificationAllowed("withdrawal_notification"))) {
+    return { success: true, message: "Withdrawal rejection email suppressed by settings", suppressed: true };
+  }
   return await sendEmail(email, "withdrawalRejected", { username, amount, reason });
 };
 
 // New: Withdrawal Processing
 export const sendWithdrawalProcessingEmail = async (email, username, amount) => {
+  if (!(await isNotificationAllowed("withdrawal_notification"))) {
+    return { success: true, message: "Withdrawal processing email suppressed by settings", suppressed: true };
+  }
   return await sendEmail(email, "withdrawalProcessing", { username, amount });
 };
 
 // New: Withdrawal Completion
 export const sendWithdrawalCompletionEmail = async (email, username, amount) => {
+  if (!(await isNotificationAllowed("withdrawal_notification"))) {
+    return { success: true, message: "Withdrawal completion email suppressed by settings", suppressed: true };
+  }
   return await sendEmail(email, "withdrawalCompletion", { username, amount });
 };
 
 // New: OTP Email (for withdrawal verification)
 export const sendOTPEmail = async (email, username, otp, context = "withdrawal") => {
-  // You may want to customize the template for OTP if needed
+  const notificationKey = context === "withdrawal" ? "withdrawal_notification" : "otp";
+  if (!(await isNotificationAllowed(notificationKey))) {
+    return { success: true, message: "OTP email suppressed by settings", suppressed: true };
+  }
   return await sendEmail(email, "otp", { username, otp, context });
 };
 
 export const sendCompetitionWinEmail = async (email, username, competitionName, prize) => {
+  if (!(await isNotificationAllowed("winner_notification"))) {
+    return { success: true, message: "Competition win email suppressed by settings", suppressed: true };
+  }
   return await sendEmail(email, "competitionWin", { username, competitionName, prize });
 };
 
 export const sendKycApprovalEmail = async (email, username) => {
+  if (!(await isNotificationAllowed("kyc_status_update"))) {
+    return { success: true, message: "KYC approval email suppressed by settings", suppressed: true };
+  }
   return await sendEmail(email, "kycApproved", { username });
 };
 
 export const sendKycRejectionEmail = async (email, username) => {
+  if (!(await isNotificationAllowed("kyc_status_update"))) {
+    return { success: true, message: "KYC rejection email suppressed by settings", suppressed: true };
+  }
   return await sendEmail(email, "kycRejected", { username });
 };
 

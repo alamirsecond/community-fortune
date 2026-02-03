@@ -1565,7 +1565,7 @@ export const updateCompetitionStatus = async (req, res) => {
     const { id } = req.params;
     const { status, reason } = req.body;
     
-    if (!status || !['ACTIVE', 'PAUSED', 'COMPLETED', 'CANCELLED'].includes(status)) {
+    if (!status || !['ACTIVE', 'PAUSED','INACTIVE', 'COMPLETED', 'CANCELLED'].includes(status)) {
       return res.status(400).json({
         success: false,
         message: 'Valid status is required'

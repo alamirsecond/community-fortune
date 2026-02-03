@@ -2,6 +2,7 @@
 import jwt from "jsonwebtoken";
 import dotenv from "dotenv";
 import pool from "../database.js";
+import systemSettingsCache from "../src/Utils/systemSettingsCache.js";
 
 dotenv.config();
 const SECRET_KEY = process.env.JWT_SECRET;
@@ -51,6 +52,18 @@ const authenticate = (roles = []) => {
       }
 
       const currentUser = users[0];
+
+      const maintenanceAccess = await systemSettingsCache.evaluateMaintenanceAccess(req, currentUser.role);
+      if (!maintenanceAccess.allowed) {
+        return res.status(503).json({
+          success: false,
+          message: maintenanceAccess.settings.maintenance_message,
+          maintenance: {
+            estimatedDuration: maintenanceAccess.settings.estimated_duration,
+            clientIp: maintenanceAccess.clientIp,
+          },
+        });
+      }
 
       // Check role permissions
       if (roles.length && !roles.includes(currentUser.role)) {

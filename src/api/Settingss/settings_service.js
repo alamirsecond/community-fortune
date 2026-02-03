@@ -1,5 +1,31 @@
 import pool from "../../../database.js";
 import bcrypt from "bcrypt";
+import { v4 as uuidv4 } from 'uuid';
+import systemSettingsCache, { NOTIFICATION_DEFINITIONS } from "../../Utils/systemSettingsCache.js";
+
+const parseBoolean = (value, fallback = false) => {
+  if (value === undefined || value === null) {
+    return fallback;
+  }
+
+  if (typeof value === "boolean") {
+    return value;
+  }
+
+  if (typeof value === "number") {
+    return value !== 0;
+  }
+
+  const normalized = String(value).trim().toLowerCase();
+  if (["true", "1", "yes", "on"].includes(normalized)) {
+    return true;
+  }
+  if (["false", "0", "no", "off"].includes(normalized)) {
+    return false;
+  }
+
+  return fallback;
+};
 
 class SettingsService {
   // ==================== PASSWORD SETTINGS ====================
@@ -62,39 +88,7 @@ class SettingsService {
 
   // ==================== MAINTENANCE MODE ====================
   async getMaintenanceSettings() {
-    const [settings] = await pool.query(
-      `SELECT 
-        setting_key,
-        setting_value,
-        description
-       FROM system_settings
-       WHERE setting_key LIKE 'maintenance_%'`
-    );
-
-    const formatted = {
-      maintenance_mode: false,
-      allowed_ips: [],
-      maintenance_message: 'System is under maintenance. Please try again later.',
-      estimated_duration: '2 hours'
-    };
-
-    settings.forEach(setting => {
-      if (setting.setting_key === 'maintenance_mode') {
-        formatted.maintenance_mode = setting.setting_value === 'true';
-      } else if (setting.setting_key === 'maintenance_allowed_ips') {
-        try {
-          formatted.allowed_ips = JSON.parse(setting.setting_value || '[]');
-        } catch {
-          formatted.allowed_ips = [];
-        }
-      } else if (setting.setting_key === 'maintenance_message') {
-        formatted.maintenance_message = setting.setting_value;
-      } else if (setting.setting_key === 'maintenance_estimated_duration') {
-        formatted.estimated_duration = setting.setting_value;
-      }
-    });
-
-    return formatted;
+    return systemSettingsCache.getMaintenanceSettings();
   }
 
   async updateMaintenanceSettings(data, adminId) {
@@ -129,7 +123,8 @@ class SettingsService {
       );
 
       await connection.commit();
-      return this.getMaintenanceSettings();
+      systemSettingsCache.invalidate();
+      return systemSettingsCache.getMaintenanceSettings();
     } catch (error) {
       await connection.rollback();
       throw error;
@@ -645,6 +640,7 @@ WHERE gateway = ? AND environment = ?
       );
 
       await connection.commit();
+      systemSettingsCache.invalidate();
       return this.getSecuritySettings();
     } catch (error) {
       await connection.rollback();
@@ -652,50 +648,6 @@ WHERE gateway = ? AND environment = ?
     } finally {
       connection.release();
     }
-  }
-
-  // ==================== NOTIFICATION SETTINGS ====================
-  async getNotificationSettings() {
-    // Get user notification settings
-    const [settings] = await pool.query(
-      `SELECT 
-        setting_key,
-        setting_value,
-        description
-       FROM system_settings
-       WHERE setting_key LIKE 'notification_user_%'`
-    );
-
-    const userNotifications = {
-      welcome_email: { enabled: true, mandatory: true },
-      competition_entry_confirmation: { enabled: true, mandatory: false },
-      winner_notification: { enabled: true, mandatory: true },
-      marketing_emails: { enabled: false, mandatory: false },
-      deposit_notification: { enabled: true, mandatory: false },
-      withdrawal_notification: { enabled: true, mandatory: false },
-      kyc_status_update: { enabled: true, mandatory: false },
-      referral_reward: { enabled: true, mandatory: false }
-    };
-
-    settings.forEach(setting => {
-      const key = setting.setting_key.replace('notification_user_', '');
-      if (userNotifications.hasOwnProperty(key)) {
-        userNotifications[key].enabled = setting.setting_value === 'true';
-      }
-    });
-
-    return {
-      user_notifications: userNotifications,
-      admin_notifications: {
-        new_user_signup: true,
-        new_deposit: true,
-        new_withdrawal: true,
-        kyc_submission: true,
-        competition_winner: true,
-        system_alerts: true
-      }
-    };
-    
   }
 
   async getNotificationTypes() {
@@ -708,7 +660,9 @@ WHERE gateway = ? AND environment = ?
         { key: 'deposit_notification', name: 'Deposit Notification', mandatory: false },
         { key: 'withdrawal_notification', name: 'Withdrawal Notification', mandatory: false },
         { key: 'kyc_status_update', name: 'KYC Status Update', mandatory: false },
-        { key: 'referral_reward', name: 'Referral Reward Notification', mandatory: false }
+        { key: 'referral_reward', name: 'Referral Reward Notification', mandatory: false },
+        { key: 'password_reset', name: 'Password Reset Email', mandatory: true },
+        { key: 'otp', name: 'One-Time Passcode (OTP)', mandatory: true }
       ],
       admin: [
         { key: 'new_user_signup', name: 'New User Signup' },
@@ -817,8 +771,18 @@ WHERE gateway = ? AND environment = ?
   // ==================== SUBSCRIPTION TIERS ====================
   async getSubscriptionTiers() {
     const [tiers] = await pool.query(
-      `SELECT 
-        st.*,
+      `SELECT
+        BIN_TO_UUID(st.id) as id,
+        st.tier_name,
+        st.tier_level,
+        st.monthly_price,
+        st.price,
+        st.benefits,
+        st.free_jackpot_tickets,
+        st.monthly_site_credit,
+        st.badge_name,
+        st.subscriber_competition_access,
+        st.created_at,
         COUNT(us.id) as current_subscribers
        FROM subscription_tiers st
        LEFT JOIN user_subscriptions us ON st.id = us.tier_id AND us.status = 'ACTIVE'
@@ -831,8 +795,18 @@ WHERE gateway = ? AND environment = ?
 
   async getSubscriptionTierById(tierId) {
     const [tiers] = await pool.query(
-      `SELECT 
-        st.*,
+      `SELECT
+        BIN_TO_UUID(st.id) as id,
+        st.tier_name,
+        st.tier_level,
+        st.monthly_price,
+        st.price,
+        st.benefits,
+        st.free_jackpot_tickets,
+        st.monthly_site_credit,
+        st.badge_name,
+        st.subscriber_competition_access,
+        st.created_at,
         COUNT(us.id) as current_subscribers
        FROM subscription_tiers st
        LEFT JOIN user_subscriptions us ON st.id = us.tier_id AND us.status = 'ACTIVE'
@@ -852,12 +826,15 @@ WHERE gateway = ? AND environment = ?
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
+      // Generate a UUID for the new tier so we can return it immediately
+      const tierId = uuidv4();
 
       const [result] = await connection.query(
         `INSERT INTO subscription_tiers 
          (id, tier_name, tier_level, monthly_price, benefits, free_jackpot_tickets, monthly_site_credit, badge_name, subscriber_competition_access)
-         VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?, ?, ?, ?, ?)`,
+         VALUES (UUID_TO_BIN(?), ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
+          tierId,
           data.tier_name,
           data.tier_level,
           data.monthly_price,
@@ -869,15 +846,28 @@ WHERE gateway = ? AND environment = ?
         ]
       );
 
+      // Fetch the newly created tier by id and return id as UUID
       const [newTier] = await connection.query(
-        'SELECT * FROM subscription_tiers WHERE id = ?',
-        [result.insertId]
+        `SELECT
+          BIN_TO_UUID(id) as id,
+          tier_name,
+          tier_level,
+          monthly_price,
+          price,
+          benefits,
+          free_jackpot_tickets,
+          monthly_site_credit,
+          badge_name,
+          subscriber_competition_access,
+          created_at
+         FROM subscription_tiers WHERE id = UUID_TO_BIN(?) LIMIT 1`,
+        [tierId]
       );
 
       // Log activity
       await connection.query(
-        'INSERT INTO admin_activities (id, admin_id, action, module, details) VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?)',
-        [adminId, 'CREATE_SUBSCRIPTION_TIER', 'SETTINGS', JSON.stringify({ tier_name: data.tier_name })]
+        'INSERT INTO admin_activities (id, admin_id, action, module, details) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)',
+        [adminId, 'CREATE_SUBSCRIPTION_TIER', 'SETTINGS', JSON.stringify({ tier_id: tierId, tier_name: data.tier_name })]
       );
 
       await connection.commit();
@@ -934,7 +924,7 @@ WHERE gateway = ? AND environment = ?
 
       // Log activity
       await connection.query(
-        'INSERT INTO admin_activities (id, admin_id, action, module, details) VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?)',
+        'INSERT INTO admin_activities (id, admin_id, action, module, details) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)',
         [adminId, 'UPDATE_SUBSCRIPTION_TIER', 'SETTINGS', JSON.stringify({ tier_id: tierId })]
       );
 
@@ -987,62 +977,72 @@ WHERE gateway = ? AND environment = ?
 
   // ==================== NOTIFICATION SETTINGS ====================
   async getNotificationSettings() {
-    const [settings] = await pool.query(
-      `SELECT 
-        setting_key,
-        setting_value,
-        description
-       FROM system_settings
-       WHERE setting_key LIKE 'notification_%'`
+    const baseUserNotifications = Object.entries(NOTIFICATION_DEFINITIONS).reduce(
+      (accumulator, [key, meta]) => {
+        accumulator[key] = meta.defaultEnabled;
+        return accumulator;
+      },
+      {}
     );
 
-    const formatted = {
-      user_notifications: {
-        welcome_email: true,
-        competition_entry_confirmation: true,
-        winner_notification: true,
-        marketing_emails: false,
-        deposit_notification: true,
-        withdrawal_notification: true,
-        kyc_status_update: true,
-        referral_reward: true
-      },
-      admin_notifications: {
-        new_user_signup: true,
-        new_deposit: true,
-        new_withdrawal: true,
-        kyc_submission: true,
-        competition_winner: true,
-        system_alerts: true
-      },
-      email_templates: {
-        welcome_subject: 'Welcome to Community Fortune!',
-        welcome_body: 'Welcome {{username}}! Thank you for joining our community.',
-        winner_subject: 'Congratulations! You Won!',
-        winner_body: 'Congratulations {{username}}! You won {{prize}} in {{competition}}.'
-      }
-    };
+    const [userPreferences, adminOverrides, emailOverrides] = await Promise.all([
+      systemSettingsCache.getNotificationPreferences(),
+      systemSettingsCache.getSettingsByPrefix("notification_admin_"),
+      systemSettingsCache.getSettingsByPrefix("notification_email_")
+    ]);
 
-    settings.forEach(setting => {
-      const key = setting.setting_key.replace('notification_', '');
-      if (key.startsWith('user_')) {
-        const userKey = key.replace('user_', '');
-        if (formatted.user_notifications.hasOwnProperty(userKey)) {
-          formatted.user_notifications[userKey] = setting.setting_value === 'true';
-        }
-      } else if (key.startsWith('admin_')) {
-        const adminKey = key.replace('admin_', '');
-        if (formatted.admin_notifications.hasOwnProperty(adminKey)) {
-          formatted.admin_notifications[adminKey] = setting.setting_value === 'true';
-        }
-      } else if (key.startsWith('email_')) {
-        const emailKey = key.replace('email_', '');
-        if (formatted.email_templates.hasOwnProperty(emailKey)) {
-          formatted.email_templates[emailKey] = setting.setting_value;
-        }
+    Object.entries(userPreferences).forEach(([key, value]) => {
+      if (baseUserNotifications.hasOwnProperty(key)) {
+        baseUserNotifications[key] = Boolean(value);
       }
     });
-    return formatted;
+
+    const userNotifications = Object.entries(NOTIFICATION_DEFINITIONS).reduce(
+      (accumulator, [key, meta]) => {
+        accumulator[key] = {
+          enabled: baseUserNotifications[key],
+          mandatory: Boolean(meta.mandatory)
+        };
+        return accumulator;
+      },
+      {}
+    );
+
+    const adminNotifications = {
+      new_user_signup: true,
+      new_deposit: true,
+      new_withdrawal: true,
+      kyc_submission: true,
+      competition_winner: true,
+      system_alerts: true
+    };
+
+    adminOverrides.forEach(({ key, value }) => {
+      const adminKey = key.replace("notification_admin_", "");
+      if (adminNotifications.hasOwnProperty(adminKey)) {
+        adminNotifications[adminKey] = value === "true";
+      }
+    });
+
+    const emailTemplates = {
+      welcome_subject: "Welcome to Community Fortune!",
+      welcome_body: "Welcome {{username}}! Thank you for joining our community.",
+      winner_subject: "Congratulations! You Won!",
+      winner_body: "Congratulations {{username}}! You won {{prize}} in {{competition}}."
+    };
+
+    emailOverrides.forEach(({ key, value }) => {
+      const templateKey = key.replace("notification_email_", "");
+      if (emailTemplates.hasOwnProperty(templateKey) && value !== undefined && value !== null) {
+        emailTemplates[templateKey] = value;
+      }
+    });
+
+    return {
+      user_notifications: userNotifications,
+      admin_notifications: adminNotifications,
+      email_templates: emailTemplates
+    };
   }
 
   async updateNotificationSettings(data, adminId) {
@@ -1053,6 +1053,20 @@ WHERE gateway = ? AND environment = ?
       // Update user notifications
       if (data.user_notifications) {
         for (const [key, value] of Object.entries(data.user_notifications)) {
+          const definition = NOTIFICATION_DEFINITIONS[key];
+          if (!definition) {
+            continue;
+          }
+
+          const normalizedValue = typeof value === 'object' && value !== null
+            ? value.enabled
+            : value;
+
+          const booleanValue = parseBoolean(normalizedValue, definition.defaultEnabled);
+
+          if (definition.mandatory && booleanValue === false) {
+            continue;
+          }
           await connection.query(
             `INSERT INTO system_settings (id, setting_key, setting_value, description, updated_by)
              VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?)
@@ -1060,7 +1074,7 @@ WHERE gateway = ? AND environment = ?
              setting_value = VALUES(setting_value),
              updated_by = VALUES(updated_by),
              updated_at = CURRENT_TIMESTAMP`,
-            [`notification_user_${key}`, value.toString(), `User notification: ${key}`, adminId]
+            [`notification_user_${key}`, String(booleanValue), `User notification: ${key}`, adminId]
           );
         }
       }
@@ -1068,6 +1082,7 @@ WHERE gateway = ? AND environment = ?
       // Update admin notifications
       if (data.admin_notifications) {
         for (const [key, value] of Object.entries(data.admin_notifications)) {
+          const booleanValue = parseBoolean(value, true);
           await connection.query(
             `INSERT INTO system_settings (id, setting_key, setting_value, description, updated_by)
              VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?)
@@ -1075,7 +1090,7 @@ WHERE gateway = ? AND environment = ?
              setting_value = VALUES(setting_value),
              updated_by = VALUES(updated_by),
              updated_at = CURRENT_TIMESTAMP`,
-            [`notification_admin_${key}`, value.toString(), `Admin notification: ${key}`, adminId]
+            [`notification_admin_${key}`, String(booleanValue), `Admin notification: ${key}`, adminId]
           );
         }
       }
@@ -1102,6 +1117,7 @@ WHERE gateway = ? AND environment = ?
       );
 
       await connection.commit();
+      systemSettingsCache.invalidate();
       return this.getNotificationSettings();
     } catch (error) {
       await connection.rollback();
