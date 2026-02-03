@@ -19,7 +19,7 @@ import {
 const superAdminRouter = Router();
 
 //Community:All superadmin routes require authentication and superadmin role
-superAdminRouter.use(authenticate(["SUPERADMIN"]));
+superAdminRouter.use(authenticate(["SUPERADMIN","ADMIN"]));
 superAdminRouter.use("/referral", referralRouter);
 
 //Community:Supadmin Dashboard
