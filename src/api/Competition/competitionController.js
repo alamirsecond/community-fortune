@@ -558,8 +558,6 @@ export const getCompetitionStatsDashboard = async (req, res) => {
 };
 
 
-
-
 export const getCompetitionDetails = async (req, res) => {
   try {
     const { id } = req.params;
@@ -1574,7 +1572,12 @@ export const updateCompetitionStatus = async (req, res) => {
       });
     }
     
-    const updated = await Competition.updateStatus(id, status, reason);
+    const meta = {
+      ip_address: req.ip || (req.headers['x-forwarded-for'] || null),
+      user_agent: req.get('User-Agent') || null
+    };
+
+    const updated = await Competition.updateStatus(id, status, reason, req.user?.id || null, meta);
     
     if (!updated) {
       return res.status(404).json({
@@ -1595,6 +1598,80 @@ export const updateCompetitionStatus = async (req, res) => {
       message: 'Failed to update competition status',
       error: error.message
     });
+  }
+};
+
+export const deleteCompetition = async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Competition ID is required' });
+    }
+
+    // Fetch competition to remove uploaded files
+    const competition = await Competition.findById(id);
+    if (!competition) {
+      return res.status(404).json({ success: false, message: 'Competition not found' });
+    }
+
+    // Collect file URLs/paths (may be stored as URLs)
+    const fileUrls = [];
+    if (competition.featured_image) fileUrls.push(competition.featured_image);
+    if (competition.featured_video) fileUrls.push(competition.featured_video);
+    if (competition.banner_image) fileUrls.push(competition.banner_image);
+    if (competition.gallery_images) {
+      try {
+        const gallery = typeof competition.gallery_images === 'string' ? JSON.parse(competition.gallery_images) : competition.gallery_images;
+        if (Array.isArray(gallery)) fileUrls.push(...gallery);
+      } catch (e) {
+        // ignore parse errors
+      }
+    }
+
+    // Convert stored URLs to filesystem paths and delete
+    const path = (await import('path')).default;
+    const baseUploads = path.resolve(process.env.COMPETITION_UPLOAD_PATH || './uploads/competitions');
+    const filesToDelete = [];
+    fileUrls.forEach(u => {
+      if (!u) return;
+      const idx = u.indexOf('/uploads/competitions/');
+      if (idx !== -1) {
+        const rel = u.substring(idx + '/uploads/competitions/'.length).replace(/\//g, path.sep);
+        filesToDelete.push(path.join(baseUploads, rel));
+      } else {
+        // fallback: try basename search
+        const fname = path.basename(u);
+        // attempt to find file under baseUploads recursively - skip heavy IO, try likely locations
+        filesToDelete.push(path.join(baseUploads, 'temp', fname));
+        filesToDelete.push(path.join(baseUploads, id, 'featured', fname));
+        filesToDelete.push(path.join(baseUploads, id, 'gallery', fname));
+      }
+    });
+
+    // Use deleteUploadedFiles utility
+    const { deleteUploadedFiles } = await import('../../../middleware/upload.js');
+    try {
+      deleteUploadedFiles(filesToDelete);
+    } catch (err) {
+      console.error('Error deleting files:', err);
+    }
+
+    const meta = {
+      reason: req.body?.reason || null,
+      ip_address: req.ip || (req.headers['x-forwarded-for'] || null),
+      user_agent: req.get('User-Agent') || null
+    };
+
+    const deleted = await Competition.deleteCompetition(id, req.user?.id || null, meta);
+    if (!deleted) {
+      return res.status(404).json({ success: false, message: 'Competition not found or could not be deleted' });
+    }
+
+    res.json({ success: true, message: 'Competition deleted successfully', data: { competition_id: id } });
+  } catch (error) {
+    console.error('Delete competition error:', error);
+    res.status(500).json({ success: false, message: 'Failed to delete competition', error: error.message });
   }
 };
 

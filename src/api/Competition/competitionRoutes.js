@@ -23,7 +23,8 @@ import {
   bulkCreateCompetitions,
   getCompetitionTypes,
   getCompetitionTemplates,
-  getCompetitionStatsDashboard
+  getCompetitionStatsDashboard,
+  deleteCompetition
 } from './competitionController.js';
 import authenticate from '../../../middleware/auth.js';
 import {
@@ -85,6 +86,9 @@ router.put('/:id',
 
 // Add to your routes
 router.get('/stats/dashboard', getCompetitionStatsDashboard);
+
+// Delete competition
+router.delete('/:id/delete', authenticate(['ADMIN','SUPERADMIN']), deleteCompetition);
 
 //aklilu:Upload competition gallery images
 router.post('/:id/images', 
