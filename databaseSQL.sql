@@ -1746,6 +1746,8 @@ INSERT IGNORE INTO system_settings (setting_key, setting_value, description, cat
 ('notification_user_withdrawal_notification', 'true', 'User notification: withdrawal notification', 'NOTIFICATION'),
 ('notification_user_kyc_status_update', 'true', 'User notification: KYC status update', 'NOTIFICATION'),
 ('notification_user_referral_reward', 'true', 'User notification: referral reward', 'NOTIFICATION'),
+('notification_user_password_reset', 'true', 'User notification: password reset', 'NOTIFICATION'),
+('notification_user_otp', 'true', 'User notification: otp', 'NOTIFICATION'),
 
 -- Email templates
 ('email_template_welcome_subject', 'Welcome to Community Fortune!', 'Welcome email subject', 'EMAIL'),

@@ -13,6 +13,7 @@ import { fileURLToPath } from "url";
 import pool from "./database.js";
 import fs from "fs";
 import trafficMonitor from "./middleware/trafficMonitor.js";
+import maintenanceGuard from "./middleware/maintenanceGuard.js";
 
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
@@ -385,7 +386,7 @@ app.use(handleKycUploadError);
 app.use(handleUploadError);
 
 // API routes
-app.use("/api", appRouter);
+app.use("/api", maintenanceGuard, appRouter);
 
 // 404 handler
 app.use((req, res) => {
