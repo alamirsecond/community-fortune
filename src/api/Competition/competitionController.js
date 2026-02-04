@@ -57,11 +57,15 @@ export const createCompetition = async (req, res) => {
       price: req.body.price !== undefined ? parseFloat(req.body.price) : undefined,
       total_tickets: req.body.total_tickets !== undefined ? parseInt(req.body.total_tickets) : undefined,
       max_entries_per_user: req.body.max_entries_per_user !== undefined ? parseInt(req.body.max_entries_per_user) : undefined,
+      points_per_pound: req.body.points_per_pound !== undefined ? parseInt(req.body.points_per_pound) : undefined,
       free_entry_enabled: req.body.free_entry_enabled === 'true' || req.body.free_entry_enabled === true,
       auto_entry_enabled: req.body.auto_entry_enabled === 'true' || req.body.auto_entry_enabled === true,
       skill_question_enabled: req.body.skill_question_enabled === 'true' || req.body.skill_question_enabled === true,
+      instant_win_enabled: req.body.instant_win_enabled === 'true' || req.body.instant_win_enabled === true,
+      max_instant_wins_per_user: req.body.max_instant_wins_per_user !== undefined ? parseInt(req.body.max_instant_wins_per_user) : undefined,
       is_free_competition: req.body.is_free_competition === 'true' || req.body.is_free_competition === true,
       no_end_date: req.body.no_end_date === 'true' || req.body.no_end_date === true,
+      achievements_enabled: req.body.achievements_enabled === 'true' || req.body.achievements_enabled === true,
       start_date: req.body.start_date ? new Date(req.body.start_date) : undefined,
       end_date: req.body.end_date ? new Date(req.body.end_date) : undefined,
     };
@@ -90,6 +94,33 @@ export const createCompetition = async (req, res) => {
       ? files.gallery_images.map(f => getFileUrl(f.path))
       : []
 };
+
+    // Allow JSON string fields when using multipart/form-data (Postman form-data)
+    const parseJsonField = (v) => {
+      if (v === undefined || v === null) return v;
+      if (typeof v === 'string') {
+        try {
+          return JSON.parse(v);
+        } catch (e) {
+          return v;
+        }
+      }
+      return v;
+    };
+
+    // If client sent arrays/objects as JSON strings in form-data, parse them
+    if (!competitionData.instant_wins || typeof competitionData.instant_wins === 'string') {
+      const parsed = parseJsonField(req.body.instant_wins);
+      if (parsed) competitionData.instant_wins = parsed;
+    }
+    if (!competitionData.achievements || typeof competitionData.achievements === 'string') {
+      const parsed = parseJsonField(req.body.achievements);
+      if (parsed) competitionData.achievements = parsed;
+    }
+    if ((!competitionData.gallery_images || competitionData.gallery_images.length === 0) && req.body.gallery_images) {
+      const parsed = parseJsonField(req.body.gallery_images);
+      if (Array.isArray(parsed)) competitionData.gallery_images = parsed;
+    }
 
 
     // Validate with Zod

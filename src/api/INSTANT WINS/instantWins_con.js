@@ -1591,17 +1591,16 @@ class InstantWinController {
       // Entries over time (tickets for INSTANT_WIN competitions)
       const [dailyEntries] = await connection.query(
         `
-     SELECT
-  DATE(t.created_at) AS day,
-  COUNT(*) AS entries
-FROM tickets t
-JOIN competitions c ON t.competition_id = c.id
-WHERE c.category = 'INSTANT_WIN'
-  AND t.is_instant_win = TRUE
-  AND t.created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-GROUP BY day
-ORDER BY day ASC;
-
+        SELECT
+        DATE(t.created_at) AS day,
+        COUNT(*) AS entries
+        FROM tickets t
+        JOIN competitions c ON t.competition_id = c.id
+        WHERE c.category = 'INSTANT_WIN'
+        AND t.is_instant_win = TRUE
+        AND t.created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+        GROUP BY day
+        ORDER BY day ASC;
         `,
         [days - 1]
       );

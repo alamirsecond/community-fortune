@@ -143,7 +143,7 @@ static async getCompetitionStatsDashboard() {
       for (const instantWin of instantWins) {
         for (const ticketNumber of instantWin.ticket_numbers) {
           await connection.execute(
-            `INSERT INTO instant_wins (id, competition_id, ticket_number, title, prize_value, payout_type, max_count, image_url)
+            `INSERT INTO instant_wins (id, competition_id, ticket_number, prize_name, prize_value, prize_type, max_winners, image_url)
              VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?, ?, ?, ?)`,
             [
               binaryCompetitionId,
@@ -151,8 +151,9 @@ static async getCompetitionStatsDashboard() {
               instantWin.prize_name,
               instantWin.prize_amount,
               instantWin.payout_type,
-              instantWin.max_count,
-              instantWin.image_url
+              // map incoming max_count (schema) to DB column max_winners
+              instantWin.max_count ?? instantWin.max_winners ?? 1,
+              instantWin.image_url || null
             ]
           );
         }
@@ -177,17 +178,18 @@ static async getCompetitionStatsDashboard() {
       const binaryCompetitionId = this.uuidToBinary(competitionId);
 
       for (const achievement of achievements) {
+        const safe = (v) => (v === undefined ? null : v);
         await connection.execute(
           `INSERT INTO competition_achievements (id, competition_id, title, description, type, condition_value, points_awarded, image_url)
            VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?, ?, ?, ?)`,
           [
             binaryCompetitionId,
-            achievement.title,
-            achievement.description,
-            achievement.type,
-            achievement.condition_value || null,
-            achievement.points_awarded,
-            achievement.image_url
+            safe(achievement.title),
+            safe(achievement.description),
+            safe(achievement.type),
+            safe(achievement.condition_value),
+            safe(achievement.points_awarded),
+            safe(achievement.image_url)
           ]
         );
       }
