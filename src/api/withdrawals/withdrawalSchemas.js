@@ -16,67 +16,118 @@ const withdrawalSchemas = {
         'any.required': 'Amount is required'
       }),
     paymentMethod: Joi.string()
-      .valid('MASTERCARD', 'VISA', 'BANK_TRANSFER', 'PAYPAL')
+      .valid('REVOLT', 'STRIPE', 'BANK_TRANSFER', 'PAYPAL')
       .required()
       .messages({
-        'any.only': 'Payment method must be MASTERCARD, VISA, BANK_TRANSFER, or PAYPAL',
+        'any.only': 'Payment method must be REVOLT, STRIPE, BANK_TRANSFER, or PAYPAL',
         'any.required': 'Payment method is required'
       }),
     accountDetails: Joi.object({
-            // For PayPal
-            paypalEmail: Joi.string()
-              .email()
-              .when('...paymentMethod', {
-                is: 'PAYPAL',
-                then: Joi.string().required(),
-                otherwise: Joi.forbidden()
-              })
-              .messages({
-                'string.email': 'PayPal email must be a valid email address',
-                'any.required': 'PayPal email is required for PayPal withdrawals'
-              }),
-      // For cards
-      cardLastFour: Joi.string()
-        .when('paymentMethod', {
-          is: Joi.valid('MASTERCARD', 'VISA'),
-          then: Joi.string().length(4).pattern(/^\d+$/).required(),
+      // PAYPAL
+      paypalEmail: Joi.string()
+        .email()
+        .when('...paymentMethod', {
+          is: 'PAYPAL',
+          then: Joi.required(),
           otherwise: Joi.forbidden()
         })
         .messages({
-          'string.length': 'Card last four digits must be exactly 4 digits',
-          'string.pattern': 'Card last four digits must be numbers only'
+          'string.email': 'PayPal email must be a valid email address',
+          'any.required': 'PayPal email is required for PayPal withdrawals'
         }),
-      cardHolderName: Joi.string()
-        .when('paymentMethod', {
-          is: Joi.valid('MASTERCARD', 'VISA'),
-          then: Joi.string().min(2).max(100).required(),
-          otherwise: Joi.forbidden()
-        })
-        .messages({
-          'string.min': 'Card holder name must be at least 2 characters',
-          'string.max': 'Card holder name cannot exceed 100 characters'
-        }),
-      
-      // For bank transfers
-      accountNumber: Joi.string()
-        .when('paymentMethod', {
+
+      // BANK_TRANSFER
+      bankName: Joi.string()
+        .min(2)
+        .max(100)
+        .when('...paymentMethod', {
           is: 'BANK_TRANSFER',
-          then: Joi.string().pattern(/^\d+$/).min(8).max(12).required(),
-          otherwise: Joi.forbidden()
-        }),
-      sortCode: Joi.string()
-        .when('paymentMethod', {
-          is: 'BANK_TRANSFER',
-          then: Joi.string().pattern(/^\d{2}-\d{2}-\d{2}$/).required(),
+          then: Joi.optional(),
           otherwise: Joi.forbidden()
         }),
       accountHolderName: Joi.string()
-        .when('paymentMethod', {
+        .min(2)
+        .max(100)
+        .when('...paymentMethod', {
           is: 'BANK_TRANSFER',
-          then: Joi.string().min(2).max(100).required(),
+          then: Joi.required(),
+          otherwise: Joi.forbidden()
+        }),
+      accountNumber: Joi.string()
+        .pattern(/^\d+$/)
+        .min(8)
+        .max(34)
+        .when('...paymentMethod', {
+          is: 'BANK_TRANSFER',
+          then: Joi.required(),
+          otherwise: Joi.forbidden()
+        }),
+      sortCode: Joi.string()
+        .pattern(/^\d{2}-\d{2}-\d{2}$/)
+        .when('...paymentMethod', {
+          is: 'BANK_TRANSFER',
+          then: Joi.required(),
+          otherwise: Joi.forbidden()
+        }),
+
+      // STRIPE (at least one identifier)
+      stripeAccountId: Joi.string()
+        .when('...paymentMethod', {
+          is: 'STRIPE',
+          then: Joi.optional(),
+          otherwise: Joi.forbidden()
+        }),
+      stripeDestination: Joi.string()
+        .when('...paymentMethod', {
+          is: 'STRIPE',
+          then: Joi.optional(),
+          otherwise: Joi.forbidden()
+        }),
+      stripeBankAccount: Joi.string()
+        .when('...paymentMethod', {
+          is: 'STRIPE',
+          then: Joi.optional(),
+          otherwise: Joi.forbidden()
+        }),
+
+      // REVOLT (Revolut-style identifiers)
+      revolutEmail: Joi.string()
+        .email()
+        .when('...paymentMethod', {
+          is: 'REVOLT',
+          then: Joi.optional(),
+          otherwise: Joi.forbidden()
+        }),
+      counterpartyId: Joi.string()
+        .when('...paymentMethod', {
+          is: 'REVOLT',
+          then: Joi.optional(),
+          otherwise: Joi.forbidden()
+        }),
+      accountId: Joi.string()
+        .when('...paymentMethod', {
+          is: 'REVOLT',
+          then: Joi.optional(),
           otherwise: Joi.forbidden()
         })
-    }).required()
+    })
+      .custom((details, helpers) => {
+        const root = helpers?.state?.ancestors?.[0] || {};
+        const method = String(root.paymentMethod || '').toUpperCase();
+
+        if (method === 'STRIPE') {
+          const ok = !!(details.stripeAccountId || details.stripeDestination || details.stripeBankAccount);
+          if (!ok) return helpers.error('any.custom', { message: 'For STRIPE withdrawals provide at least one of stripeAccountId, stripeDestination, or stripeBankAccount' });
+        }
+
+        if (method === 'REVOLT') {
+          const ok = !!(details.revolutEmail || details.counterpartyId || details.accountId);
+          if (!ok) return helpers.error('any.custom', { message: 'For REVOLT withdrawals provide at least one of revolutEmail, counterpartyId, or accountId' });
+        }
+
+        return details;
+      })
+      .required()
   }),
 
   otpVerificationSchema: Joi.object({
@@ -128,7 +179,7 @@ const withdrawalSchemas = {
     endDate: Joi.date().optional(),
     minAmount: Joi.number().positive().optional(),
     maxAmount: Joi.number().positive().optional(),
-    paymentMethod: Joi.string().valid('MASTERCARD', 'VISA', 'BANK_TRANSFER').optional(),
+    paymentMethod: Joi.string().valid('REVOLT', 'STRIPE', 'BANK_TRANSFER', 'PAYPAL').optional(),
     userId: Joi.string().uuid().optional(),
     sortBy: Joi.string()
       .valid('amount', 'requested_at', 'updated_at', 'status')
