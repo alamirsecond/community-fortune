@@ -52,7 +52,7 @@ const withdrawalController = {
           sl.single_purchase_limit
          FROM users u
          LEFT JOIN spending_limits sl ON u.id = sl.user_id
-         WHERE u.id = ?`,
+         WHERE u.id = UUID_TO_BIN(?)`,
         [userId]
       );
 
@@ -88,7 +88,7 @@ const withdrawalController = {
 
       // CHECK 2: Check user's cash wallet balance (lock row to avoid race conditions)
       const [wallets] = await connection.query(
-        `SELECT id, balance FROM wallets WHERE user_id = ? AND type = 'CASH' FOR UPDATE`,
+        `SELECT id, balance FROM wallets WHERE user_id = UUID_TO_BIN(?) AND type = 'CASH' FOR UPDATE`,
         [userId]
       );
 
@@ -221,35 +221,13 @@ const withdrawalController = {
         });
       }
 
-      // Generate withdrawalId early so OTP and ledger reference use the same id
+      // Generate withdrawalId early so ledger reference uses the same id
       const withdrawalId = uuidv4();
-
-      // CHECK 9: Generate and verify OTP for withdrawal (PDF requirement for security)
-      const otp = otpGenerator.generateNumericOTP(6);
-      const otpIdentifier = `withdrawal_${userId}_${withdrawalId}`;
-      otpGenerator.storeOTP(otpIdentifier, otp, 10); // OTP valid for 10 minutes
-
-      // Send OTP email for withdrawal verification
-      try {
-        await sendOTPEmail(
-          user.email,
-          user.username,
-          otp,
-          'withdrawal'
-        );
-      } catch (emailError) {
-        console.error('Failed to send withdrawal OTP email:', emailError);
-        await connection.rollback();
-        return res.status(500).json({
-          success: false,
-          message: 'Failed to send verification code. Please try again.'
-        });
-      }
 
       // Deduct amount from cash wallet (reserve funds)
       await connection.query(
         `UPDATE wallets SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP 
-         WHERE user_id = ? AND type = 'CASH'`,
+         WHERE user_id = UUID_TO_BIN(?) AND type = 'CASH'`,
         [amount, userId]
       );
 
@@ -257,15 +235,15 @@ const withdrawalController = {
       const transactionId = uuidv4();
       await connection.query(
         `INSERT INTO wallet_transactions (id, wallet_id, amount, type, reference, description) 
-         SELECT ?, id, ?, 'HOLD', ?, 'Withdrawal request - pending OTP verification' 
-         FROM wallets WHERE user_id = ? AND type = 'CASH'`,
+         SELECT UUID_TO_BIN(?), id, ?, 'HOLD', ?, 'Withdrawal request - pending admin review' 
+         FROM wallets WHERE user_id = UUID_TO_BIN(?) AND type = 'CASH'`,
         [transactionId, amount, withdrawalId, userId]
       );
 
       // Update spending limits (PDF Section D)
       await connection.query(
-        `INSERT INTO spending_limits (user_id, daily_spent, weekly_spent, monthly_spent, updated_at)
-         VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+        `INSERT INTO spending_limits (id, user_id, daily_spent, weekly_spent, monthly_spent, updated_at)
+         VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?, CURRENT_TIMESTAMP)
          ON DUPLICATE KEY UPDATE
          daily_spent = daily_spent + VALUES(daily_spent),
          weekly_spent = weekly_spent + VALUES(weekly_spent),
@@ -274,18 +252,57 @@ const withdrawalController = {
         [userId, amount, amount, amount]
       );
 
-      // Create withdrawal request with OTP verification flag
+      // Create withdrawal request (schema-aligned)
+      const paypalEmail = accountDetails?.paypalEmail || null;
+      const bankName = accountDetails?.bankName || null;
+      const accountNumber = accountDetails?.accountNumber ? String(accountDetails.accountNumber) : '';
+      const bankAccountLastFour = accountNumber ? accountNumber.slice(-4) : null;
+
       await connection.query(
-        `INSERT INTO withdrawals (id, user_id, amount, status, payment_method, account_details, verification_required) 
-         VALUES (?, ?, ?, 'PENDING_VERIFICATION', ?, ?, TRUE)`,
-        [withdrawalId, userId, amount, paymentMethod, JSON.stringify(accountDetails)]
+        `INSERT INTO withdrawals (
+          id,
+          user_id,
+          amount,
+          payment_method,
+          account_details,
+          paypal_email,
+          bank_account_last_four,
+          bank_name,
+          status,
+          requested_at,
+          updated_at,
+          is_payment_method
+        ) VALUES (
+          UUID_TO_BIN(?),
+          UUID_TO_BIN(?),
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          ?,
+          'PENDING',
+          CURRENT_TIMESTAMP,
+          CURRENT_TIMESTAMP,
+          FALSE
+        )`,
+        [
+          withdrawalId,
+          userId,
+          amount,
+          paymentMethod,
+          JSON.stringify(accountDetails),
+          paypalEmail,
+          bankAccountLastFour,
+          bankName
+        ]
       );
 
       // Log admin activity
       await connection.query(
         `INSERT INTO admin_activities (id, admin_id, action, target_id, module) 
-         VALUES (?, ?, ?, ?, 'withdrawals')`,
-        [uuidv4(), userId, `Created withdrawal request for £${amount} (OTP sent)`, withdrawalId]
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, UUID_TO_BIN(?), 'withdrawals')`,
+        [uuidv4(), userId, `Created withdrawal request for £${amount}`, withdrawalId]
       );
 
       await connection.commit();
@@ -305,15 +322,12 @@ const withdrawalController = {
 
       res.status(201).json({
         success: true,
-        message: 'Withdrawal request created. Please verify with OTP sent to your email.',
+        message: 'Withdrawal request created successfully.',
         data: {
           withdrawalId,
           amount,
-          status: 'PENDING_VERIFICATION',
+          status: 'PENDING',
           paymentMethod,
-          otpRequired: true,
-          otpSentTo: user.email,
-          otpExpiresIn: '10 minutes',
           requestedAt: new Date().toISOString(),
           estimatedProcessing: '24-72 hours after verification',
           limits: {
@@ -1047,9 +1061,10 @@ getAllWithdrawals: async (req, res) => {
           COALESCE(SUM(CASE WHEN YEAR(requested_at) = ? THEN amount END), 0) as yearlyAmount,
           
           -- Method breakdown
-          COUNT(CASE WHEN payment_method = 'MASTERCARD' THEN 1 END) as mastercardCount,
-          COUNT(CASE WHEN payment_method = 'VISA' THEN 1 END) as visaCount,
+          COUNT(CASE WHEN payment_method = 'REVOLT' THEN 1 END) as revoltCount,
+          COUNT(CASE WHEN payment_method = 'STRIPE' THEN 1 END) as stripeCount,
           COUNT(CASE WHEN payment_method = 'BANK_TRANSFER' THEN 1 END) as bankTransferCount,
+          COUNT(CASE WHEN payment_method = 'PAYPAL' THEN 1 END) as paypalCount,
           
           -- Success rate
           ROUND(100.0 * COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) / NULLIF(COUNT(CASE WHEN status IN ('PENDING', 'APPROVED', 'PROCESSING', 'COMPLETED', 'REJECTED') THEN 1 END), 0), 2) as successRate,
@@ -1218,9 +1233,10 @@ getAllWithdrawals: async (req, res) => {
             }
           },
           paymentMethods: {
-            mastercard: stats[0].mastercardCount,
-            visa: stats[0].visaCount,
-            bankTransfer: stats[0].bankTransferCount
+            revolt: stats[0].revoltCount,
+            stripe: stats[0].stripeCount,
+            bankTransfer: stats[0].bankTransferCount,
+            paypal: stats[0].paypalCount
           },
           userVerification: {
             totalUsers: kycStats[0].totalUsers,
@@ -1456,14 +1472,15 @@ getAllWithdrawals: async (req, res) => {
         dailyWithdrawalLimit: 50000, // £50,000 daily
         monthlyWithdrawalLimit: 150000, // £150,000 monthly
         processingTime: '24-72 hours',
-        supportedMethods: ['MASTERCARD', 'VISA', 'BANK_TRANSFER'],
+        supportedMethods: ['REVOLT', 'STRIPE', 'BANK_TRANSFER', 'PAYPAL'],
         kycRequired: true,
         ageVerificationRequired: true,
-        otpVerificationRequired: true,
+        otpVerificationRequired: false,
         feeStructure: {
-          mastercard: { percentage: 2.5, fixed: 0.25 },
-          visa: { percentage: 2.5, fixed: 0.25 },
-          bankTransfer: { percentage: 0, fixed: 1.00 }
+          revolt: { percentage: 0, fixed: 0 },
+          stripe: { percentage: 0, fixed: 0 },
+          bankTransfer: { percentage: 0, fixed: 1.0 },
+          paypal: { percentage: 0, fixed: 0 }
         }
       };
 
