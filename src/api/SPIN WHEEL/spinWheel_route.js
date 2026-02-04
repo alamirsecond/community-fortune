@@ -281,19 +281,19 @@ spinWheelRouter.get("/spin/eligibility", authenticate, async (req, res) => {
 // Admin routes
 spinWheelRouter.post(
   "/admin/create_wheels",
-  authenticate(["ADMIN"]),
+  authenticate(["ADMIN","SUPERADMIN"]),
   SpinWheelController.createWheel
 );
 
 spinWheelRouter.get(
   "/admin/get_all_wheels",
-  // authenticate(["ADMIN"]),
+  authenticate(["ADMIN","SUPERADMIN"]),
   SpinWheelController.listWheels
 );
 
 spinWheelRouter.get(
   "/admin/get_wheels_byId/:wheel_id",
-  authenticate(["ADMIN"]),
+  authenticate(["ADMIN","SUPERADMIN"]),
   SpinWheelController.getWheel
 );
 
@@ -305,14 +305,14 @@ spinWheelRouter.put(
 
 spinWheelRouter.post(
   "/admin/wheels/add_segments",
-  authenticate(["ADMIN"]),
+  authenticate(["ADMIN","SUPERADMIN"]),
   SpinWheelController.addSegments
 );
 
 // Admin analytics
 spinWheelRouter.get(
   "/admin/wheels/:wheel_id/analytics",
-  authenticate(["ADMIN"]),
+  authenticate(["ADMIN","SUPERADMIN"]),
   async (req, res) => {
     const connection = await pool.getConnection();
 
@@ -468,7 +468,7 @@ spinWheelRouter.get(
 // Admin: Export spin history
 spinWheelRouter.get(
   "/admin/wheels/:wheel_id/export",
-  authenticate(["ADMIN"]),
+  authenticate(["ADMIN","SUPERADMIN"]),
   async (req, res) => {
     const connection = await pool.getConnection();
 
