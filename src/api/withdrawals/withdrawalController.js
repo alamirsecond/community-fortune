@@ -385,7 +385,7 @@ const withdrawalController = {
 
       // Get withdrawal details
       const [withdrawals] = await connection.query(
-        `SELECT * FROM withdrawals WHERE id = ? AND user_id = ?`,
+        `SELECT * FROM withdrawals WHERE id = UUID_TO_BIN(?) AND user_id = UUID_TO_BIN(?)`,
         [withdrawalId, userId]
       );
 
@@ -421,7 +421,7 @@ const withdrawalController = {
 
       // Update withdrawal status to PENDING (OTP verified)
       await connection.query(
-        `UPDATE withdrawals SET status = 'PROCESSING', updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        `UPDATE withdrawals SET status = 'PROCESSING', updated_at = CURRENT_TIMESTAMP WHERE id = UUID_TO_BIN(?)`,
         [withdrawalId]
       );
 
@@ -633,7 +633,7 @@ const withdrawalController = {
       const userId = req.user.id;
 
       const [rows] = await pool.query(
-        `SELECT * FROM withdrawals WHERE id = ? AND user_id = ?`,
+        `SELECT * FROM withdrawals WHERE id = UUID_TO_BIN(?) AND user_id = UUID_TO_BIN(?)`,
         [id, userId]
       );
 
@@ -758,7 +758,7 @@ getAllWithdrawals: async (req, res) => {
 
       // Example: { event: 'withdrawal.processed', data: { withdrawalId, status, transactionId } }
       if (event === 'withdrawal.processed' && payload.withdrawalId) {
-        await pool.query(`UPDATE withdrawals SET status = ?, transaction_id = ?, processed_at = CURRENT_TIMESTAMP WHERE id = ?`,
+        await pool.query(`UPDATE withdrawals SET status = ?, transaction_id = ?, processed_at = CURRENT_TIMESTAMP WHERE id = UUID_TO_BIN(?)`,
           [payload.status || 'COMPLETED', payload.transactionId || null, payload.withdrawalId]);
         return res.json({ success: true });
       }
@@ -811,7 +811,7 @@ getAllWithdrawals: async (req, res) => {
          FROM withdrawals w
          JOIN users u ON w.user_id = u.id
          LEFT JOIN wallets wl ON u.id = wl.user_id AND wl.type = 'CASH'
-         WHERE w.id = ?`,
+         WHERE w.id = UUID_TO_BIN(?)`,
         [id]
       );
 
@@ -847,11 +847,11 @@ getAllWithdrawals: async (req, res) => {
         `UPDATE withdrawals 
          SET status = ?, 
              reason = ?, 
-             admin_id = ?, 
+             admin_id = UUID_TO_BIN(?), 
              admin_notes = ?, 
              updated_at = CURRENT_TIMESTAMP,
              processed_at = CASE WHEN ? IN ('COMPLETED', 'REJECTED') THEN CURRENT_TIMESTAMP ELSE NULL END
-         WHERE id = ?`,
+         WHERE id = UUID_TO_BIN(?)`,
         [status, reason, adminId, adminNotes, status, id]
       );
 
@@ -914,7 +914,7 @@ getAllWithdrawals: async (req, res) => {
       // Log admin activity
       await connection.query(
         `INSERT INTO admin_activities (id, admin_id, action, target_id, module, details) 
-         VALUES (?, ?, ?, ?, 'withdrawals', ?)`,
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, UUID_TO_BIN(?), 'withdrawals', ?)`,
         [uuidv4(), adminId, `Updated withdrawal status to ${status}`, id, 
          JSON.stringify({
            amount: withdrawal.amount,
@@ -972,7 +972,7 @@ getAllWithdrawals: async (req, res) => {
 
       // Get updated withdrawal info
       const [updatedWithdrawal] = await pool.query(
-        `SELECT * FROM withdrawals WHERE id = ?`,
+        `SELECT * FROM withdrawals WHERE id = UUID_TO_BIN(?)`,
         [id]
       );
 

@@ -18,10 +18,10 @@ router.get('/my-withdrawals/:id', authenticate(['USER']), apiLimiter, withdrawal
 router.get('/settings', authenticate(['USER']), apiLimiter, withdrawalController.getWithdrawalSettings);
 router.put('/limits', authenticate(['USER']), apiLimiter, withdrawalController.updateSpendingLimits); 
 // Admin routes
-router.get('/all', authenticate(["SUPERADMIN", "ADMIN"]), apiLimiter, withdrawalController.getAllWithdrawals);
-router.put('/:id/status', authenticate(8["SUPERADMIN", "ADMIN"]), strictLimiter, withdrawalController.updateWithdrawalStatus);
-router.get('/stats', authenticate(["SUPERADMIN", "ADMIN"]), apiLimiter, withdrawalController.getWithdrawalStats);
-router.post('/verify-kyc', authenticate(["SUPERADMIN", "ADMIN"]), strictLimiter, withdrawalController.verifyKycStatus);
+router.get('/all', authenticate(['SUPERADMIN', 'ADMIN']), apiLimiter, withdrawalController.getAllWithdrawals);
+router.put('/:id/status', authenticate(['SUPERADMIN', 'ADMIN']), strictLimiter, withdrawalController.updateWithdrawalStatus);
+router.get('/stats', authenticate(['SUPERADMIN', 'ADMIN']), apiLimiter, withdrawalController.getWithdrawalStats);
+router.post('/verify-kyc', authenticate(['SUPERADMIN', 'ADMIN']), strictLimiter, withdrawalController.verifyKycStatus);
 
 // Webhook for payment processing (external services)
 router.post('/webhook/processing', withdrawalController.handleProcessingWebhook);

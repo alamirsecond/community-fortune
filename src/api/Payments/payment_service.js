@@ -1869,7 +1869,7 @@ async getWithdrawalDetails(withdrawalId, userId) {
              FROM withdrawals w
              JOIN payment_requests pr ON w.payment_request_id = pr.id
              JOIN users u ON w.user_id = u.id
-             WHERE w.id = UUID_TO_BIN(?) AND w.status = 'PENDING'`,
+             WHERE w.id = UUID_TO_BIN(?) AND w.status = 'APPROVED'`,
             [withdrawalId]
         );
 
