@@ -1591,34 +1591,38 @@ class InstantWinController {
       // Entries over time (tickets for INSTANT_WIN competitions)
       const [dailyEntries] = await connection.query(
         `
-        SELECT DATE(t.created_at) AS day, COUNT(*) AS entries
-        FROM tickets t
-        JOIN competitions c ON t.competition_id = c.id
-        WHERE c.category = 'INSTANT_WIN'
-          AND t.created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
-        GROUP BY DATE(t.created_at)
-        ORDER BY day ASC
+     SELECT
+  DATE(t.created_at) AS day,
+  COUNT(*) AS entries
+FROM tickets t
+JOIN competitions c ON t.competition_id = c.id
+WHERE c.category = 'INSTANT_WIN'
+  AND t.is_instant_win = TRUE
+  AND t.created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
+GROUP BY day
+ORDER BY day ASC;
+
         `,
         [days - 1]
       );
 
-      // Top competitions this month by entries
-      const topWhere = ["c.category = 'INSTANT_WIN'"];
-      const topParams = [];
-      if (monthOnly) {
-        topWhere.push("t.created_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')");
-      }
+      // Top competitions this month by entries (include competitions with zero entries)
+      const dateFilter = monthOnly
+        ? "AND t.created_at >= DATE_FORMAT(CURDATE(), '%Y-%m-01')"
+        : "";
       const [topCompetitions] = await connection.query(
         `
-        SELECT c.title AS competition_title, BIN_TO_UUID(c.id) AS competition_id, COUNT(*) AS entries
-        FROM tickets t
-        JOIN competitions c ON t.competition_id = c.id
-        WHERE ${topWhere.join(" AND ")}
+        SELECT
+          c.title AS competition_title,
+          BIN_TO_UUID(c.id) AS competition_id,
+          COUNT(t.id) AS entries
+        FROM competitions c
+        LEFT JOIN tickets t ON t.competition_id = c.id ${dateFilter}
+        WHERE c.category = 'INSTANT_WIN'
         GROUP BY c.id
         ORDER BY entries DESC
         LIMIT 8
-        `,
-        topParams
+        `
       );
 
       // Instant win stats (claimed) grouped by prize_name
@@ -1637,9 +1641,24 @@ class InstantWinController {
         `
       );
 
+      // Normalize daily entries so we return a row for each day in the range (zero-filled)
+      const entriesMap = {};
+      dailyEntries.forEach((r) => {
+        const dayStr = typeof r.day === "string" ? r.day : r.day.toISOString().slice(0, 10);
+        entriesMap[dayStr] = Number(r.entries || 0);
+      });
+
+      const entries_over_time = [];
+      for (let i = days - 1; i >= 0; i--) {
+        const d = new Date();
+        d.setDate(d.getDate() - i);
+        const dayStr = d.toISOString().slice(0, 10);
+        entries_over_time.push({ day: dayStr, entries: entriesMap[dayStr] || 0 });
+      }
+
       res.json({
         success: true,
-        entries_over_time: dailyEntries,
+        entries_over_time: entries_over_time,
         top_competitions: topCompetitions,
         instant_win_statistics: byPrizeName,
         meta: { days, month_only: monthOnly },
