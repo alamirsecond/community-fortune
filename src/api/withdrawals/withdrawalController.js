@@ -849,8 +849,7 @@ getAllWithdrawals: async (req, res) => {
              reason = ?, 
              admin_id = UUID_TO_BIN(?), 
              admin_notes = ?, 
-             updated_at = CURRENT_TIMESTAMP,
-             processed_at = CASE WHEN ? IN ('COMPLETED', 'REJECTED') THEN CURRENT_TIMESTAMP ELSE NULL END
+             updated_at = CURRENT_TIMESTAMP
          WHERE id = UUID_TO_BIN(?)`,
         [status, reason, adminId, adminNotes, status, id]
       );
