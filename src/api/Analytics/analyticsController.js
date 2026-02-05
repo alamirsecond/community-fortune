@@ -167,6 +167,60 @@ class AnalyticsController {
             });
         }
     }
+
+    // ===========================================
+    // EXPORT SALES NET REVENUE (CSV)
+    // ===========================================
+    async exportSalesNetRevenueCsv(req, res) {
+        try {
+            const { dateRange = 'last_7_days' } = req.query;
+            const salesData = await analyticsService.getSalesOverview(dateRange);
+            const netSalesChart = salesData?.charts?.netSales?.data || [];
+            const range = analyticsService.parseDateRange(dateRange);
+            const totalNetSales = salesData?.overview?.net_sales || 0;
+
+            const headers = [
+                'day',
+                'net_sales',
+                'transaction_count',
+                'range_start',
+                'range_end',
+                'total_net_sales'
+            ];
+
+            const escapeCsv = (val) => {
+                if (val === null || val === undefined) return '';
+                const str = String(val);
+                if (/[\n\r,"]/g.test(str)) return `"${str.replace(/"/g, '""')}"`;
+                return str;
+            };
+
+            const lines = [headers.join(',')];
+            netSalesChart.forEach((row) => {
+                lines.push([
+                    row.day,
+                    row.value || 0,
+                    row.count || 0,
+                    range.startDate,
+                    range.endDate,
+                    totalNetSales
+                ].map(escapeCsv).join(','));
+            });
+
+            const csv = lines.join('\n');
+            const filename = `sales_net_revenue_${new Date().toISOString().slice(0, 10)}.csv`;
+            res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+            res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+            res.send(csv);
+        } catch (error) {
+            console.error('Export sales net revenue error:', error);
+            res.status(500).json({
+                success: false,
+                message: 'Failed to export sales net revenue',
+                error: error.message
+            });
+        }
+    }
     
     // ===========================================
     // PRIVATE HELPER METHODS

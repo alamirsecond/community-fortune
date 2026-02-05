@@ -39,9 +39,14 @@ analyticsRoutes.get('/realtime', analyticsController.getRealTimeMetrics);
 // ===========================================
 // EXPORT ANALYTICS DATA
 // ===========================================
+analyticsRoutes.get('/sales/net-revenue/export', analyticsController.exportSalesNetRevenueCsv);
 analyticsRoutes.get('/export', async (req, res) => {
     try {
         const { type, format, dateRange } = req.query;
+
+        if (type === 'sales_net_revenue' || type === 'sales-net-revenue') {
+            return analyticsController.exportSalesNetRevenueCsv(req, res);
+        }
         
         // This would be a comprehensive export function
         // For now, return a placeholder response
