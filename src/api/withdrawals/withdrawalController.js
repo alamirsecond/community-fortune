@@ -1026,7 +1026,7 @@ getAllWithdrawals: async (req, res) => {
              admin_notes = ?, 
              updated_at = CURRENT_TIMESTAMP
          WHERE id = UUID_TO_BIN(?)`,
-        [status, reason, adminId, adminNotes, status, id]
+        [status, reason, adminId, adminNotes, id]
       );
 
       // Handle different status updates
@@ -1146,7 +1146,24 @@ getAllWithdrawals: async (req, res) => {
 
       // Get updated withdrawal info
       const [updatedWithdrawal] = await pool.query(
-        `SELECT * FROM withdrawals WHERE id = UUID_TO_BIN(?)`,
+        `SELECT
+           BIN_TO_UUID(w.id) AS id,
+           BIN_TO_UUID(w.user_id) AS user_id,
+           BIN_TO_UUID(w.admin_id) AS admin_id,
+           w.amount,
+           w.payment_method,
+           w.account_details,
+           w.paypal_email,
+           w.bank_account_last_four,
+           w.bank_name,
+           w.status,
+           w.reason,
+           w.admin_notes,
+           w.requested_at,
+           w.updated_at,
+           w.is_payment_method
+         FROM withdrawals w
+         WHERE w.id = UUID_TO_BIN(?)`,
         [id]
       );
 
