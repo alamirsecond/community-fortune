@@ -810,6 +810,42 @@ createVoucher: async (req, res) => {
     }
   },
 
+  // ADMIN: Export vouchers by status/type (preset endpoints)
+  exportActiveVouchers: (req, res) => {
+    req.query.status = "active";
+    return voucherController.exportVouchers(req, res);
+  },
+
+  exportExpiredVouchers: (req, res) => {
+    req.query.status = "expired";
+    return voucherController.exportVouchers(req, res);
+  },
+
+  exportScheduledVouchers: (req, res) => {
+    req.query.status = "scheduled";
+    return voucherController.exportVouchers(req, res);
+  },
+
+  exportInactiveVouchers: (req, res) => {
+    req.query.status = "inactive";
+    return voucherController.exportVouchers(req, res);
+  },
+
+  exportSingleUseVouchers: (req, res) => {
+    req.query.type = "SINGLE_USE";
+    return voucherController.exportVouchers(req, res);
+  },
+
+  exportMultiUseVouchers: (req, res) => {
+    req.query.type = "MULTI_USE";
+    return voucherController.exportVouchers(req, res);
+  },
+
+  exportBulkCodesVouchers: (req, res) => {
+    req.query.type = "BULK_CODES";
+    return voucherController.exportVouchers(req, res);
+  },
+
   // ADMIN: Toggle active flag - UPDATED
   toggleVoucher: async (req, res) => {
     const { id } = req.params;

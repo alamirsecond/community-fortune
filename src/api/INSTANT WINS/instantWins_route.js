@@ -32,6 +32,21 @@ instantWinsRouter.get(
   authenticate(ADMIN_ROLES),
   InstantWinController.adminExportAllInstantWinsCsv
 );
+instantWinsRouter.get(
+  "/admin/export/claimed",
+  authenticate(ADMIN_ROLES),
+  InstantWinController.adminExportClaimedInstantWinsCsv
+);
+instantWinsRouter.get(
+  "/admin/export/unclaimed",
+  authenticate(ADMIN_ROLES),
+  InstantWinController.adminExportUnclaimedInstantWinsCsv
+);
+instantWinsRouter.get(
+  "/admin/export/prize/:prize_type",
+  authenticate(ADMIN_ROLES),
+  InstantWinController.adminExportPrizeTypeInstantWinsCsv
+);
 
 instantWinsRouter.get(
   "/admin/competition/:competition_id",

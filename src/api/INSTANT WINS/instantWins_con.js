@@ -1438,6 +1438,25 @@ class InstantWinController {
     const connection = await pool.getConnection();
     try {
       const { competition_id } = req.params;
+      const status = (req.query.status || "").toLowerCase();
+      const prizeType = req.query.prize_type ? String(req.query.prize_type) : undefined;
+
+      const whereParts = ["iw.competition_id = UUID_TO_BIN(?)"];
+      const params = [competition_id];
+
+      if (status === "claimed") {
+        whereParts.push("iw.claimed_by IS NOT NULL");
+      } else if (status === "unclaimed") {
+        whereParts.push("iw.claimed_by IS NULL");
+      }
+
+      if (prizeType) {
+        whereParts.push("iw.prize_type = ?");
+        params.push(prizeType);
+      }
+
+      const whereSql = `WHERE ${whereParts.join(" AND ")}`;
+
       const [rows] = await connection.query(
         `
         SELECT
@@ -1457,10 +1476,10 @@ class InstantWinController {
         FROM instant_wins iw
         JOIN competitions c ON iw.competition_id = c.id
         LEFT JOIN users u ON iw.claimed_by = u.id
-        WHERE iw.competition_id = UUID_TO_BIN(?)
+        ${whereSql}
         ORDER BY iw.ticket_number
         `,
-        [competition_id]
+        params
       );
 
       const headers = [
@@ -1511,6 +1530,25 @@ class InstantWinController {
   static async adminExportAllInstantWinsCsv(req, res) {
     const connection = await pool.getConnection();
     try {
+      const status = (req.query.status || "").toLowerCase();
+      const prizeType = req.query.prize_type ? String(req.query.prize_type) : undefined;
+
+      const whereParts = [];
+      const params = [];
+
+      if (status === "claimed") {
+        whereParts.push("iw.claimed_by IS NOT NULL");
+      } else if (status === "unclaimed") {
+        whereParts.push("iw.claimed_by IS NULL");
+      }
+
+      if (prizeType) {
+        whereParts.push("iw.prize_type = ?");
+        params.push(prizeType);
+      }
+
+      const whereSql = whereParts.length ? `WHERE ${whereParts.join(" AND ")}` : "";
+
       const [rows] = await connection.query(
         `
         SELECT
@@ -1529,9 +1567,11 @@ class InstantWinController {
         FROM instant_wins iw
         JOIN competitions c ON iw.competition_id = c.id
         LEFT JOIN users u ON iw.claimed_by = u.id
+        ${whereSql}
         ORDER BY iw.created_at DESC
         LIMIT 200000
-        `
+        `,
+        params
       );
 
       const headers = [
@@ -1576,6 +1616,22 @@ class InstantWinController {
     } finally {
       connection.release();
     }
+  }
+
+  // ==================== ADMIN: EXPORT PRESET ROUTES ====================
+  static async adminExportClaimedInstantWinsCsv(req, res) {
+    req.query.status = "claimed";
+    return InstantWinController.adminExportAllInstantWinsCsv(req, res);
+  }
+
+  static async adminExportUnclaimedInstantWinsCsv(req, res) {
+    req.query.status = "unclaimed";
+    return InstantWinController.adminExportAllInstantWinsCsv(req, res);
+  }
+
+  static async adminExportPrizeTypeInstantWinsCsv(req, res) {
+    req.query.prize_type = req.params.prize_type;
+    return InstantWinController.adminExportAllInstantWinsCsv(req, res);
   }
 
   // ==================== ADMIN: ANALYTICS ====================

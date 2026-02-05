@@ -28,6 +28,31 @@ winnersRouter.get(
   authenticate(["SUPERADMIN","ADMIN"]),
   winnersController.exportAdminWinners
 );
+winnersRouter.get(
+  "/admin/export/source/all",
+  authenticate(["SUPERADMIN","ADMIN"]),
+  winnersController.exportWinnersAllSources
+);
+winnersRouter.get(
+  "/admin/export/source/main",
+  authenticate(["SUPERADMIN","ADMIN"]),
+  winnersController.exportWinnersMainSource
+);
+winnersRouter.get(
+  "/admin/export/source/instant",
+  authenticate(["SUPERADMIN","ADMIN"]),
+  winnersController.exportWinnersInstantSource
+);
+winnersRouter.get(
+  "/admin/export/category/jackpot",
+  authenticate(["SUPERADMIN","ADMIN"]),
+  winnersController.exportWinnersJackpotCategory
+);
+winnersRouter.get(
+  "/admin/export/category/subscription",
+  authenticate(["SUPERADMIN","ADMIN"]),
+  winnersController.exportWinnersSubscriptionCategory
+);
 winnersRouter.post(
   "/declare",
   authenticate(["SUPERADMIN","ADMIN"]),
