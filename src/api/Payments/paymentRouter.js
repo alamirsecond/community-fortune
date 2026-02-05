@@ -1,6 +1,6 @@
 import { Router } from "express";
 import authenticate from "../../../middleware/auth.js";
-import paymentController from "../withdrawals/withdrawalController.js";
+import paymentController from "./payment_controller.js";
 import {
   paymentMethodValidator,
   depositValidator,
@@ -55,6 +55,14 @@ paymentRouter.post("/requests/:requestId/refund", idValidator, refundValidator, 
 paymentRouter.use(authenticate(["ADMIN", "SUPERADMIN"]));
 
 paymentRouter.get("/transactions/all", paginationValidator, paymentController.getAllTransactions);
+paymentRouter.get("/transactions/export/all", paymentController.exportAllTransactionsCsv);
+paymentRouter.get("/transactions/export/deposits", paymentController.exportDepositTransactionsCsv);
+paymentRouter.get("/transactions/export/withdrawals", paymentController.exportWithdrawalTransactionsCsv);
+paymentRouter.get("/transactions/export/competition-entries", paymentController.exportCompetitionEntryTransactionsCsv);
+paymentRouter.get("/transactions/export/status/all", paymentController.exportAllStatusTransactionsCsv);
+paymentRouter.get("/transactions/export/status/pending", paymentController.exportPendingTransactionsCsv);
+paymentRouter.get("/transactions/export/status/completed", paymentController.exportCompletedTransactionsCsv);
+paymentRouter.get("/transactions/export/status/failed", paymentController.exportFailedTransactionsCsv);
 paymentRouter.get("/transactions/analytics", authenticate(["ADMIN", "SUPERADMIN"]), paymentController.getTransactionAnalytics);
 paymentRouter.get("/transactions/:transactionId/details", idValidator, paymentController.getTransactionDetails);
 paymentRouter.post("/transactions/:transactionId/refund", idValidator, refundValidator, paymentController.refundTransaction);

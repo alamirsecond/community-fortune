@@ -1575,6 +1575,62 @@ async getTransactionDetails(transactionId) {
       connection.release();
     }
   }
+
+  async exportTransactions(filters = {}, limit = 200000) {
+    const connection = await pool.getConnection();
+    try {
+      let query = `SELECT 
+          BIN_TO_UUID(t.id) as id,
+          BIN_TO_UUID(t.user_id) as user_id,
+          t.type,
+          t.amount,
+          t.currency,
+          t.status,
+          t.gateway,
+          t.description,
+          t.created_at,
+          t.completed_at,
+          t.reference_table,
+          BIN_TO_UUID(t.reference_id) as reference_id
+         FROM transactions t
+         WHERE 1=1`;
+
+      const queryParams = [];
+
+      if (filters.type) {
+        query += ` AND t.type = ?`;
+        queryParams.push(filters.type);
+      }
+
+      if (filters.status) {
+        query += ` AND t.status = ?`;
+        queryParams.push(filters.status);
+      }
+
+      if (filters.gateway) {
+        query += ` AND t.gateway = ?`;
+        queryParams.push(filters.gateway);
+      }
+
+      if (filters.startDate) {
+        query += ` AND t.created_at >= ?`;
+        queryParams.push(filters.startDate);
+      }
+
+      if (filters.endDate) {
+        query += ` AND t.created_at <= ?`;
+        queryParams.push(filters.endDate);
+      }
+
+      query += ` ORDER BY t.created_at DESC LIMIT ?`;
+      queryParams.push(limit);
+
+      const [transactions] = await connection.query(query, queryParams);
+      return transactions;
+    } finally {
+      connection.release();
+    }
+  }
 // Add to paymentService.js
 async getTransactionAnalytics(period = 'this_week', startDate = null, endDate = null) {
   const connection = await pool.getConnection();

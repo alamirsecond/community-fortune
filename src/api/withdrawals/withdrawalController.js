@@ -748,6 +748,181 @@ getAllWithdrawals: async (req, res) => {
     res.status(500).json({ success: false, message: 'Internal server error' });
   }
 },
+
+  // Admin: Export withdrawals as CSV
+  exportWithdrawalsCsv: async (req, res) => {
+    try {
+      const { error, value } = withdrawalSchemas.withdrawalExportSchema.validate(req.query);
+      if (error) return res.status(400).json({ success: false, message: error.details[0].message });
+
+      const {
+        status,
+        startDate,
+        endDate,
+        minAmount,
+        maxAmount,
+        paymentMethod,
+        userId,
+        sortBy,
+        sortOrder,
+        thisWeekCompleted,
+        firstTime,
+        largeAmount,
+        largeAmountMin,
+        limit
+      } = value;
+
+      let query = `
+        SELECT
+          BIN_TO_UUID(w.id) AS id,
+          w.amount,
+          w.payment_method,
+          w.account_details,
+          w.paypal_email,
+          w.bank_account_last_four,
+          w.bank_name,
+          w.status,
+          w.reason,
+          w.admin_notes,
+          BIN_TO_UUID(w.admin_id) AS admin_id,
+          w.requested_at,
+          w.updated_at,
+          w.is_payment_method,
+          BIN_TO_UUID(u.id) AS user_id,
+          u.email AS user_email,
+          u.username AS user_username,
+          u.first_name AS user_first_name,
+          u.last_name AS user_last_name,
+          u.country AS user_country,
+          u.kyc_status AS user_kyc_status
+        FROM withdrawals w
+        LEFT JOIN users u ON w.user_id = u.id
+        WHERE 1=1
+      `;
+
+      const params = [];
+
+      const addFilter = (condition, param) => {
+        if (condition) {
+          query += ' AND ' + condition;
+          if (param !== undefined) {
+            params.push(param);
+          }
+        }
+      };
+
+      if (status) addFilter('w.status = ?', status);
+      if (startDate) addFilter('w.requested_at >= ?', startDate);
+      if (endDate) addFilter('w.requested_at <= ?', endDate);
+      if (minAmount) addFilter('w.amount >= ?', minAmount);
+      if (maxAmount) addFilter('w.amount <= ?', maxAmount);
+      if (paymentMethod) addFilter('w.payment_method = ?', paymentMethod);
+      if (userId) addFilter('w.user_id = UUID_TO_BIN(?)', userId);
+
+      if (thisWeekCompleted) {
+        addFilter("w.status = 'COMPLETED' AND YEARWEEK(w.requested_at, 1) = YEARWEEK(CURDATE(), 1)");
+      }
+
+      if (firstTime) {
+        addFilter('w.requested_at = (SELECT MIN(w2.requested_at) FROM withdrawals w2 WHERE w2.user_id = w.user_id)');
+      }
+
+      if (largeAmount) {
+        addFilter('w.amount >= ?', largeAmountMin);
+      }
+
+      const validSortColumns = ['requested_at', 'updated_at', 'amount', 'status'];
+      const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'requested_at';
+      const order = sortOrder === 'asc' ? 'ASC' : 'DESC';
+      query += ` ORDER BY w.${sortColumn} ${order} LIMIT ?`;
+      params.push(limit);
+
+      const [rows] = await pool.query(query, params);
+
+      const headers = [
+        'id',
+        'amount',
+        'payment_method',
+        'paypal_email',
+        'bank_account_last_four',
+        'bank_name',
+        'status',
+        'reason',
+        'admin_notes',
+        'admin_id',
+        'requested_at',
+        'updated_at',
+        'is_payment_method',
+        'user_id',
+        'user_email',
+        'user_username',
+        'user_first_name',
+        'user_last_name',
+        'user_country',
+        'user_kyc_status'
+      ];
+
+      const escapeCsv = (val) => {
+        if (val === null || val === undefined) return '';
+        const str = String(val);
+        if (/[\n\r,"]/g.test(str)) return `"${str.replace(/"/g, '""')}"`;
+        return str;
+      };
+
+      const lines = [headers.join(',')];
+      for (const r of rows) {
+        lines.push(headers.map((h) => escapeCsv(r[h])).join(','));
+      }
+
+      const csv = lines.join('\n');
+      const filename = `withdrawals_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.send(csv);
+    } catch (error) {
+      console.error('Export withdrawals error:', error);
+      res.status(500).json({ success: false, message: 'Failed to export withdrawals', error: error.message });
+    }
+  },
+
+  exportAllWithdrawalsCsv: (req, res) => {
+    return withdrawalController.exportWithdrawalsCsv(req, res);
+  },
+
+  exportPendingWithdrawalsCsv: (req, res) => {
+    req.query.status = 'PENDING';
+    return withdrawalController.exportWithdrawalsCsv(req, res);
+  },
+
+  exportApprovedWithdrawalsCsv: (req, res) => {
+    req.query.status = 'APPROVED';
+    return withdrawalController.exportWithdrawalsCsv(req, res);
+  },
+
+  exportRejectedWithdrawalsCsv: (req, res) => {
+    req.query.status = 'REJECTED';
+    return withdrawalController.exportWithdrawalsCsv(req, res);
+  },
+
+  exportCompletedWithdrawalsCsv: (req, res) => {
+    req.query.status = 'COMPLETED';
+    return withdrawalController.exportWithdrawalsCsv(req, res);
+  },
+
+  exportWeeklyCompletedWithdrawalsCsv: (req, res) => {
+    req.query.thisWeekCompleted = 'true';
+    return withdrawalController.exportWithdrawalsCsv(req, res);
+  },
+
+  exportLargeAmountWithdrawalsCsv: (req, res) => {
+    req.query.largeAmount = 'true';
+    return withdrawalController.exportWithdrawalsCsv(req, res);
+  },
+
+  exportFirstTimeWithdrawalsCsv: (req, res) => {
+    req.query.firstTime = 'true';
+    return withdrawalController.exportWithdrawalsCsv(req, res);
+  },
   // Webhook handler for external payment processors
   handleProcessingWebhook: async (req, res) => {
     try {
