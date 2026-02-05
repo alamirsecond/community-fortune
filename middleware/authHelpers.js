@@ -1,11 +1,12 @@
 // middleware/authHelpers.js
 import jwt from 'jsonwebtoken';
-import dotenv from 'dotenv';
+import secretManager, { SECRET_KEYS } from '../src/Utils/secretManager.js';
 
-dotenv.config();
-const SECRET_KEY = process.env.JWT_SECRET;
+export const generateToken = async (user, rememberMe = false) => {
+  const secret = await secretManager.getSecret(SECRET_KEYS.JWT, {
+    fallbackEnvVar: 'JWT_SECRET'
+  });
 
-export const generateToken = (user,rememberMe = false) => {
   return jwt.sign(
     {
       userId: user.id,
@@ -14,8 +15,8 @@ export const generateToken = (user,rememberMe = false) => {
       role: user.role,
       ageVerified: user.age_verified
     },
-    SECRET_KEY,
-    { expiresIn: rememberMe ? '24h': '4h' }
+    secret,
+    { expiresIn: rememberMe ? '24h' : '4h' }
   );
 };
 

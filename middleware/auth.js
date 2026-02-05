@@ -1,11 +1,8 @@
 // middleware/auth.js
 import jwt from "jsonwebtoken";
-import dotenv from "dotenv";
 import pool from "../database.js";
 import systemSettingsCache from "../src/Utils/systemSettingsCache.js";
-
-dotenv.config();
-const SECRET_KEY = process.env.JWT_SECRET;
+import secretManager, { SECRET_KEYS } from "../src/Utils/secretManager.js";
 
 const authenticate = (roles = []) => {
   return async (req, res, next) => {
@@ -35,7 +32,20 @@ const authenticate = (roles = []) => {
         });
       }
 
-      const decoded = jwt.verify(token, SECRET_KEY);
+      let secretKey;
+      try {
+        secretKey = await secretManager.getSecret(SECRET_KEYS.JWT, {
+          fallbackEnvVar: "JWT_SECRET"
+        });
+      } catch (secretError) {
+        console.error("JWT secret retrieval error:", secretError.message);
+        return res.status(500).json({
+          success: false,
+          message: "JWT secret is not configured"
+        });
+      }
+
+      const decoded = jwt.verify(token, secretKey);
 
       // Verify user exists and get latest data from database
       const [users] = await pool.query(

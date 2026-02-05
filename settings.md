@@ -42,6 +42,15 @@ The Admin Settings API allows SUPERADMIN and ADMIN roles to manage platform conf
   - Body example: `{ "admin_session_timeout": 45, "enable_captcha_failed_attempts": true }`.
   - Writes prefixed keys, ensures values stored as strings, invalidates cache.
 
+### Secret Management
+- **GET /settings/secrets**
+  - Returns grouped metadata (JWT, PayPal, Stripe, Revolut) showing which credentials are configured, their source env-var names, and last update info.
+  - Payload never includes actual secret values; UI should prompt admins to enter new values when a field reports `isConfigured: false`.
+- **POST /settings/secrets** *(SUPERADMIN write-only)*
+  - Body accepts either flat keys (`paypalClientId`, `STRIPE_SECRET_KEY`) or grouped payloads (`{ paypal: { clientId } }`).
+  - Values are encrypted at rest via `secretManager` and stored inside `system_settings` with `secret.*` keys.
+  - Updating any field invalidates the secret cache so authentication/payment layers immediately use the new credentials.
+
 ### Subscription Tiers
 - **GET /settings/subscription-tiers** → Lists tiers with subscriber counts.
 - **GET /settings/subscription-tiers/:id** → Single tier by UUID.

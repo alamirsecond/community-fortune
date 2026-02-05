@@ -2,6 +2,7 @@ import pool from "../../../database.js";
 import bcrypt from "bcrypt";
 import { v4 as uuidv4 } from 'uuid';
 import systemSettingsCache, { NOTIFICATION_DEFINITIONS } from "../../Utils/systemSettingsCache.js";
+import secretManager, { SECRET_KEYS } from "../../Utils/secretManager.js";
 
 const parseBoolean = (value, fallback = false) => {
   if (value === undefined || value === null) {
@@ -26,6 +27,132 @@ const parseBoolean = (value, fallback = false) => {
 
   return fallback;
 };
+
+const SECRET_GROUPS = {
+  jwt: { label: "JWT & Tokens", sortOrder: 1 },
+  paypal: { label: "PayPal", sortOrder: 2 },
+  stripe: { label: "Stripe", sortOrder: 3 },
+  revolut: { label: "Revolut", sortOrder: 4 }
+};
+
+const SECRET_FIELD_DEFINITIONS = [
+  {
+    field: "jwtSecret",
+    group: "jwt",
+    label: "JWT Secret",
+    envVar: "JWT_SECRET",
+    description: "Signing secret for user and admin JWTs",
+    category: "SECURITY",
+    key: SECRET_KEYS.JWT
+  },
+  {
+    field: "paypalClientId",
+    group: "paypal",
+    label: "PayPal Client ID",
+    envVar: "PAYPAL_CLIENT_ID",
+    description: "PayPal REST client ID used for API requests",
+    category: "PAYMENT",
+    key: SECRET_KEYS.PAYPAL_CLIENT_ID
+  },
+  {
+    field: "paypalClientSecret",
+    group: "paypal",
+    label: "PayPal Client Secret",
+    envVar: "PAYPAL_CLIENT_SECRET",
+    description: "PayPal REST client secret",
+    category: "PAYMENT",
+    key: SECRET_KEYS.PAYPAL_CLIENT_SECRET
+  },
+  {
+    field: "paypalWebhookId",
+    group: "paypal",
+    label: "PayPal Webhook ID",
+    envVar: "PAYPAL_WEBHOOK_ID",
+    description: "Webhook identifier used to validate PayPal notifications",
+    category: "PAYMENT",
+    key: SECRET_KEYS.PAYPAL_WEBHOOK_ID
+  },
+  {
+    field: "stripePublishableKey",
+    group: "stripe",
+    label: "Stripe Publishable Key",
+    envVar: "STRIPE_PUBLISHABLE_KEY",
+    description: "Stripe publishable key for client-side SDKs",
+    category: "PAYMENT",
+    key: SECRET_KEYS.STRIPE_PUBLISHABLE_KEY
+  },
+  {
+    field: "stripeSecretKey",
+    group: "stripe",
+    label: "Stripe Secret Key",
+    envVar: "STRIPE_SECRET_KEY",
+    description: "Stripe secret key for server-side operations",
+    category: "PAYMENT",
+    key: SECRET_KEYS.STRIPE_SECRET_KEY
+  },
+  {
+    field: "stripeWebhookSecret",
+    group: "stripe",
+    label: "Stripe Webhook Secret",
+    envVar: "STRIPE_WEBHOOK_SECRET",
+    description: "Endpoint secret for validating Stripe webhooks",
+    category: "PAYMENT",
+    key: SECRET_KEYS.STRIPE_WEBHOOK_SECRET
+  },
+  {
+    field: "stripeConnectClientId",
+    group: "stripe",
+    label: "Stripe Connect Client ID",
+    envVar: "STRIPE_CONNECT_CLIENT_ID",
+    description: "Connect platform client ID used for onboarding",
+    category: "PAYMENT",
+    key: SECRET_KEYS.STRIPE_CONNECT_CLIENT_ID
+  },
+  {
+    field: "revolutApiKey",
+    group: "revolut",
+    label: "Revolut API Key",
+    envVar: "REVOLUT_API_KEY",
+    description: "Revolut Business API key",
+    category: "PAYMENT",
+    key: SECRET_KEYS.REVOLUT_API_KEY
+  },
+  {
+    field: "revolutWebhookSecret",
+    group: "revolut",
+    label: "Revolut Webhook Secret",
+    envVar: "REVOLUT_WEBHOOK_SECRET",
+    description: "Secret used to verify Revolut webhook signatures",
+    category: "PAYMENT",
+    key: SECRET_KEYS.REVOLUT_WEBHOOK_SECRET
+  },
+  {
+    field: "revolutDefaultAccountId",
+    group: "revolut",
+    label: "Revolut Default Account",
+    envVar: "REVOLUT_DEFAULT_ACCOUNT_ID",
+    description: "Fallback Revolut account ID for payouts",
+    category: "PAYMENT",
+    key: SECRET_KEYS.REVOLUT_DEFAULT_ACCOUNT_ID
+  }
+];
+
+const SECRET_FIELD_MAP = SECRET_FIELD_DEFINITIONS.reduce((acc, def) => {
+  const aliases = new Set([
+    def.field,
+    def.field.toLowerCase(),
+    def.envVar,
+    def.envVar?.toLowerCase()
+  ]);
+
+  aliases.forEach((alias) => {
+    if (alias) {
+      acc[alias] = def;
+    }
+  });
+
+  return acc;
+}, {});
 
 class SettingsService {
   // ==================== PASSWORD SETTINGS ====================
@@ -648,6 +775,122 @@ WHERE gateway = ? AND environment = ?
     } finally {
       connection.release();
     }
+  }
+
+  // ==================== SECRET MANAGEMENT ====================
+  async getSecretOverview() {
+    const statuses = await secretManager.getBulkStatuses(
+      SECRET_FIELD_DEFINITIONS.map((def) => def.key)
+    );
+    const statusMap = new Map(statuses.map((status) => [status.key, status]));
+
+    const grouped = {};
+
+    SECRET_FIELD_DEFINITIONS.forEach((definition) => {
+      const groupKey = definition.group;
+      if (!grouped[groupKey]) {
+        const meta = SECRET_GROUPS[groupKey] || { label: groupKey, sortOrder: 99 };
+        grouped[groupKey] = {
+          key: groupKey,
+          label: meta.label,
+          sortOrder: meta.sortOrder || 99,
+          fields: []
+        };
+      }
+
+      const status = statusMap.get(definition.key);
+      grouped[groupKey].fields.push({
+        field: definition.field,
+        label: definition.label,
+        envVar: definition.envVar,
+        description: definition.description,
+        category: definition.category,
+        isConfigured: status?.isConfigured || false,
+        updatedAt: status?.updatedAt || null,
+        updatedBy: status?.updatedBy || null
+      });
+    });
+
+    return Object.values(grouped).sort((a, b) => a.sortOrder - b.sortOrder);
+  }
+
+  async updateSecrets(payload, adminId) {
+    if (!payload || typeof payload !== "object") {
+      throw new Error("Invalid request body");
+    }
+
+    const normalizedPayload = { ...payload };
+
+    if (payload.jwt && typeof payload.jwt === "object") {
+      if (payload.jwt.secret !== undefined) {
+        normalizedPayload.jwtSecret = payload.jwt.secret;
+      }
+    }
+
+    if (payload.paypal && typeof payload.paypal === "object") {
+      if (payload.paypal.clientId !== undefined) {
+        normalizedPayload.paypalClientId = payload.paypal.clientId;
+      }
+      if (payload.paypal.clientSecret !== undefined) {
+        normalizedPayload.paypalClientSecret = payload.paypal.clientSecret;
+      }
+      if (payload.paypal.webhookId !== undefined) {
+        normalizedPayload.paypalWebhookId = payload.paypal.webhookId;
+      }
+    }
+
+    if (payload.stripe && typeof payload.stripe === "object") {
+      if (payload.stripe.publishableKey !== undefined) {
+        normalizedPayload.stripePublishableKey = payload.stripe.publishableKey;
+      }
+      if (payload.stripe.secretKey !== undefined) {
+        normalizedPayload.stripeSecretKey = payload.stripe.secretKey;
+      }
+      if (payload.stripe.webhookSecret !== undefined) {
+        normalizedPayload.stripeWebhookSecret = payload.stripe.webhookSecret;
+      }
+      if (payload.stripe.connectClientId !== undefined) {
+        normalizedPayload.stripeConnectClientId = payload.stripe.connectClientId;
+      }
+    }
+
+    if (payload.revolut && typeof payload.revolut === "object") {
+      if (payload.revolut.apiKey !== undefined) {
+        normalizedPayload.revolutApiKey = payload.revolut.apiKey;
+      }
+      if (payload.revolut.webhookSecret !== undefined) {
+        normalizedPayload.revolutWebhookSecret = payload.revolut.webhookSecret;
+      }
+      if (payload.revolut.defaultAccountId !== undefined) {
+        normalizedPayload.revolutDefaultAccountId = payload.revolut.defaultAccountId;
+      }
+    }
+
+    const entries = Object.entries(normalizedPayload).filter(([, value]) => value !== undefined);
+    if (!entries.length) {
+      throw new Error("Provide at least one secret to update");
+    }
+
+    for (const [fieldName, rawValue] of entries) {
+      const keyCandidate = fieldName?.toString();
+      const definition = SECRET_FIELD_MAP[keyCandidate] || SECRET_FIELD_MAP[keyCandidate?.toLowerCase()];
+      if (!definition) {
+        throw new Error(`Unknown secret field: ${fieldName}`);
+      }
+
+      const normalized = typeof rawValue === "string" ? rawValue.trim() : rawValue;
+      if (!normalized) {
+        throw new Error(`${definition.label} cannot be empty`);
+      }
+
+      await secretManager.setSecret(definition.key, normalized, {
+        description: definition.description,
+        category: definition.category,
+        updatedBy: adminId
+      });
+    }
+
+    return this.getSecretOverview();
   }
 
   async getNotificationTypes() {

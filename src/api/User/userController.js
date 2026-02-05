@@ -445,7 +445,7 @@ const userController = {
       );
       const authUser = authUserRows[0][0];
 
-      const token = generateToken({
+      const token = await generateToken({
         id: authUser.id,
         email: authUser.email,
         username: authUser.username,
@@ -1439,7 +1439,7 @@ submitKycRequest: async (req, res) => {
         });
       }
 
-      const token = generateToken(user, rememberMe);
+      const token = await generateToken(user, rememberMe);
 
     await pool.query(
       `UPDATE users SET last_login = NOW() WHERE id = UUID_TO_BIN(?)`,
