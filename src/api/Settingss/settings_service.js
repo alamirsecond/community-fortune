@@ -819,7 +819,14 @@ WHERE gateway = ? AND environment = ?
       throw new Error("Invalid request body");
     }
 
-    const normalizedPayload = { ...payload };
+    const normalizedPayload = {};
+
+    Object.entries(payload).forEach(([key, value]) => {
+      if (["jwt", "paypal", "stripe", "revolut"].includes(key)) {
+        return;
+      }
+      normalizedPayload[key] = value;
+    });
 
     if (payload.jwt && typeof payload.jwt === "object") {
       if (payload.jwt.secret !== undefined) {
