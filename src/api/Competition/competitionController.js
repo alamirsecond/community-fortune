@@ -1,6 +1,7 @@
 import Competition from './models/Competition.js';
 import fs from 'fs';
 import path from 'path';
+import { Parser } from 'json2csv';
 import { getFileUrl, deleteUploadedFiles } from '../../../middleware/upload.js';
 import { 
   createCompetitionSchema, 
@@ -431,11 +432,27 @@ export const updateCompetition = async (req, res) => {
 
 export const getCompetitions = async (req, res) => {
   try {
+    const hasStatusParam = req.query.status !== undefined;
+    const normalizedStatus = hasStatusParam ? String(req.query.status).toUpperCase() : undefined;
+    const statusFilter = hasStatusParam
+      ? (normalizedStatus === 'ALL' ? undefined : normalizedStatus)
+      : 'ACTIVE';
+
+    const isFreeParam = req.query.is_free;
+    let isFreeFilter;
+    if (isFreeParam === 'true' || isFreeParam === true) {
+      isFreeFilter = true;
+    } else if (isFreeParam === 'false' || isFreeParam === false) {
+      isFreeFilter = false;
+    } else if (req.query.free_only) {
+      isFreeFilter = true;
+    }
+
     const filters = {
-      status: req.query.status || 'ACTIVE',
+      status: statusFilter,
       category: req.query.category,
-      competition_type: req.query.type,
-      is_free: req.query.free_only ? true : undefined,
+      competition_type: req.query.type ? String(req.query.type).toUpperCase() : undefined,
+      is_free: isFreeFilter,
       min_price: req.query.min_price,
       max_price: req.query.max_price,
       search: req.query.search,
@@ -523,6 +540,40 @@ export const getCompetitions = async (req, res) => {
       error: error.message
     });
   }
+};
+
+// ==================== COMPETITION PRESET ROUTES ====================
+export const getAllCompetitions = (req, res) => {
+  req.query.status = 'ALL';
+  return getCompetitions(req, res);
+};
+
+export const getActiveCompetitions = (req, res) => {
+  req.query.status = 'ACTIVE';
+  return getCompetitions(req, res);
+};
+
+export const getEndedCompetitions = (req, res) => {
+  req.query.status = 'COMPLETED';
+  return getCompetitions(req, res);
+};
+
+export const getFreeCompetitions = (req, res) => {
+  req.query.status = 'ALL';
+  req.query.is_free = 'true';
+  return getCompetitions(req, res);
+};
+
+export const getPaidCompetitions = (req, res) => {
+  req.query.status = 'ALL';
+  req.query.is_free = 'false';
+  return getCompetitions(req, res);
+};
+
+export const getJackpotCompetitions = (req, res) => {
+  req.query.status = 'ALL';
+  req.query.type = 'JACKPOT';
+  return getCompetitions(req, res);
 };
 
 export const getCompetitionStatsDashboard = async (req, res) => {
@@ -1810,7 +1861,6 @@ export const exportCompetitionData = async (req, res) => {
 
     if (format === 'csv') {
       // Convert to CSV format
-      const { Parser } = await import('json2csv');
       const parser = new Parser();
       const csv = parser.parse(exportData.competition);
       
@@ -1831,6 +1881,96 @@ export const exportCompetitionData = async (req, res) => {
       error: error.message
     });
   }
+};
+
+// Export competitions by status/type as CSV
+export const exportCompetitionCSV = async (req, res) => {
+  try {
+    const rawStatus = req.query.status;
+    const normalizedStatus = rawStatus ? String(rawStatus).toUpperCase() : undefined;
+    const statusFilter = normalizedStatus === 'ALL' ? undefined : normalizedStatus;
+    const typeFilter = req.query.type ? String(req.query.type).toUpperCase() : undefined;
+
+    const isFreeParam = req.query.is_free;
+    let isFreeFilter;
+    if (isFreeParam === 'true' || isFreeParam === true) {
+      isFreeFilter = true;
+    } else if (isFreeParam === 'false' || isFreeParam === false) {
+      isFreeFilter = false;
+    }
+
+    const filters = {
+      status: statusFilter,
+      competition_type: typeFilter,
+      is_free: isFreeFilter,
+      limit: parseInt(req.query.limit) || 10000,
+      page: 1,
+      sort_by: 'created_at',
+      sort_order: 'desc'
+    };
+
+    const { competitions } = await Competition.findCompetitions(filters);
+    const fields = [
+      'id',
+      'title',
+      'status',
+      'competition_type',
+      'is_free_competition',
+      'price',
+      'start_date',
+      'end_date',
+      'total_tickets',
+      'sold_tickets'
+    ];
+
+    const parser = new Parser({ fields });
+    const csv = parser.parse(competitions || []);
+
+    res.setHeader('Content-Type', 'text/csv');
+    res.setHeader('Content-Disposition', 'attachment; filename="competitions-export.csv"');
+    return res.send(csv);
+  } catch (error) {
+    console.error('CSV Export error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to export competitions as CSV',
+      error: error.message
+    });
+  }
+};
+
+// ==================== COMPETITION CSV EXPORT PRESETS ====================
+export const exportAllCompetitionsCSV = (req, res) => {
+  req.query.status = 'ALL';
+  return exportCompetitionCSV(req, res);
+};
+
+export const exportActiveCompetitionsCSV = (req, res) => {
+  req.query.status = 'ACTIVE';
+  return exportCompetitionCSV(req, res);
+};
+
+export const exportEndedCompetitionsCSV = (req, res) => {
+  req.query.status = 'COMPLETED';
+  return exportCompetitionCSV(req, res);
+};
+
+export const exportFreeCompetitionsCSV = (req, res) => {
+  req.query.status = 'ALL';
+  req.query.is_free = 'true';
+  return exportCompetitionCSV(req, res);
+};
+
+export const exportPaidCompetitionsCSV = (req, res) => {
+  req.query.status = 'ALL';
+  req.query.is_free = 'false';
+  return exportCompetitionCSV(req, res);
+};
+
+export const exportJackpotCompetitionsCSV = (req, res) => {
+  req.query.status = 'ALL';
+  req.query.type = 'JACKPOT';
+  return exportCompetitionCSV(req, res);
 };
 
 export const getCompetitionWinners = async (req, res) => {

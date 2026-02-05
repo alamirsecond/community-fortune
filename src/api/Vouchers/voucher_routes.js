@@ -24,6 +24,48 @@ voucherRouter.get(
 );
 
 voucherRouter.get(
+  "/admin/export/active",
+  authenticate(["ADMIN", "admin", "SUPERADMIN", "superadmin"]),
+  voucherController.exportActiveVouchers
+);
+
+voucherRouter.get(
+  "/admin/export/expired",
+  authenticate(["ADMIN", "admin", "SUPERADMIN", "superadmin"]),
+  voucherController.exportExpiredVouchers
+);
+
+voucherRouter.get(
+  "/admin/export/scheduled",
+  authenticate(["ADMIN", "admin", "SUPERADMIN", "superadmin"]),
+  voucherController.exportScheduledVouchers
+);
+
+voucherRouter.get(
+  "/admin/export/inactive",
+  authenticate(["ADMIN", "admin", "SUPERADMIN", "superadmin"]),
+  voucherController.exportInactiveVouchers
+);
+
+voucherRouter.get(
+  "/admin/export/type/single-use",
+  authenticate(["ADMIN", "admin", "SUPERADMIN", "superadmin"]),
+  voucherController.exportSingleUseVouchers
+);
+
+voucherRouter.get(
+  "/admin/export/type/multi-use",
+  authenticate(["ADMIN", "admin", "SUPERADMIN", "superadmin"]),
+  voucherController.exportMultiUseVouchers
+);
+
+voucherRouter.get(
+  "/admin/export/type/bulk-codes",
+  authenticate(["ADMIN", "admin", "SUPERADMIN", "superadmin"]),
+  voucherController.exportBulkCodesVouchers
+);
+
+voucherRouter.get(
   "/admin/list",
   authenticate(["ADMIN", "admin", "SUPERADMIN", "superadmin"]),
   voucherController.listVouchers

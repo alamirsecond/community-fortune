@@ -375,6 +375,32 @@ const [[instantTotals]] = await db.query(
     }
   },
 
+  // ==================== ADMIN: EXPORT PRESET ROUTES ====================
+  exportWinnersAllSources: (req, res) => {
+    req.query.source = "ALL";
+    return winnersController.exportAdminWinners(req, res);
+  },
+
+  exportWinnersMainSource: (req, res) => {
+    req.query.source = "MAIN";
+    return winnersController.exportAdminWinners(req, res);
+  },
+
+  exportWinnersInstantSource: (req, res) => {
+    req.query.source = "INSTANT";
+    return winnersController.exportAdminWinners(req, res);
+  },
+
+  exportWinnersJackpotCategory: (req, res) => {
+    req.query.category = "JACKPOT";
+    return winnersController.exportAdminWinners(req, res);
+  },
+
+  exportWinnersSubscriptionCategory: (req, res) => {
+    req.query.category = "SUBSCRIPTION";
+    return winnersController.exportAdminWinners(req, res);
+  },
+
   // ==================== GET RECENT WINNERS ====================
   getRecentWinners: async (req, res) => {
     try {

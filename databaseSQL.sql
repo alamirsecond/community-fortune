@@ -309,8 +309,6 @@ ALTER TABLE competitions
 MODIFY featured_image VARCHAR(255) NULL,
 MODIFY featured_video VARCHAR(255) NULL;
 
-
-
 -- ===========================================
 -- COMPETITION TYPE CONFIG TABLE - BINARY(16) UUIDs
 -- ===========================================
@@ -563,7 +561,7 @@ CREATE TABLE spin_prizes (
 -- ===========================================
 -- SPIN HISTORY
 -- ===========================================
-CREATE TABLE spin_history (
+ CREATE TABLE spin_history (
     id BINARY(16) PRIMARY KEY,
     user_id BINARY(16),
     prize_id BINARY(16),

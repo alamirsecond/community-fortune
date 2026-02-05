@@ -18,6 +18,19 @@ import {
   updateCompetitionStatus,
   duplicateCompetition,
   exportCompetitionData,
+  exportCompetitionCSV,
+  exportAllCompetitionsCSV,
+  exportActiveCompetitionsCSV,
+  exportEndedCompetitionsCSV,
+  exportFreeCompetitionsCSV,
+  exportPaidCompetitionsCSV,
+  exportJackpotCompetitionsCSV,
+  getAllCompetitions,
+  getActiveCompetitions,
+  getEndedCompetitions,
+  getFreeCompetitions,
+  getPaidCompetitions,
+  getJackpotCompetitions,
   getCompetitionWinners,
   validateCompetitionEntry,
   bulkCreateCompetitions,
@@ -40,6 +53,12 @@ const router = Router();
 
 //==================== PUBLIC ROUTES ====================
 router.get('/', getCompetitions);
+router.get('/all', getAllCompetitions);
+router.get('/active', getActiveCompetitions);
+router.get('/ended', getEndedCompetitions);
+router.get('/free', getFreeCompetitions);
+router.get('/paid', getPaidCompetitions);
+router.get('/jackpot', getJackpotCompetitions);
 router.get('/types', getCompetitionTypes);
 router.get('/templates', getCompetitionTemplates);
 router.get('/:id', getCompetitionDetails);
@@ -126,6 +145,15 @@ router.post('/:id/status', authenticate(['ADMIN','SUPERADMIN']), updateCompetiti
 router.post('/jackpot/start-countdown', authenticate(['ADMIN','SUPERADMIN']), startJackpotCountdown);
 router.post('/winners/select', authenticate(['ADMIN','SUPERADMIN']), selectWinners);
 router.post('/subscription/auto-subscribe', authenticate(['ADMIN','SUPERADMIN']), autoSubscribeUsers);
+
+// Export competitions by status as CSV
+router.get('/export/csv', authenticate(['ADMIN','SUPERADMIN']), exportCompetitionCSV);
+router.get('/export/all', authenticate(['ADMIN','SUPERADMIN']), exportAllCompetitionsCSV);
+router.get('/export/active', authenticate(['ADMIN','SUPERADMIN']), exportActiveCompetitionsCSV);
+router.get('/export/ended', authenticate(['ADMIN','SUPERADMIN']), exportEndedCompetitionsCSV);
+router.get('/export/free', authenticate(['ADMIN','SUPERADMIN']), exportFreeCompetitionsCSV);
+router.get('/export/paid', authenticate(['ADMIN','SUPERADMIN']), exportPaidCompetitionsCSV);
+router.get('/export/jackpot', authenticate(['ADMIN','SUPERADMIN']), exportJackpotCompetitionsCSV);
 router.get('/export/:id', authenticate(['ADMIN','SUPERADMIN']), exportCompetitionData);
 
 export default router;
