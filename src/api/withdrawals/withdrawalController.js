@@ -482,7 +482,7 @@ const withdrawalController = {
 
       let query = `
         SELECT 
-          w.id,
+          BIN_TO_UUID(w.id) AS id,
           w.amount,
           w.status,
           w.payment_method as paymentMethod,
@@ -494,7 +494,7 @@ const withdrawalController = {
           COUNT(wt.id) as transactionCount
         FROM withdrawals w
         LEFT JOIN wallet_transactions wt ON w.id = wt.reference
-        WHERE w.user_id = ?
+        WHERE w.user_id = UUID_TO_BIN(?)
       `;
       const params = [userId];
 
@@ -534,7 +534,7 @@ const withdrawalController = {
       );
 
       // Get total count for pagination
-      let countQuery = `SELECT COUNT(*) as total FROM withdrawals WHERE user_id = ?`;
+      let countQuery = `SELECT COUNT(*) as total FROM withdrawals WHERE user_id = UUID_TO_BIN(?)`;
       const countParams = [userId];
 
       if (status) {
@@ -567,7 +567,7 @@ const withdrawalController = {
           COUNT(CASE WHEN status = 'COMPLETED' THEN 1 END) as completedCount,
           COALESCE(SUM(CASE WHEN status = 'COMPLETED' THEN amount END), 0) as totalWithdrawn
         FROM withdrawals
-        WHERE user_id = ?
+        WHERE user_id = UUID_TO_BIN(?)
       `, [today, currentMonth, userId]);
 
       res.json({
@@ -633,7 +633,24 @@ const withdrawalController = {
       const userId = req.user.id;
 
       const [rows] = await pool.query(
-        `SELECT * FROM withdrawals WHERE id = UUID_TO_BIN(?) AND user_id = UUID_TO_BIN(?)`,
+        `SELECT
+          BIN_TO_UUID(w.id) AS id,
+          BIN_TO_UUID(w.user_id) AS user_id,
+          BIN_TO_UUID(w.admin_id) AS admin_id,
+          w.amount,
+          w.payment_method,
+          w.account_details,
+          w.paypal_email,
+          w.bank_account_last_four,
+          w.bank_name,
+          w.status,
+          w.reason,
+          w.admin_notes,
+          w.requested_at,
+          w.updated_at,
+          w.is_payment_method
+         FROM withdrawals w
+         WHERE w.id = UUID_TO_BIN(?) AND w.user_id = UUID_TO_BIN(?)`,
         [id, userId]
       );
 
