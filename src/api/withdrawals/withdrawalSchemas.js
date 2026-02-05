@@ -187,6 +187,27 @@ const withdrawalSchemas = {
     sortOrder: Joi.string().valid('asc', 'desc').default('desc')
   }),
 
+  withdrawalExportSchema: Joi.object({
+    status: Joi.string()
+      .valid('PENDING', 'PENDING_VERIFICATION', 'APPROVED', 'REJECTED', 'COMPLETED', 'PROCESSING', 'CANCELLED')
+      .optional(),
+    startDate: Joi.date().optional(),
+    endDate: Joi.date().optional(),
+    minAmount: Joi.number().positive().optional(),
+    maxAmount: Joi.number().positive().optional(),
+    paymentMethod: Joi.string().valid('REVOLT', 'STRIPE', 'BANK_TRANSFER', 'PAYPAL').optional(),
+    userId: Joi.string().uuid().optional(),
+    sortBy: Joi.string()
+      .valid('amount', 'requested_at', 'updated_at', 'status')
+      .default('requested_at'),
+    sortOrder: Joi.string().valid('asc', 'desc').default('desc'),
+    thisWeekCompleted: Joi.boolean().truthy('true', '1', 'yes').falsy('false', '0', 'no').default(false),
+    firstTime: Joi.boolean().truthy('true', '1', 'yes').falsy('false', '0', 'no').default(false),
+    largeAmount: Joi.boolean().truthy('true', '1', 'yes').falsy('false', '0', 'no').default(false),
+    largeAmountMin: Joi.number().positive().default(1000),
+    limit: Joi.number().integer().min(1).max(200000).default(200000)
+  }),
+
   kycVerificationSchema: Joi.object({
     userId: Joi.string().uuid().required(),
     kycStatus: Joi.string()

@@ -19,6 +19,14 @@ router.get('/settings', authenticate(['USER']), apiLimiter, withdrawalController
 router.put('/limits', authenticate(['USER']), apiLimiter, withdrawalController.updateSpendingLimits); 
 // Admin routes
 router.get('/all', authenticate(['SUPERADMIN', 'ADMIN']), apiLimiter, withdrawalController.getAllWithdrawals);
+router.get('/export/all', authenticate(['SUPERADMIN', 'ADMIN']), apiLimiter, withdrawalController.exportAllWithdrawalsCsv);
+router.get('/export/pending', authenticate(['SUPERADMIN', 'ADMIN']), apiLimiter, withdrawalController.exportPendingWithdrawalsCsv);
+router.get('/export/approved', authenticate(['SUPERADMIN', 'ADMIN']), apiLimiter, withdrawalController.exportApprovedWithdrawalsCsv);
+router.get('/export/rejected', authenticate(['SUPERADMIN', 'ADMIN']), apiLimiter, withdrawalController.exportRejectedWithdrawalsCsv);
+router.get('/export/completed', authenticate(['SUPERADMIN', 'ADMIN']), apiLimiter, withdrawalController.exportCompletedWithdrawalsCsv);
+router.get('/export/weekly-completed', authenticate(['SUPERADMIN', 'ADMIN']), apiLimiter, withdrawalController.exportWeeklyCompletedWithdrawalsCsv);
+router.get('/export/large-amount', authenticate(['SUPERADMIN', 'ADMIN']), apiLimiter, withdrawalController.exportLargeAmountWithdrawalsCsv);
+router.get('/export/first-time', authenticate(['SUPERADMIN', 'ADMIN']), apiLimiter, withdrawalController.exportFirstTimeWithdrawalsCsv);
 router.put('/:id/status', authenticate(['SUPERADMIN', 'ADMIN']), strictLimiter, withdrawalController.updateWithdrawalStatus);
 router.get('/stats', authenticate(['SUPERADMIN', 'ADMIN']), apiLimiter, withdrawalController.getWithdrawalStats);
 router.post('/verify-kyc', authenticate(['SUPERADMIN', 'ADMIN']), strictLimiter, withdrawalController.verifyKycStatus);

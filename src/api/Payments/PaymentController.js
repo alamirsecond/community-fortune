@@ -342,6 +342,87 @@ class PaymentController {
       res.status(500).json({ success: false, error: error.message });
     }
   }
+
+  async exportTransactionsCsv(req, res) {
+    try {
+      const { limit = 200000, ...filters } = req.query;
+      const data = await paymentService.exportTransactions(filters, parseInt(limit));
+
+      const headers = [
+        'id',
+        'user_id',
+        'type',
+        'amount',
+        'currency',
+        'status',
+        'gateway',
+        'description',
+        'created_at',
+        'completed_at',
+        'reference_table',
+        'reference_id'
+      ];
+
+      const escapeCsv = (val) => {
+        if (val === null || val === undefined) return '';
+        const str = String(val);
+        if (/[\n\r,"]/g.test(str)) return `"${str.replace(/"/g, '""')}"`;
+        return str;
+      };
+
+      const lines = [headers.join(',')];
+      for (const row of data) {
+        lines.push(headers.map((h) => escapeCsv(row[h])).join(','));
+      }
+
+      const csv = lines.join('\n');
+      const filename = `transactions_export_${new Date().toISOString().slice(0, 10)}.csv`;
+      res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+      res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+      res.status(200).send(csv);
+    } catch (error) {
+      console.error('Export transactions error:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
+  }
+
+  exportAllTransactionsCsv(req, res) {
+    return this.exportTransactionsCsv(req, res);
+  }
+
+  exportDepositTransactionsCsv(req, res) {
+    req.query.type = 'deposit';
+    return this.exportTransactionsCsv(req, res);
+  }
+
+  exportWithdrawalTransactionsCsv(req, res) {
+    req.query.type = 'withdrawal';
+    return this.exportTransactionsCsv(req, res);
+  }
+
+  exportCompetitionEntryTransactionsCsv(req, res) {
+    req.query.type = 'competition_entry';
+    return this.exportTransactionsCsv(req, res);
+  }
+
+  exportAllStatusTransactionsCsv(req, res) {
+    return this.exportTransactionsCsv(req, res);
+  }
+
+  exportPendingTransactionsCsv(req, res) {
+    req.query.status = 'pending';
+    return this.exportTransactionsCsv(req, res);
+  }
+
+  exportCompletedTransactionsCsv(req, res) {
+    req.query.status = 'completed';
+    return this.exportTransactionsCsv(req, res);
+  }
+
+  exportFailedTransactionsCsv(req, res) {
+    req.query.status = 'failed';
+    return this.exportTransactionsCsv(req, res);
+  }
 async getTransactionAnalytics(req, res) {
   try {
     const { period = 'this_week', startDate, endDate } = req.query;
