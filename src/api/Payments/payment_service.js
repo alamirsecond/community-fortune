@@ -13,6 +13,8 @@ class PaymentService {
     this.initGateways();
   }
 
+  static ALLOWED_GATEWAYS = new Set(['PAYPAL', 'STRIPE', 'REVOLUT']);
+
   // ==================== INITIALIZATION ====================
 async initGateways() {
   const gateways = await this.getGatewayConfigurations();
@@ -21,32 +23,43 @@ async initGateways() {
   const environment = process.env.NODE_ENV === 'production' ? 'LIVE' : 'SANDBOX';
   
   const stripeConfig = gateways.find(g => g.gateway === 'STRIPE' && g.environment === environment && g.is_enabled);
-  if (stripeConfig && stripeConfig.api_key) { // Changed from secret_key to api_key
-    this.stripe = new Stripe(stripeConfig.api_key);
-    console.log(`Stripe initialized in ${environment} mode`);
+  if (stripeConfig) {
+    const stripeSecret = await secretManager.getSecret(SECRET_KEYS.STRIPE_SECRET_KEY);
+    if (stripeSecret) {
+      this.stripe = new Stripe(stripeSecret);
+      console.log(`Stripe initialized in ${environment} mode`);
+    }
   }
 
   const paypalConfig = gateways.find(g => g.gateway === 'PAYPAL' && g.environment === environment && g.is_enabled);
-  if (paypalConfig && paypalConfig.client_id && paypalConfig.client_secret) {
-    const paypalEnvironment = paypalConfig.environment === 'LIVE' 
-      ? new paypal.core.LiveEnvironment(paypalConfig.client_id, paypalConfig.client_secret)
-      : new paypal.core.SandboxEnvironment(paypalConfig.client_id, paypalConfig.client_secret);
-    this.paypalClient = new paypal.core.PayPalHttpClient(paypalEnvironment);
-    console.log(`PayPal initialized in ${environment} mode`);
+  if (paypalConfig) {
+    const paypalClientId = await secretManager.getSecret(SECRET_KEYS.PAYPAL_CLIENT_ID);
+    const paypalClientSecret = await secretManager.getSecret(SECRET_KEYS.PAYPAL_CLIENT_SECRET);
+
+    if (paypalClientId && paypalClientSecret) {
+      const paypalEnvironment = paypalConfig.environment === 'LIVE' 
+        ? new paypal.core.LiveEnvironment(paypalClientId, paypalClientSecret)
+        : new paypal.core.SandboxEnvironment(paypalClientId, paypalClientSecret);
+      this.paypalClient = new paypal.core.PayPalHttpClient(paypalEnvironment);
+      console.log(`PayPal initialized in ${environment} mode`);
+    }
   }
 
   const revolutConfig = gateways.find(g => g.gateway === 'REVOLUT' && g.environment === environment && g.is_enabled);
-  if (revolutConfig && revolutConfig.api_key) {
-    this.revolutApi = axios.create({
-      baseURL: revolutConfig.environment === 'LIVE' 
-        ? 'https://b2b.revolut.com/api/1.0' 
-        : 'https://sandbox-b2b.revolut.com/api/1.0',
-      headers: {
-        'Authorization': `Bearer ${revolutConfig.api_key}`,
-        'Content-Type': 'application/json'
-      }
-    });
-    console.log(`Revolut initialized in ${environment} mode`);
+  if (revolutConfig) {
+    const revolutApiKey = await secretManager.getSecret(SECRET_KEYS.REVOLUT_API_KEY);
+    if (revolutApiKey) {
+      this.revolutApi = axios.create({
+        baseURL: revolutConfig.environment === 'LIVE' 
+          ? 'https://b2b.revolut.com/api/1.0' 
+          : 'https://sandbox-b2b.revolut.com/api/1.0',
+        headers: {
+          'Authorization': `Bearer ${revolutApiKey}`,
+          'Content-Type': 'application/json'
+        }
+      });
+      console.log(`Revolut initialized in ${environment} mode`);
+    }
   }
 
 }
@@ -61,6 +74,28 @@ async initGateways() {
     } finally {
       connection.release();
     }
+  }
+
+  ensureGatewayAllowed(gateway) {
+    const normalized = String(gateway || '').toUpperCase();
+    if (!PaymentService.ALLOWED_GATEWAYS.has(normalized)) {
+      throw new Error('Unsupported payment gateway');
+    }
+    return normalized;
+  }
+
+  ensureGatewayInitialized(gateway) {
+    const normalized = this.ensureGatewayAllowed(gateway);
+    if (normalized === 'STRIPE' && !this.stripe) {
+      throw new Error('Stripe is not configured');
+    }
+    if (normalized === 'PAYPAL' && !this.paypalClient) {
+      throw new Error('PayPal is not configured');
+    }
+    if (normalized === 'REVOLUT' && !this.revolutApi) {
+      throw new Error('Revolut is not configured');
+    }
+    return normalized;
   }
 
   // ==================== PUBLIC ROUTES ====================
@@ -328,6 +363,7 @@ async initGateways() {
       await connection.beginTransaction();
 
       const { amount, gateway, wallet_type, currency = 'GBP', payment_method_id, return_url, cancel_url } = depositData;
+      const normalizedGateway = this.ensureGatewayInitialized(gateway);
 
       const [user] = await connection.query(
         `SELECT email, country FROM users WHERE id = UUID_TO_BIN(?)`,
@@ -338,7 +374,7 @@ async initGateways() {
       const [gatewayConfig] = await connection.query(
         `SELECT * FROM payment_gateway_settings 
          WHERE gateway = ? AND environment = 'SANDBOX' AND is_enabled = TRUE`,
-        [gateway]
+        [normalizedGateway]
       );
       if (!gatewayConfig.length) throw new Error('Payment gateway is not available');
 
@@ -355,13 +391,13 @@ async initGateways() {
          (id, user_id, type, gateway, amount, currency, fee_amount, net_amount, 
           deposit_to_wallet, status, payment_method_id)
          VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'DEPOSIT', ?, ?, ?, ?, ?, ?, 'PENDING', UUID_TO_BIN(?))`,
-        [userId, gateway, amount, currency, feeAmount, netAmount, wallet_type, payment_method_id || null]
+        [userId, normalizedGateway, amount, currency, feeAmount, netAmount, wallet_type, payment_method_id || null]
       );
 
       const requestId = paymentRequest.insertId;
       let paymentResult;
       
-      switch (gateway.toUpperCase()) {
+      switch (normalizedGateway) {
         case 'PAYPAL':
           paymentResult = await this.createPayPalDeposit(user[0].email, amount, currency, return_url, cancel_url, requestId);
           break;
@@ -387,7 +423,7 @@ async initGateways() {
          (id, user_id, type, amount, currency, status, gateway, 
           gateway_reference, reference_id, metadata)
          VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'DEPOSIT', ?, ?, 'PENDING', ?, ?, UUID_TO_BIN(?), ?)`,
-        [userId, amount, currency, gateway, paymentResult.paymentId || paymentResult.orderId, requestId, JSON.stringify({
+        [userId, amount, currency, normalizedGateway, paymentResult.paymentId || paymentResult.orderId, requestId, JSON.stringify({
           wallet_type, return_url, cancel_url, ...paymentResult.gatewayResponse
         })]
       );
@@ -403,7 +439,7 @@ async initGateways() {
           reference_table, reference_id, payment_id, description)
          VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'deposit', ?, ?, 'pending', ?, 
                  'payment_requests', UUID_TO_BIN(?), UUID_TO_BIN(?), ?)`,
-        [userId, amount, currency, gateway, requestId, payment.insertId, `Deposit via ${gateway}`]
+        [userId, amount, currency, normalizedGateway, requestId, payment.insertId, `Deposit via ${normalizedGateway}`]
       );
 
       await connection.commit();
@@ -589,6 +625,7 @@ async initGateways() {
       await connection.beginTransaction();
 
       const { amount, gateway, account_details, payment_method_id } = withdrawalData;
+      const normalizedGateway = this.ensureGatewayInitialized(gateway);
 
       const [wallet] = await connection.query(
         `SELECT balance FROM wallets 
@@ -600,7 +637,7 @@ async initGateways() {
       const [gatewayConfig] = await connection.query(
         `SELECT * FROM payment_gateway_settings 
          WHERE gateway = ? AND environment = 'LIVE' AND is_enabled = TRUE`,
-        [gateway]
+        [normalizedGateway]
       );
       if (!gatewayConfig.length) throw new Error('Withdrawal gateway is not available');
 
@@ -630,7 +667,7 @@ async initGateways() {
         `INSERT INTO withdrawals 
          (id, user_id, amount, payment_method, account_details, status)
          VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?, 'PENDING')`,
-        [userId, amount, gateway, JSON.stringify(account_details)]
+        [userId, amount, normalizedGateway, JSON.stringify(account_details)]
       );
 
       const withdrawalId = withdrawal.insertId;
@@ -641,7 +678,7 @@ async initGateways() {
           withdrawal_id, status, requires_admin_approval)
          VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'WITHDRAWAL', ?, ?, 'GBP', ?, ?, 
                  UUID_TO_BIN(?), 'PENDING', TRUE)`,
-        [userId, gateway, amount, feeAmount, netAmount, withdrawalId]
+        [userId, normalizedGateway, amount, feeAmount, netAmount, withdrawalId]
       );
 
       const requestId = paymentRequest.insertId;
@@ -650,7 +687,7 @@ async initGateways() {
         `INSERT INTO payments 
          (id, user_id, type, amount, currency, status, gateway, reference_id, metadata)
          VALUES (UUID_TO_UUID(), UUID_TO_BIN(?), 'WITHDRAWAL', ?, 'GBP', 'PENDING', ?, UUID_TO_BIN(?), ?)`,
-        [userId, amount, gateway, requestId, JSON.stringify({
+        [userId, amount, normalizedGateway, requestId, JSON.stringify({
           account_details, fee_amount: feeAmount, net_amount: netAmount
         })]
       );
@@ -671,7 +708,7 @@ async initGateways() {
           reference_table, reference_id, payment_id, description)
          VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'withdrawal', ?, 'GBP', 'pending', ?, 
                  'payment_requests', UUID_TO_BIN(?), UUID_TO_BIN(?), ?)`,
-        [userId, amount, gateway, requestId, payment.insertId, `Withdrawal via ${gateway}`]
+        [userId, amount, normalizedGateway, requestId, payment.insertId, `Withdrawal via ${normalizedGateway}`]
       );
 
       await connection.query(
@@ -1729,8 +1766,10 @@ calculateDateRange(period, startDate, endDate) {
       const tx = transaction[0];
       const refundAmount = amount || tx.amount;
 
+      const normalizedGateway = this.ensureGatewayInitialized(tx.gateway);
+
       let refundResult;
-      switch (tx.gateway.toUpperCase()) {
+      switch (normalizedGateway) {
         case 'PAYPAL':
           refundResult = await this.refundPayPalPayment(tx.gateway_reference, refundAmount);
           break;
@@ -1890,7 +1929,8 @@ async getWithdrawalDetails(withdrawalId, userId) {
 
         // Process via gateway
         let gatewayResult;
-        switch (withdrawalData.gateway.toUpperCase()) {
+        const normalizedGateway = this.ensureGatewayInitialized(withdrawalData.gateway);
+        switch (normalizedGateway) {
             case 'PAYPAL':
                 gatewayResult = await this.processPayPalWithdrawal(
                     withdrawalData.email,
