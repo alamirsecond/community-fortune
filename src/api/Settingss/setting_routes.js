@@ -27,6 +27,10 @@ settingsRouter.post("/transaction-limits", settingsController.updateTransactionL
 settingsRouter.get("/security", settingsController.getSecuritySettings);
 settingsRouter.post("/security", settingsController.updateSecuritySettings);
 
+// ==================== SECRET MANAGEMENT ====================
+settingsRouter.get("/secrets", settingsController.getSecrets);
+settingsRouter.post("/secrets", settingsController.updateSecrets);
+
 // ==================== SUBSCRIPTION TIERS ====================
 settingsRouter.get("/subscription-tiers", settingsController.getSubscriptionTiers);
 settingsRouter.get("/subscription-tiers/:id", settingsController.getSubscriptionTierById);

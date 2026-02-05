@@ -223,6 +223,48 @@ class SettingsController {
     }
   }
 
+  // ==================== SECRET MANAGEMENT ====================
+  async getSecrets(req, res) {
+    try {
+      const data = await settingsService.getSecretOverview();
+      return res.status(200).json({
+        success: true,
+        data
+      });
+    } catch (error) {
+      return res.status(500).json({
+        success: false,
+        message: 'Failed to fetch secrets overview',
+        error: error.message
+      });
+    }
+  }
+
+  async updateSecrets(req, res) {
+    try {
+      if (req.user.role !== 'SUPERADMIN') {
+        return res.status(403).json({
+          success: false,
+          message: 'Only super administrators can update secrets'
+        });
+      }
+
+      const adminId = req.user.id;
+      const data = await settingsService.updateSecrets(req.body, adminId);
+
+      return res.status(200).json({
+        success: true,
+        message: 'Secrets updated successfully',
+        data
+      });
+    } catch (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.message
+      });
+    }
+  }
+
   // ==================== SUBSCRIPTION TIERS ====================
   async getSubscriptionTiers(req, res) {
     try {

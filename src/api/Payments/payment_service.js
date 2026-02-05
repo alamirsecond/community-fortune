@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import paypal from '@paypal/checkout-server-sdk';
 import axios from 'axios';
 import crypto from 'crypto';
+import secretManager, { SECRET_KEYS } from '../../Utils/secretManager.js';
 
 class PaymentService {
   constructor() {
@@ -3127,7 +3128,7 @@ async processRevolutWithdrawal(amount, currency, accountDetails) {
         // Create payment/payout
         const payment = await this.revolutApi.post('/pay', {
             request_id: requestId,
-            account_id: accountDetails.account_id || this.getDefaultRevolutAccountId(),
+            account_id: accountDetails.account_id || await this.getDefaultRevolutAccountId(),
             receiver: {
                 counterparty_id: counterpartyId,
                 account_id: accountDetails.receiver_account_id
@@ -3227,10 +3228,16 @@ async getRevolutAccounts() {
     }
 }
 
-getDefaultRevolutAccountId() {
-    // This should be configured in your gateway settings
-    // For now, return from environment or use first account
-    return process.env.REVOLUT_DEFAULT_ACCOUNT_ID || null;
+async getDefaultRevolutAccountId() {
+  try {
+    return await secretManager.getSecret(SECRET_KEYS.REVOLUT_DEFAULT_ACCOUNT_ID, {
+      fallbackEnvVar: 'REVOLUT_DEFAULT_ACCOUNT_ID',
+      optional: true
+    });
+  } catch (error) {
+    console.warn('Revolut default account not configured:', error.message);
+    return null;
+  }
 }
 
 async checkRevolutPaymentStatus(paymentId) {

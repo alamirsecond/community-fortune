@@ -1,48 +1,127 @@
 import { body } from 'express-validator';
+import Stripe from 'stripe';
+import paypal from '@paypal/checkout-server-sdk';
+import crypto from 'crypto';
+import secretManager, { SECRET_KEYS } from '../src/Utils/secretManager.js';
 
 export const validateWebhookSignature = (gateway) => {
   return async (req, res, next) => {
     try {
       let isValid = false;
-      
+
       switch (gateway) {
-        case 'stripe':
-          const stripe = require('stripe')(process.env.STRIPE_SECRET_KEY);
-          const sig = req.headers['stripe-signature'];
-          const endpointSecret = process.env.STRIPE_WEBHOOK_SECRET;
-          
-          if (sig && endpointSecret) {
-            try {
-              req.event = stripe.webhooks.constructEvent(req.rawBody, sig, endpointSecret);
+        case 'stripe': {
+          const signature = req.headers['stripe-signature'];
+          if (!signature) {
+            break;
+          }
+
+          let stripeSecret;
+          let webhookSecret;
+          try {
+            [stripeSecret, webhookSecret] = await Promise.all([
+              secretManager.getSecret(SECRET_KEYS.STRIPE_SECRET_KEY, { fallbackEnvVar: 'STRIPE_SECRET_KEY' }),
+              secretManager.getSecret(SECRET_KEYS.STRIPE_WEBHOOK_SECRET, { fallbackEnvVar: 'STRIPE_WEBHOOK_SECRET' })
+            ]);
+          } catch (secretError) {
+            console.error('Stripe secret retrieval error:', secretError.message);
+            return res.status(500).json({ success: false, error: 'Stripe secrets are not configured' });
+          }
+
+          try {
+            const stripe = new Stripe(stripeSecret);
+            const rawPayload = req.rawBody || JSON.stringify(req.body);
+            req.event = stripe.webhooks.constructEvent(rawPayload, signature, webhookSecret);
+            isValid = true;
+          } catch (err) {
+            console.error('Stripe webhook signature verification failed:', err);
+          }
+          break;
+        }
+
+        case 'paypal': {
+          const requiredHeaders = [
+            'paypal-transmission-id',
+            'paypal-transmission-time',
+            'paypal-transmission-sig',
+            'paypal-cert-url',
+            'paypal-auth-algo'
+          ];
+
+          const missingHeader = requiredHeaders.find((header) => !req.headers[header]);
+          if (missingHeader) {
+            console.warn(`Missing PayPal webhook header: ${missingHeader}`);
+            break;
+          }
+
+          let clientId;
+          let clientSecret;
+          let webhookId;
+          try {
+            [clientId, clientSecret, webhookId] = await Promise.all([
+              secretManager.getSecret(SECRET_KEYS.PAYPAL_CLIENT_ID, { fallbackEnvVar: 'PAYPAL_CLIENT_ID' }),
+              secretManager.getSecret(SECRET_KEYS.PAYPAL_CLIENT_SECRET, { fallbackEnvVar: 'PAYPAL_CLIENT_SECRET' }),
+              secretManager.getSecret(SECRET_KEYS.PAYPAL_WEBHOOK_ID, { fallbackEnvVar: 'PAYPAL_WEBHOOK_ID' })
+            ]);
+          } catch (secretError) {
+            console.error('PayPal secret retrieval error:', secretError.message);
+            return res.status(500).json({ success: false, error: 'PayPal secrets are not configured' });
+          }
+
+          const environment = process.env.NODE_ENV === 'production'
+            ? new paypal.core.LiveEnvironment(clientId, clientSecret)
+            : new paypal.core.SandboxEnvironment(clientId, clientSecret);
+          const paypalClient = new paypal.core.PayPalHttpClient(environment);
+
+          const verifyRequest = new paypal.notifications.VerifyWebhookSignatureRequest();
+          verifyRequest.requestBody({
+            auth_algo: req.headers['paypal-auth-algo'],
+            cert_url: req.headers['paypal-cert-url'],
+            transmission_id: req.headers['paypal-transmission-id'],
+            transmission_sig: req.headers['paypal-transmission-sig'],
+            transmission_time: req.headers['paypal-transmission-time'],
+            webhook_id: webhookId,
+            webhook_event: req.body
+          });
+
+          try {
+            const response = await paypalClient.execute(verifyRequest);
+            if (response.result?.verification_status === 'SUCCESS') {
+              req.event = req.body;
               isValid = true;
-            } catch (err) {
-              console.error('Stripe webhook signature verification failed:', err);
             }
+          } catch (error) {
+            console.error('PayPal webhook verification failed:', error.message);
           }
           break;
-          
-        case 'paypal':
-          const paypal = require('@paypal/checkout-server-sdk');
-          const paypalClient = new paypal.core.PayPalHttpClient(
-            new paypal.core.SandboxEnvironment(
-              process.env.PAYPAL_CLIENT_ID,
-              process.env.PAYPAL_CLIENT_SECRET
-            )
-          );
-          // PayPal webhook verification logic
-          break;
-          
-        case 'revolut':
-          const crypto = require('crypto');
+        }
+
+        case 'revolut': {
           const signature = req.headers['revolut-webhook-signature'];
-          const secret = process.env.REVOLUT_WEBHOOK_SECRET;
-          
-          if (signature && secret) {
-            const hmac = crypto.createHmac('sha256', secret);
-            const digest = hmac.update(JSON.stringify(req.body)).digest('hex');
-            isValid = crypto.timingSafeEqual(Buffer.from(signature), Buffer.from(digest));
+          if (!signature) {
+            break;
+          }
+
+          let webhookSecret;
+          try {
+            webhookSecret = await secretManager.getSecret(SECRET_KEYS.REVOLUT_WEBHOOK_SECRET, {
+              fallbackEnvVar: 'REVOLUT_WEBHOOK_SECRET'
+            });
+          } catch (secretError) {
+            console.error('Revolut secret retrieval error:', secretError.message);
+            return res.status(500).json({ success: false, error: 'Revolut webhook secret is not configured' });
+          }
+
+          const payload = req.rawBody || JSON.stringify(req.body);
+          const digest = crypto.createHmac('sha256', webhookSecret).update(payload).digest('hex');
+
+          if (signature.length === digest.length) {
+            const signatureBuffer = Buffer.from(signature, 'hex');
+            const digestBuffer = Buffer.from(digest, 'hex');
+            isValid = crypto.timingSafeEqual(signatureBuffer, digestBuffer);
           }
           break;
+        }
       }
       
       if (isValid) {

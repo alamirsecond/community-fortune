@@ -1230,6 +1230,98 @@ Request Body:
   "withdrawal_fee_percent": 2.5
 }
 ```
+# Secret Management (SuperAdmin)
+# Overview
+# Gateway credentials, webhook secrets, and the platform JWT signing key are now stored in the encrypted secret store. These endpoints live under the settings service, require ADMIN authentication to read, and require SUPERADMIN to write. All payment flows (Stripe, PayPal, Revolut), webhook validators, and JWT helpers automatically pull the latest values from this store, so no additional configuration is needed after upload.
+
+# Prerequisites
+# - SECRET_ENCRYPTION_KEY (or ENCRYPTION_KEY) must exist in the environment with at least 32 characters so secrets can be encrypted with AES-256-GCM.
+# - The database user must have access to the system_settings table where encrypted blobs are stored.
+# - Legacy environment variables remain as fallbacks until their corresponding secret is uploaded.
+
+# 1. Get Secret Status
+http
+# GET /settings/secrets
+Response:
+
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "key": "jwt",
+      "label": "JWT & Tokens",
+      "sortOrder": 1,
+      "fields": [
+        {
+          "field": "jwtSecret",
+          "label": "JWT Secret",
+          "envVar": "JWT_SECRET",
+          "description": "Signing secret for user and admin JWTs",
+          "category": "SECURITY",
+          "isConfigured": true,
+          "updatedAt": "2026-02-05T10:12:00Z",
+          "updatedBy": "0c1c6c3e-7c05-4d2b-95a8-2b1fd0db6f61"
+        }
+      ]
+    },
+    {
+      "key": "stripe",
+      "label": "Stripe",
+      "sortOrder": 3,
+      "fields": [
+        {
+          "field": "stripeSecretKey",
+          "label": "Stripe Secret Key",
+          "envVar": "STRIPE_SECRET_KEY",
+          "description": "Stripe secret key for server-side operations",
+          "category": "PAYMENT",
+          "isConfigured": false,
+          "updatedAt": null,
+          "updatedBy": null
+        }
+      ]
+    }
+  ]
+}
+```
+
+# 2. Update Secrets (SUPERADMIN only)
+http
+# POST /settings/secrets
+Request Body:
+
+```json
+{
+  "jwt": {
+    "secret": "super-long-random-value"
+  },
+  "paypal": {
+    "clientId": "AbCdEf123",
+    "clientSecret": "XeFgh456",
+    "webhookId": "3KD123456789"
+  },
+  "stripe": {
+    "publishableKey": "pk_live_123",
+    "secretKey": "sk_live_123",
+    "webhookSecret": "whsec_123",
+    "connectClientId": "ca_789"
+  },
+  "revolut": {
+    "apiKey": "prod-123",
+    "webhookSecret": "revsec_123",
+    "defaultAccountId": "aaaa-bbbb-cccc"
+  }
+}
+```
+
+# Response mirrors the GET payload, showing the updated status for every secret group. You can send partial payloads (for example, only a new Stripe webhook secret) and the service will update just those values. Empty strings are rejected, and unknown keys throw validation errors.
+
+# Operational Notes
+# - Values are encrypted with AES-256-GCM before being persisted and cached in-memory for up to SECRET_CACHE_TTL milliseconds (default 5 minutes).
+# - Cache entries are invalidated automatically after every successful update, so payment services start using the new credentials immediately without a restart.
+# - Stripe, PayPal, and Revolut SDK initializers, webhook middleware, payout handlers, and JWT issuers all pull from secretManager, so rotating secrets here covers every payment endpoint and token workflow documented above.
+
 # Competition System Integration
 Subscription & Tickets
 # 1. Process Subscription Payment
