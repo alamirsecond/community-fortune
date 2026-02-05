@@ -58,6 +58,7 @@ superAdminRouter.post("/createAdmins",superAdminController.createAdmin);
 superAdminRouter.get("/AllAdmins",superAdminController.getAdmins);
 superAdminRouter.get("/getAdmin/:admin_id",superAdminController.getAdmin);
 superAdminRouter.put("/updateAdmin/:admin_id",superAdminController.updateAdmin);
+superAdminRouter.delete("deleteAdmin/:admin_id",superAdminController.deleteAdmin);
 superAdminRouter.post("/admins/:admin_id/reset-password",superAdminController.resetAdminPassword);
 superAdminRouter.get("/activity-logs",superAdminController.getActivityLogs);
 

@@ -1465,6 +1465,72 @@ getDashboardStats: async (req, res) => {
       });
     }
   },
+
+  // Delete admin (SUPERADMIN only)
+  deleteAdmin: async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+      if (req.user?.role !== 'SUPERADMIN') {
+        return res.status(403).json({
+          success: false,
+          error: 'Only SUPERADMIN can delete admins'
+        });
+      }
+
+      const { admin_id } = req.params;
+      if (!admin_id) {
+        return res.status(400).json({ success: false, error: 'Admin ID is required' });
+      }
+
+      if (req.user?.id === admin_id) {
+        return res.status(400).json({ success: false, error: 'Cannot delete your own account' });
+      }
+
+      await connection.beginTransaction();
+
+      const [adminRows] = await connection.query(
+        `SELECT id, role, email FROM users WHERE id = UUID_TO_BIN(?) AND role IN ('ADMIN', 'SUPERADMIN')`,
+        [admin_id]
+      );
+
+      if (!adminRows.length) {
+        await connection.rollback();
+        return res.status(404).json({ success: false, error: 'Admin not found' });
+      }
+
+      if (adminRows[0].role === 'SUPERADMIN') {
+        await connection.rollback();
+        return res.status(400).json({ success: false, error: 'Cannot delete SUPERADMIN account' });
+      }
+
+      await connection.query(
+        `UPDATE users SET is_active = FALSE, updated_at = CURRENT_TIMESTAMP WHERE id = UUID_TO_BIN(?)`,
+        [admin_id]
+      );
+
+      await connection.query(
+        `INSERT INTO admin_activities (id, admin_id, action, target_id, module, ip_address, user_agent)
+         VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, UUID_TO_BIN(?), ?, ?, ?)`,
+        [
+          req.user.id,
+          'DELETE_ADMIN',
+          admin_id,
+          'USER',
+          req.ip,
+          req.headers['user-agent']
+        ]
+      );
+
+      await connection.commit();
+      return res.json({ success: true, message: 'Admin deleted successfully' });
+    } catch (error) {
+      await connection.rollback();
+      console.error('Delete admin error:', error);
+      return res.status(500).json({ success: false, error: 'Failed to delete admin' });
+    } finally {
+      connection.release();
+    }
+  },
   dismissAlert:async(req, res)=> {
     try {
       const { id } = req.params;
