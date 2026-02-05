@@ -223,18 +223,13 @@ getAdmins: async (req, res) => {
       page = 1,
       limit = 20,
       search = "",
-      status = "active",
     } = parsed.data;
     
     const offset = (page - 1) * limit;
     let whereClause = "WHERE u.role IN ('ADMIN', 'SUPERADMIN')";
     const queryParams = [];
     
-    if (status === "active") {
-      whereClause += " AND u.is_active = TRUE";
-    } else if (status === "inactive") {
-      whereClause += " AND u.is_active = FALSE";
-    }
+
     
     if (search) {
       whereClause +=
