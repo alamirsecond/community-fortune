@@ -1214,7 +1214,7 @@ CREATE TABLE withdrawals (
     paypal_email VARCHAR(255),
     bank_account_last_four VARCHAR(8),
     bank_name VARCHAR(100),
-    status ENUM('PENDING', 'APPROVED', 'REJECTED', 'COMPLETED') DEFAULT 'PENDING',
+    status ENUM('PENDING', 'PENDING_VERIFICATION', 'APPROVED', 'REJECTED', 'PROCESSING', 'COMPLETED', 'CANCELLED') DEFAULT 'PENDING',
     reason TEXT,
     admin_notes TEXT,
     admin_id BINARY(16),
