@@ -178,9 +178,14 @@ export const createCompetition = async (req, res) => {
 
       if (maxTicket) {
         for (const instantWin of competitionData.instant_wins) {
-          const maxCount = parseInt(instantWin.max_count, 10);
-          if (instantWin.ticket_numbers.length === 0 && Number.isInteger(maxCount) && maxCount > 0) {
-            const generated = generateUniqueTicketNumbers(maxCount, maxTicket, usedNumbers);
+          const randomCount = parseInt(instantWin.random_count, 10);
+          const firstEntryCount = parseInt(instantWin.first_entry_count, 10);
+          const hasSplitCounts =
+            Number.isInteger(randomCount) || Number.isInteger(firstEntryCount);
+          const targetRandomCount = Number.isInteger(randomCount) ? randomCount : 0;
+
+          if (hasSplitCounts && instantWin.ticket_numbers.length === 0 && targetRandomCount > 0) {
+            const generated = generateUniqueTicketNumbers(targetRandomCount, maxTicket, usedNumbers);
             if (!generated) {
               return res.status(400).json({
                 success: false,
@@ -434,9 +439,14 @@ export const updateCompetition = async (req, res) => {
 
       if (Number.isInteger(maxTicket) && maxTicket > 0) {
         for (const instantWin of competitionData.instant_wins) {
-          const maxCount = parseInt(instantWin.max_count, 10);
-          if (instantWin.ticket_numbers.length === 0 && Number.isInteger(maxCount) && maxCount > 0) {
-            const generated = generateUniqueTicketNumbers(maxCount, maxTicket, usedNumbers);
+          const randomCount = parseInt(instantWin.random_count, 10);
+          const firstEntryCount = parseInt(instantWin.first_entry_count, 10);
+          const hasSplitCounts =
+            Number.isInteger(randomCount) || Number.isInteger(firstEntryCount);
+          const targetRandomCount = Number.isInteger(randomCount) ? randomCount : 0;
+
+          if (hasSplitCounts && instantWin.ticket_numbers.length === 0 && targetRandomCount > 0) {
+            const generated = generateUniqueTicketNumbers(targetRandomCount, maxTicket, usedNumbers);
             if (!generated) {
               return res.status(400).json({
                 success: false,
