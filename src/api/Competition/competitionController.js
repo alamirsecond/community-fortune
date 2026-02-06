@@ -48,6 +48,38 @@ const toMySQLDateTime = (date) => {
   return d.toISOString().slice(0, 19).replace('T', ' ');
 };
 
+const generateUniqueTicketNumbers = (count, maxTicket, usedNumbers) => {
+  const numbers = [];
+  const maxAvailable = maxTicket - usedNumbers.size;
+
+  if (count > maxAvailable) {
+    return null;
+  }
+
+  let attempts = 0;
+  const maxAttempts = Math.max(1000, maxTicket * 5);
+
+  while (numbers.length < count && attempts < maxAttempts) {
+    const candidate = Math.floor(Math.random() * maxTicket) + 1;
+    if (!usedNumbers.has(candidate)) {
+      usedNumbers.add(candidate);
+      numbers.push(candidate);
+    }
+    attempts += 1;
+  }
+
+  if (numbers.length < count) {
+    for (let candidate = 1; candidate <= maxTicket && numbers.length < count; candidate += 1) {
+      if (!usedNumbers.has(candidate)) {
+        usedNumbers.add(candidate);
+        numbers.push(candidate);
+      }
+    }
+  }
+
+  return numbers.length === count ? numbers : null;
+};
+
 export const createCompetition = async (req, res) => {
   try {
     const files = req.files || {};
@@ -121,6 +153,51 @@ export const createCompetition = async (req, res) => {
     if ((!competitionData.gallery_images || competitionData.gallery_images.length === 0) && req.body.gallery_images) {
       const parsed = parseJsonField(req.body.gallery_images);
       if (Array.isArray(parsed)) competitionData.gallery_images = parsed;
+    }
+
+    // Auto-generate instant win ticket numbers when none are provided
+    if (Array.isArray(competitionData.instant_wins) && competitionData.instant_wins.length > 0) {
+      const usedNumbers = new Set();
+
+      competitionData.instant_wins.forEach((instantWin) => {
+        const ticketNumbers = Array.isArray(instantWin.ticket_numbers)
+          ? instantWin.ticket_numbers
+          : [];
+
+        const normalized = ticketNumbers
+          .map((num) => parseInt(num, 10))
+          .filter((num) => Number.isInteger(num) && num > 0);
+
+        instantWin.ticket_numbers = normalized;
+        normalized.forEach((num) => usedNumbers.add(num));
+      });
+
+      const maxTicket = Number.isInteger(competitionData.total_tickets)
+        ? competitionData.total_tickets
+        : null;
+
+      if (maxTicket) {
+        for (const instantWin of competitionData.instant_wins) {
+          const maxCount = parseInt(instantWin.max_count, 10);
+          if (instantWin.ticket_numbers.length === 0 && Number.isInteger(maxCount) && maxCount > 0) {
+            const generated = generateUniqueTicketNumbers(maxCount, maxTicket, usedNumbers);
+            if (!generated) {
+              return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: [
+                  {
+                    path: 'body.instant_wins',
+                    message: 'Not enough unique ticket numbers available to generate instant wins'
+                  }
+                ]
+              });
+            }
+
+            instantWin.ticket_numbers = generated;
+          }
+        }
+      }
     }
 
 
@@ -330,6 +407,53 @@ export const updateCompetition = async (req, res) => {
         allGallery = fs.readdirSync(galleryDir).map(file => getFileUrl(path.join(galleryDir, file)));
       }
       competitionData.gallery_images = allGallery;
+    }
+
+    // Auto-generate instant win ticket numbers when none are provided
+    if (Array.isArray(competitionData.instant_wins) && competitionData.instant_wins.length > 0) {
+      const usedNumbers = new Set();
+
+      competitionData.instant_wins.forEach((instantWin) => {
+        const ticketNumbers = Array.isArray(instantWin.ticket_numbers)
+          ? instantWin.ticket_numbers
+          : [];
+
+        const normalized = ticketNumbers
+          .map((num) => parseInt(num, 10))
+          .filter((num) => Number.isInteger(num) && num > 0);
+
+        instantWin.ticket_numbers = normalized;
+        normalized.forEach((num) => usedNumbers.add(num));
+      });
+
+      const totalTicketsRaw =
+        competitionData.total_tickets !== undefined
+          ? competitionData.total_tickets
+          : currentCompetition.total_tickets;
+      const maxTicket = parseInt(totalTicketsRaw, 10);
+
+      if (Number.isInteger(maxTicket) && maxTicket > 0) {
+        for (const instantWin of competitionData.instant_wins) {
+          const maxCount = parseInt(instantWin.max_count, 10);
+          if (instantWin.ticket_numbers.length === 0 && Number.isInteger(maxCount) && maxCount > 0) {
+            const generated = generateUniqueTicketNumbers(maxCount, maxTicket, usedNumbers);
+            if (!generated) {
+              return res.status(400).json({
+                success: false,
+                message: 'Validation failed',
+                errors: [
+                  {
+                    path: 'body.instant_wins',
+                    message: 'Not enough unique ticket numbers available to generate instant wins'
+                  }
+                ]
+              });
+            }
+
+            instantWin.ticket_numbers = generated;
+          }
+        }
+      }
     }
 
     const validationResult = validateRequest(updateCompetitionSchema, { body: competitionData });
