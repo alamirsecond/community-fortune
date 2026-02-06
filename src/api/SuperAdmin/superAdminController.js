@@ -110,7 +110,34 @@ const superAdminController = {
       const salt = await bcrypt.genSalt(10);
       const hashedPassword = await bcrypt.hash(tempPassword, salt);
       //Generate username if not provided
-      const adminUsername = username || email.split("@")[0] + "_admin";
+      const baseUsername = username || `${email.split("@")[0]}_admin`;
+      let adminUsername = baseUsername;
+      if (username) {
+        const [existingUsername] = await connection.query(
+          `SELECT id FROM users WHERE username = ? LIMIT 1`,
+          [adminUsername]
+        );
+        if (existingUsername.length > 0) {
+          await connection.rollback();
+          return res.status(400).json({
+            success: false,
+            error: "Username already exists",
+          });
+        }
+      } else {
+        let suffix = 1;
+        while (true) {
+          const [existingUsername] = await connection.query(
+            `SELECT id FROM users WHERE username = ? LIMIT 1`,
+            [adminUsername]
+          );
+          if (existingUsername.length === 0) {
+            break;
+          }
+          adminUsername = `${baseUsername}${suffix}`;
+          suffix += 1;
+        }
+      }
       // Default permissions
       const defaultPermissions = {
         manage_competitions: true,
@@ -174,19 +201,30 @@ const superAdminController = {
   ]
 );
 
-      // Send welcome email with password
-      await sendAdminCreationEmail({
-        to: email,
-        subject: "Welcome to Community Fortune Admin Panel",
-        name: first_name,
-        email,
-        password: tempPassword,
-        loginUrl: `${process.env.FRONTEND_URL}/admin/login`,
-      });
       await connection.commit();
+
+      let emailFailed = false;
+      try {
+        // Send welcome email with password after commit
+        await sendAdminCreationEmail({
+          to: email,
+          subject: "Welcome to Community Fortune Admin Panel",
+          name: first_name,
+          email,
+          password: tempPassword,
+          loginUrl: `${process.env.FRONTEND_URL}/admin/login`,
+        });
+      } catch (emailError) {
+        emailFailed = true;
+        console.error("Admin creation email failed:", emailError);
+      }
+
       res.status(201).json({
         success: true,
-        message: "Admin created successfully. Login credentials sent to email.",
+        message: emailFailed
+          ? "Admin created, but email failed to send."
+          : "Admin created successfully. Login credentials sent to email.",
+        emailSent: !emailFailed,
         data: {
           admin_id: newAdminId.toString("hex"), // optional: convert binary to string for FE
           email,

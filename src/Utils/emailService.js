@@ -110,8 +110,10 @@ export const sendAdminCreationEmail = async ({
       © ${new Date().getFullYear()} Community Fortune
     `;
 
+    const fromAddress = process.env.EMAIL_FROM || process.env.SUPPORT_EMAIL;
+
     await transporter.sendMail({
-      from: `"Community Fortune" <${process.env.SUPPORT_EMAIL}>`,
+      from: `"Community Fortune" <${fromAddress}>`,
       to,
       subject,
       html,
