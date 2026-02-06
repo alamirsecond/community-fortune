@@ -4,6 +4,29 @@ import { addSiteCredit, addPoints } from "../../api/wallet/walletController.js";
 import { checkSpinEligibility, updateSpinCount } from "./spinService.js";
 import SpinService from "./spinService.js";
 import TicketSystemController from "../TICKETS/tickets_con.js";
+import { getSpinWheelFileUrl } from "../../../middleware/upload.js";
+
+const safeParseInt = (val) =>
+  val !== undefined && val !== null && val !== "" ? parseInt(val, 10) : undefined;
+
+const safeParseBool = (val) => {
+  if (val === true || val === "true") return true;
+  if (val === false || val === "false") return false;
+  return undefined;
+};
+
+const normalizeWheelBody = (body) => ({
+  name: body.name,
+  type: body.type,
+  description: body.description,
+  min_tier: body.min_tier,
+  spins_per_user_period: body.spins_per_user_period,
+  max_spins_per_period: safeParseInt(body.max_spins_per_period),
+  cooldown_hours: safeParseInt(body.cooldown_hours),
+  background_image_url: body.background_image_url,
+  animation_speed_ms: safeParseInt(body.animation_speed_ms),
+  is_active: safeParseBool(body.is_active),
+});
 
 class SpinWheelController {
   static async spin(req, res) {
@@ -445,7 +468,12 @@ class SpinWheelController {
     try {
       await connection.beginTransaction();
 
-      const validationResult = spinWheelSchemas.createWheel.safeParse(req.body);
+      const bodyData = normalizeWheelBody(req.body);
+      if (req.file) {
+        bodyData.background_image_url = getSpinWheelFileUrl(req.file.path);
+      }
+
+      const validationResult = spinWheelSchemas.createWheel.safeParse(bodyData);
       if (!validationResult.success) {
         return res.status(400).json({
           error: "Invalid wheel data",
@@ -710,7 +738,12 @@ class SpinWheelController {
 
       const { wheel_id } = req.params;
 
-      const validationResult = spinWheelSchemas.updateWheel.safeParse(req.body);
+      const bodyData = normalizeWheelBody(req.body);
+      if (req.file) {
+        bodyData.background_image_url = getSpinWheelFileUrl(req.file.path);
+      }
+
+      const validationResult = spinWheelSchemas.updateWheel.safeParse(bodyData);
       if (!validationResult.success) {
         return res.status(400).json({
           error: "Invalid wheel update data",
