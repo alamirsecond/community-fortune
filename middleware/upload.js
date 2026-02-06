@@ -10,6 +10,7 @@ const execAsync = promisify(exec);
 
 const competitionUploadsDir = path.resolve(process.env.COMPETITION_UPLOAD_PATH || './uploads/competitions');
 const gamesUploadDir = path.resolve(process.env.GAMES_UPLOAD_PATH || './uploads/games');
+const spinWheelUploadsDir = path.resolve(process.env.SPIN_WHEEL_UPLOAD_PATH || './uploads/spin_wheels');
 
 // Ensure competition uploads directory exists
 if (!fs.existsSync(competitionUploadsDir)) {
@@ -19,6 +20,11 @@ if (!fs.existsSync(competitionUploadsDir)) {
 // Ensure game uploads directory exists
 if (!fs.existsSync(gamesUploadDir)) {
   fs.mkdirSync(gamesUploadDir, { recursive: true });
+}
+
+// Ensure spin wheel uploads directory exists
+if (!fs.existsSync(spinWheelUploadsDir)) {
+  fs.mkdirSync(spinWheelUploadsDir, { recursive: true });
 }
 
 // Competition-specific storage configuration
@@ -142,6 +148,63 @@ const imageOnlyUpload = multer({
   }
 });
 
+// Spin wheel image storage configuration
+const spinWheelStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const wheelId = req.params.wheel_id || req.body.wheel_id || 'temp';
+    const wheelDir = path.join(spinWheelUploadsDir, wheelId);
+
+    if (!fs.existsSync(wheelDir)) {
+      fs.mkdirSync(wheelDir, { recursive: true });
+    }
+
+    const fileTypeDirs = {
+      'background_image': 'background'
+    };
+
+    const fieldName = file.fieldname;
+    const subDirectory = fileTypeDirs[fieldName] || 'others';
+    const finalDir = path.join(wheelDir, subDirectory);
+
+    if (!fs.existsSync(finalDir)) {
+      fs.mkdirSync(finalDir, { recursive: true });
+    }
+
+    cb(null, finalDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname).toLowerCase();
+    const originalName = path.parse(file.originalname).name;
+    const sanitizedName = originalName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+
+    cb(null, `${sanitizedName}-${uniqueSuffix}${ext}`);
+  }
+});
+
+const spinWheelImageUpload = multer({
+  storage: spinWheelStorage,
+  fileFilter: (req, file, cb) => {
+    const allowedImageMimes = [
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/webp',
+      'image/gif'
+    ];
+
+    if (allowedImageMimes.includes(file.mimetype)) {
+      cb(null, true);
+    } else {
+      cb(new Error('Only image files are allowed (JPEG, PNG, WebP, GIF)'), false);
+    }
+  },
+  limits: {
+    fileSize: parseInt(process.env.MAX_SPIN_WHEEL_IMAGE_SIZE) || 10 * 1024 * 1024,
+    files: 1
+  }
+});
+
 const documentOnlyUpload = multer({
   storage: competitionStorage,
   fileFilter: (req, file, cb) => {
@@ -187,6 +250,8 @@ export const competitionDocumentsUpload = documentOnlyUpload.fields([
 ]);
 
 export const bulkUploadCompetitions = documentOnlyUpload.single('csv_file');
+
+export const spinWheelBackgroundUpload = spinWheelImageUpload.single('background_image');
 
 // Middleware to check file types after upload
 export const validateUploadedFiles = (req, res, next) => {
@@ -620,4 +685,21 @@ export default {
   getGameUrl,
   getGameFiles,
   deleteGame
+};
+
+// Utility function to get spin wheel file URL
+export const getSpinWheelFileUrl = (filePath) => {
+  if (!filePath) {
+    console.error('getSpinWheelFileUrl called with undefined filePath');
+    return null;
+  }
+
+  try {
+    const relativePath = path.relative(spinWheelUploadsDir, filePath).replace(/\\/g, '/');
+    const baseUrl = process.env.SERVER_URL || 'http://localhost:4000';
+    return `${baseUrl}/uploads/spin_wheels/${relativePath}`;
+  } catch (error) {
+    console.error('Error in getSpinWheelFileUrl:', error.message);
+    return `uploads/spin_wheels/${path.basename(filePath)}`;
+  }
 };

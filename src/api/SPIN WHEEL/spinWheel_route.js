@@ -2,6 +2,11 @@ import express from "express";
 import authenticate from "../../../middleware/auth.js";
 import SpinWheelController from "./spinWheel_con.js";
 import pool from "../../../database.js";
+import {
+  spinWheelBackgroundUpload,
+  validateUploadedFiles,
+  handleUploadError,
+} from "../../../middleware/upload.js";
 
 const spinWheelRouter = express.Router();
 
@@ -282,6 +287,9 @@ spinWheelRouter.get("/spin/eligibility", authenticate, async (req, res) => {
 spinWheelRouter.post(
   "/admin/create_wheels",
   authenticate(["ADMIN","SUPERADMIN"]),
+  spinWheelBackgroundUpload,
+  validateUploadedFiles,
+  handleUploadError,
   SpinWheelController.createWheel
 );
 
@@ -300,6 +308,9 @@ spinWheelRouter.get(
 spinWheelRouter.put(
   "/admin/update_wheels/:wheel_id",
   authenticate(["ADMIN"]),
+  spinWheelBackgroundUpload,
+  validateUploadedFiles,
+  handleUploadError,
   SpinWheelController.updateWheel
 );
 

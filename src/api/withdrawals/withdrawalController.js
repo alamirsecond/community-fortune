@@ -1128,39 +1128,6 @@ getAllWithdrawals: async (req, res) => {
 
       await connection.commit();
 
-      // Send email notification to user
-      try {
-        if (status === 'APPROVED') {
-          await sendWithdrawalApprovalEmail(
-            withdrawal.email, 
-            withdrawal.username, 
-            withdrawal.amount
-          );
-        } else if (status === 'REJECTED') {
-          await sendWithdrawalRejectionEmail(
-            withdrawal.email, 
-            withdrawal.username, 
-            withdrawal.amount, 
-            reason || 'Please contact support for details'
-          );
-        } else if (status === 'COMPLETED') {
-          await sendWithdrawalCompletionEmail(
-            withdrawal.email,
-            withdrawal.username,
-            withdrawal.amount
-          );
-        } else if (status === 'PROCESSING') {
-          await sendWithdrawalProcessingEmail(
-            withdrawal.email,
-            withdrawal.username,
-            withdrawal.amount
-          );
-        }
-      } catch (emailError) {
-        console.error('Failed to send status update email:', emailError);
-        // Don't fail the request if email fails
-      }
-
       // Get updated withdrawal info
       const [updatedWithdrawal] = await pool.query(
         `SELECT
@@ -1203,6 +1170,40 @@ getAllWithdrawals: async (req, res) => {
               : (withdrawal.walletBalance - withdrawal.amount)
           },
           timestamp: new Date().toISOString()
+        }
+      });
+
+      // Send email notification in the background to avoid request delays
+      setImmediate(async () => {
+        try {
+          if (status === 'APPROVED') {
+            await sendWithdrawalApprovalEmail(
+              withdrawal.email,
+              withdrawal.username,
+              withdrawal.amount
+            );
+          } else if (status === 'REJECTED') {
+            await sendWithdrawalRejectionEmail(
+              withdrawal.email,
+              withdrawal.username,
+              withdrawal.amount,
+              reason || 'Please contact support for details'
+            );
+          } else if (status === 'COMPLETED') {
+            await sendWithdrawalCompletionEmail(
+              withdrawal.email,
+              withdrawal.username,
+              withdrawal.amount
+            );
+          } else if (status === 'PROCESSING') {
+            await sendWithdrawalProcessingEmail(
+              withdrawal.email,
+              withdrawal.username,
+              withdrawal.amount
+            );
+          }
+        } catch (emailError) {
+          console.error('Failed to send status update email:', emailError);
         }
       });
 

@@ -26,6 +26,7 @@ const initUploadDirectories = () => {
     process.env.COMPETITION_UPLOAD_PATH || "./uploads/competitions",
     process.env.USER_UPLOAD_PATH || "./uploads/users",
     process.env.GAMES_UPLOAD_PATH || "./uploads/games",
+    process.env.SPIN_WHEEL_UPLOAD_PATH || "./uploads/spin_wheels",
   ];
 
   directories.forEach((dir) => {
@@ -168,6 +169,18 @@ if (process.env.NODE_ENV === "development") {
             "font-src 'self' data:; " +
             "media-src 'self'"
         );
+        res.setHeader("Cache-Control", "public, max-age=31536000");
+      },
+    })
+  );
+
+  // Serve spin wheel uploads
+  app.use(
+    "/uploads/spin_wheels",
+    express.static(path.join(__dirname, "uploads/spin_wheels"), {
+      setHeaders: (res, path) => {
+        res.setHeader("X-Content-Type-Options", "nosniff");
+        res.setHeader("X-Frame-Options", "DENY");
         res.setHeader("Cache-Control", "public, max-age=31536000");
       },
     })
