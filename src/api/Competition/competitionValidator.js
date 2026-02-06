@@ -71,6 +71,8 @@ const instantWinSchema = {
     payout_type: z.enum(['CASH', 'SITE_CREDIT', 'POINTS', 'FREE_ENTRY', 'PHYSICAL_PRIZE']),
     ticket_numbers: z.array(z.number().int().positive("Invalid ticket number")),
     max_count: z.number().int().positive("Max count must be positive"),
+    random_count: z.number().int().min(0).optional(),
+    first_entry_count: z.number().int().min(0).optional(),
     image_url: z.string().url("Invalid image URL").optional(),
     description: z.string().optional(),
     claim_deadline: z.string().datetime("Invalid deadline format").optional(),
@@ -315,7 +317,28 @@ export const createCompetitionSchema = z.object({
     // Instant Win validation (PDF pages 2, 17-18)
     if (data.instant_wins && data.instant_wins.length > 0) {
       data.instant_wins.forEach((instantWin, index) => {
-        if (instantWin.ticket_numbers.length !== instantWin.max_count) {
+        const hasSplitCounts =
+          instantWin.random_count !== undefined || instantWin.first_entry_count !== undefined;
+        const randomCount = instantWin.random_count ?? 0;
+        const firstEntryCount = instantWin.first_entry_count ?? 0;
+
+        if (hasSplitCounts) {
+          if (randomCount + firstEntryCount !== instantWin.max_count) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Instant Win ${index + 1}: random_count + first_entry_count must equal max_count (${instantWin.max_count})`,
+              path: ['instant_wins', index]
+            });
+          }
+
+          if (instantWin.ticket_numbers.length !== randomCount) {
+            ctx.addIssue({
+              code: z.ZodIssueCode.custom,
+              message: `Instant Win ${index + 1}: Number of ticket numbers (${instantWin.ticket_numbers.length}) must match random_count (${randomCount})`,
+              path: ['instant_wins', index]
+            });
+          }
+        } else if (instantWin.ticket_numbers.length !== instantWin.max_count) {
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: `Instant Win ${index + 1}: Number of ticket numbers (${instantWin.ticket_numbers.length}) must match max_count (${instantWin.max_count})`,

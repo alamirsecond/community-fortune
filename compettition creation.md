@@ -113,6 +113,20 @@ instant_wins: '[{
   "description": "Digital Amazon gift card",
   "claim_deadline": "2024-12-31T23:59:59.000Z"
 }]'
+
+// Split random vs first entry winners
+// ticket_numbers contains ONLY the random winners (length = random_count)
+instant_wins: '[{
+  "prize_name": "£50 Amazon Voucher",
+  "prize_amount": 50,
+  "payout_type": "SITE_CREDIT",
+  "ticket_numbers": [],
+  "max_count": 5,
+  "random_count": 3,
+  "first_entry_count": 2,
+  "image_url": "https://example.com/voucher.jpg",
+  "description": "Digital Amazon gift card"
+}]'
 ```
 # instant_win_enabled: "true"
 # max_instant_wins_per_user: "2"
