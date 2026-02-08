@@ -11,6 +11,13 @@ ticketRouter.post(
   TicketSystemController.allocateTickets
 );
 
+// Purchase tickets using payment module
+ticketRouter.post(
+  "/purchase",
+  authenticate,
+  TicketSystemController.purchaseTickets
+);
+
 // Get user's tickets
 ticketRouter.get(
   "/my-tickets",

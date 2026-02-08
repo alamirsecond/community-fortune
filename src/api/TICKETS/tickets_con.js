@@ -3,6 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import ticketSchemas from "./tickets_zod.js";
 import SpendingLimitsService from "../spendingLimits/spending_limit_con.js";
 import processInstantWin from "../INSTANT WINS/instantWins_con.js";
+import SubscriptionTicketService from "../Payments/SubscriptionTicketService.js";
 
 class TicketSystemController {
   static async createPayPalTicketPayment(req, res) {
@@ -312,6 +313,41 @@ static async allocateTickets(req, res) {
     console.log('Connection released');
   }
 }
+
+  static async purchaseTickets(req, res) {
+    const validationResult = ticketSchemas.purchaseTickets.safeParse(req.body);
+    if (!validationResult.success) {
+      return res.status(400).json({
+        error: "Invalid request data",
+        details: validationResult.error.errors,
+      });
+    }
+
+    try {
+      const user_id = req.user.id;
+      const result = await SubscriptionTicketService.purchaseTickets(
+        user_id,
+        validationResult.data
+      );
+
+      return res.status(200).json({
+        success: true,
+        message: "Tickets purchased successfully",
+        data: result,
+      });
+    } catch (error) {
+      console.error("Purchase tickets error:", error);
+      const statusCode =
+        error.message && error.message.toLowerCase().includes("not found")
+          ? 404
+          : 400;
+
+      return res.status(statusCode).json({
+        error: error.message,
+        code: "TICKET_PURCHASE_ERROR",
+      });
+    }
+  }
   // Handle free competition entry
   static async handleFreeCompetitionEntry(connection, req, res, competition, user_id, quantity) {
     try {

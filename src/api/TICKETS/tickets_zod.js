@@ -19,7 +19,15 @@ const allocateBulkTickets = z.object({
   voucher_code: z.string().optional().nullable()
 });
 
+const purchaseTickets = z.object({
+  competition_id: z.string().uuid(),
+  quantity: z.number().int().positive().min(1).max(100),
+  payment_method: z.enum(['STRIPE', 'PAYPAL', 'REVOLUT', 'WALLET']).optional().default('WALLET'),
+  use_wallet: z.boolean().optional().default(true)
+});
+
 export default {
   allocateTickets,
-  allocateBulkTickets
+  allocateBulkTickets,
+  purchaseTickets
 };
