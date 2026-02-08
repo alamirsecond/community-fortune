@@ -872,7 +872,11 @@ export const getCompetitionDetails = async (req, res) => {
     }
 
     // Get instant wins if enabled
-    if (competition.category === 'PAID' || competition.category === 'JACKPOT') {
+    if (
+      competition.category === 'PAID' ||
+      competition.category === 'JACKPOT' ||
+      competition.category === 'INSTANT_WIN'
+    ) {
       try {
         instantWins = await Competition.getInstantWins(id);
       } catch (instantWinError) {
