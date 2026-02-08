@@ -264,6 +264,10 @@ export const createCompetition = async (req, res) => {
         break;
     }
 
+    if (validatedData.instant_wins) {
+      validatedData.instant_wins_config = validatedData.instant_wins;
+    }
+
     // Create competition
     const competitionId = await Competition.create(validatedData);
 
@@ -502,6 +506,9 @@ export const updateCompetition = async (req, res) => {
     }
 
     const updateData = validationResult.data.body;
+    if (updateData.instant_wins) {
+      updateData.instant_wins_config = updateData.instant_wins;
+    }
     const updated = await Competition.update(id, updateData);
 
     if (!updated) {
@@ -805,6 +812,7 @@ export const getCompetitionDetails = async (req, res) => {
     let subscriptionEligibility = { eligible: true };
     let jackpotProgress = null;
     let instantWins = [];
+    let instantWinsConfig = [];
     let achievements = [];
     let leaderboard = null;
 
@@ -871,6 +879,18 @@ export const getCompetitionDetails = async (req, res) => {
       }
     }
 
+    // Parse instant win config (stored on competition)
+    if (competition.category !== 'INSTANT_WIN' && competition.instant_wins_config) {
+      try {
+        instantWinsConfig =
+          typeof competition.instant_wins_config === 'string'
+            ? JSON.parse(competition.instant_wins_config)
+            : competition.instant_wins_config;
+      } catch (configError) {
+        console.error('❌ Instant wins config parse error:', configError);
+      }
+    }
+
     // Get instant wins if enabled
     if (
       competition.category === 'PAID' ||
@@ -883,6 +903,11 @@ export const getCompetitionDetails = async (req, res) => {
         console.error('❌ Instant wins fetch error:', instantWinError);
       }
     }
+
+    const instantWinsResponse =
+      competition.category === 'INSTANT_WIN'
+        ? instantWins
+        : (instantWinsConfig.length > 0 ? instantWinsConfig : instantWins);
 
     // Get achievements if enabled - FIXED WITH TRY-CATCH
     try {
@@ -948,12 +973,13 @@ export const getCompetitionDetails = async (req, res) => {
         subscription_eligible: subscriptionEligibility,
         user_entry_status: userEntryStatus,
         jackpot_progress: jackpotProgress,
-        instant_wins: instantWins,
+        instant_wins: instantWinsResponse,
+        instant_wins_rows: instantWins,
         achievements: achievements,
         leaderboard: leaderboard,
         stats: stats,
         features: {
-          has_instant_wins: instantWins.length > 0,
+          has_instant_wins: instantWinsResponse.length > 0,
           has_leaderboard: leaderboard !== null,
           requires_subscription: competition.category === 'SUBSCRIPTION',
           has_skill_question: competition.skill_question_enabled,
