@@ -26,7 +26,7 @@ console.log(competitionData);
         'subscription_tier', 'auto_entry_enabled', 'subscriber_competition_type',
         'wheel_type', 'spins_per_user',
         'game_id', 'game_type', 'leaderboard_type', 'game_name', 'game_code', 'points_per_play',
-        'gallery_images', 'instant_wins_config'
+        'gallery_images'
       ];
 
       const values = fields.map(field => {
@@ -34,9 +34,6 @@ console.log(competitionData);
         if (field === 'game_id' && competitionData[field]) return this.uuidToBinary(competitionData[field]);
         if (field === 'gallery_images') {
           // Store as JSON string if array
-          return competitionData[field] ? JSON.stringify(competitionData[field]) : null;
-        }
-        if (field === 'instant_wins_config') {
           return competitionData[field] ? JSON.stringify(competitionData[field]) : null;
         }
         return competitionData[field] !== undefined ? competitionData[field] : null;
@@ -260,7 +257,6 @@ static async getCompetitionStatsDashboard() {
         wheel_type, spins_per_user,
         game_id, game_type, leaderboard_type, game_name, game_code, points_per_play,
         created_at, updated_at,
-        instant_wins_config,
         (SELECT COUNT(*) FROM instant_wins WHERE competition_id = UUID_TO_BIN(?)) as instant_wins_count,
         (SELECT COUNT(*) FROM competition_achievements WHERE competition_id = UUID_TO_BIN(?)) as achievements_count,
         TIMESTAMPDIFF(SECOND, NOW(), end_date) as countdown_seconds
@@ -414,9 +410,6 @@ static async getCompetitionStatsDashboard() {
           if (key === 'gallery_images' && Array.isArray(updateData[key])) {
             fields.push(`${key} = ?`);
             values.push(JSON.stringify(updateData[key]));
-          } else if (key === 'instant_wins_config') {
-            fields.push(`${key} = ?`);
-            values.push(updateData[key] ? JSON.stringify(updateData[key]) : null);
           } else {
             fields.push(`${key} = ?`);
             values.push(updateData[key]);
