@@ -1,11 +1,14 @@
 import pool from "../../../database.js";
 import Stripe from 'stripe';
 import paypal from '@paypal/checkout-server-sdk';
+import axios from 'axios';
+import secretManager, { SECRET_KEYS } from '../../Utils/secretManager.js';
 
 class SubscriptionTicketService {
   constructor() {
     this.stripe = null;
     this.paypalClient = null;
+    this.revolutApi = null;
     this.initPaymentGateways();
   }
 
@@ -13,7 +16,7 @@ class SubscriptionTicketService {
     try {
       const [gateways] = await pool.query(
         `SELECT * FROM payment_gateway_settings 
-         WHERE gateway IN ('STRIPE', 'PAYPAL') 
+         WHERE gateway IN ('STRIPE', 'PAYPAL', 'REVOLUT') 
          AND environment = 'LIVE' 
          AND is_enabled = TRUE`
       );
@@ -29,6 +32,22 @@ class SubscriptionTicketService {
           ? new paypal.core.LiveEnvironment(paypalConfig.client_id, paypalConfig.client_secret)
           : new paypal.core.SandboxEnvironment(paypalConfig.client_id, paypalConfig.client_secret);
         this.paypalClient = new paypal.core.PayPalHttpClient(environment);
+      }
+
+      const revolutConfig = gateways.find(g => g.gateway === 'REVOLUT');
+      if (revolutConfig) {
+        const revolutApiKey = await secretManager.getSecret(SECRET_KEYS.REVOLUT_API_KEY) || revolutConfig.api_key;
+        if (revolutApiKey) {
+          this.revolutApi = axios.create({
+            baseURL: revolutConfig.environment === 'LIVE'
+              ? 'https://b2b.revolut.com/api/1.0'
+              : 'https://sandbox-b2b.revolut.com/api/1.0',
+            headers: {
+              Authorization: `Bearer ${revolutApiKey}`,
+              'Content-Type': 'application/json'
+            }
+          });
+        }
       }
     } catch (error) {
       console.error('Failed to initialize payment gateways:', error);
@@ -619,6 +638,8 @@ class SubscriptionTicketService {
           return await this.processStripeTicketPayment(amount, description, userEmail);
         case 'PAYPAL':
           return await this.processPayPalTicketPayment(amount, description, userEmail);
+        case 'REVOLUT':
+          return await this.processRevolutTicketPayment(amount, description);
         default:
           return { success: false, error: 'Unsupported payment gateway' };
       }
@@ -693,6 +714,31 @@ class SubscriptionTicketService {
     } catch (error) {
       console.error('PayPal ticket payment error:', error);
       return { success: false, error: error.message };
+    }
+  }
+
+  async processRevolutTicketPayment(amount, description) {
+    if (!this.revolutApi) return { success: false, error: 'Revolut is not configured' };
+
+    try {
+      const order = await this.revolutApi.post('/orders', {
+        amount: Math.round(amount * 100),
+        currency: 'GBP',
+        description,
+        metadata: {
+          type: 'ticket'
+        }
+      });
+
+      return {
+        success: true,
+        reference: order.data.id,
+        checkoutUrl: order.data.checkout_url,
+        order: order.data
+      };
+    } catch (error) {
+      console.error('Revolut ticket payment error:', error);
+      return { success: false, error: error.response?.data?.message || error.message };
     }
   }
 

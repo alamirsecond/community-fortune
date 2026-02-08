@@ -15,6 +15,7 @@ import {
   autoSubscribeUsers,
   getCompetitionLeaderboard,
   getCompetitionAnalytics,
+  enterCompetition,
   updateCompetitionStatus,
   duplicateCompetition,
   exportCompetitionData,
@@ -67,6 +68,7 @@ router.get('/:id/leaderboard', getCompetitionLeaderboard);
 router.get('/:id/analytics', getCompetitionAnalytics);
 router.get('/:id/winners', getCompetitionWinners);
 router.post('/validate-entry', validateCompetitionEntry);
+router.post('/:id/enter', authenticate(), enterCompetition);
 
 //==================== PROTECTED ROUTES ====================
 router.post('/skill-question', authenticate(), answerSkillQuestion);

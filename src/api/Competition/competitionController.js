@@ -3,6 +3,7 @@ import fs from 'fs';
 import path from 'path';
 import { Parser } from 'json2csv';
 import { getFileUrl, deleteUploadedFiles } from '../../../middleware/upload.js';
+import SubscriptionTicketService from '../Payments/SubscriptionTicketService.js';
 import { 
   createCompetitionSchema, 
   updateCompetitionSchema, 
@@ -2159,6 +2160,66 @@ export const validateCompetitionEntry = async (req, res) => {
     res.status(500).json({
       success: false,
       message: 'Failed to validate entry',
+      error: error.message
+    });
+  }
+};
+
+export const enterCompetition = async (req, res) => {
+  try {
+    const { id } = req.params;
+    const userId = req.user?.id;
+    const quantity = Number.isInteger(req.body?.quantity) ? req.body.quantity : 1;
+    const payment_method = req.body?.payment_method || 'WALLET';
+    const use_wallet = req.body?.use_wallet !== undefined ? req.body.use_wallet : true;
+
+    if (!id) {
+      return res.status(400).json({ success: false, message: 'Competition ID is required' });
+    }
+
+    if (!userId) {
+      return res.status(401).json({ success: false, message: 'Authentication required' });
+    }
+
+    if (!Number.isInteger(quantity) || quantity <= 0 || quantity > 100) {
+      return res.status(400).json({ success: false, message: 'Quantity must be between 1 and 100' });
+    }
+
+    const competition = await Competition.findById(id);
+    if (!competition) {
+      return res.status(404).json({ success: false, message: 'Competition not found' });
+    }
+
+    if (competition.status !== 'ACTIVE') {
+      return res.status(400).json({ success: false, message: 'Competition is not active' });
+    }
+
+    if (competition.end_date && new Date(competition.end_date) <= new Date()) {
+      return res.status(400).json({ success: false, message: 'Competition has ended' });
+    }
+
+    const purchase = await SubscriptionTicketService.purchaseTickets(userId, {
+      competition_id: id,
+      quantity,
+      payment_method,
+      use_wallet,
+    });
+
+    return res.status(200).json({
+      success: true,
+      message: 'Entry created successfully',
+      data: {
+        competition_id: id,
+        tickets: purchase.tickets,
+        purchase,
+        next_action: 'PLAY_OR_SCORE'
+      }
+    });
+  } catch (error) {
+    console.error('Enter competition error:', error);
+    return res.status(400).json({
+      success: false,
+      message: 'Failed to enter competition',
       error: error.message
     });
   }
