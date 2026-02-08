@@ -1054,7 +1054,7 @@ static async getCompetitionStatsDashboard() {
        FROM instant_wins
        WHERE competition_id = UUID_TO_BIN(?)
        ORDER BY prize_value DESC`,
-      [this.uuidToBinary(competitionId)]
+      [competitionId]
     );
 
     return rows;
@@ -1075,7 +1075,7 @@ static async getCompetitionStatsDashboard() {
        FROM competition_achievements
        WHERE competition_id = UUID_TO_BIN(?)
        ORDER BY points_awarded DESC`,
-      [this.uuidToBinary(competitionId)]
+      [competitionId]
     );
 
     return rows;
@@ -1096,7 +1096,7 @@ static async getCompetitionStatsDashboard() {
        FROM wheel_segments
        WHERE competition_id = UUID_TO_BIN(?)
        ORDER BY segment_index`,
-      [this.uuidToBinary(competitionId)]
+      [competitionId]
     );
 
     return rows;
