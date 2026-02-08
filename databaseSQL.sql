@@ -291,6 +291,7 @@ CREATE TABLE competitions (
     leaderboard_type ENUM('DAILY', 'WEEKLY', 'MONTHLY') NULL,
     
     gallery_images JSON NULL,
+    instant_wins_config JSON NULL,
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     
