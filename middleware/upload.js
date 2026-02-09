@@ -53,6 +53,7 @@ const competitionStorage = multer.diskStorage({
       'banner_image': 'banners',
       'gallery': 'gallery',
       'images': 'gallery',
+      'instant_win_images': 'instant_wins',
       'terms_pdf': 'documents',
       'rules_pdf': 'documents',
       'winner_announcement_pdf': 'documents',
@@ -236,7 +237,8 @@ export const competitionFeaturedUpload = competitionUpload.fields([
   { name: 'featured_image', maxCount: 1 },
   { name: 'featured_video', maxCount: 1 },
   { name: 'banner_image', maxCount: 1 },
-  { name: 'gallery_images', maxCount: 10 }
+  { name: 'gallery_images', maxCount: 10 },
+  { name: 'instant_win_images', maxCount: 20 }
 ]);
 
 
@@ -277,7 +279,7 @@ export const validateUploadedFiles = (req, res, next) => {
 
     // Image fields validation
     if (
-      ['featured_image', 'banner_image', 'gallery_images'].includes(file.fieldname) &&
+      ['featured_image', 'banner_image', 'gallery_images', 'instant_win_images'].includes(file.fieldname) &&
       !file.mimetype.startsWith('image/')
     ) {
       errors.push(`${file.originalname}: ${file.fieldname} must be an image file`);
