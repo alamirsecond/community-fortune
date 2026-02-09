@@ -1,7 +1,7 @@
 import { z } from "zod";
 
-const VoucherTypeEnum = z.enum(["SINGLE_USE", "MULTI_USE", "BULK_CODES"]);
-const RewardTypeEnum = z.enum(["SITE_CREDIT"]);
+const VoucherTypeEnum = z.enum(["SINGLE_REDEMPTION", "MULTI_REDEMPTION"]);
+const RewardTypeEnum = z.enum(["SITE_CREDIT","PERCENTAGE_DISCOUNT", "FREE_ENTRY_TICKETS","COMPETITION_ENTRY"]);
 
 const VoucherCodeSchema = z
   .string()
