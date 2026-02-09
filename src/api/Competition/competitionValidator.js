@@ -73,7 +73,7 @@ const instantWinSchema = {
     max_count: z.number().int().positive("Max count must be positive"),
     random_count: z.number().int().min(0).optional(),
     first_entry_count: z.number().int().min(0).optional(),
-    image_url: z.string().url("Invalid image URL").optional(),
+    image_url: z.string().optional().nullable(),
     description: z.string().optional(),
     claim_deadline: z.string().datetime("Invalid deadline format").optional(),
     is_claimed: z.boolean().default(false),

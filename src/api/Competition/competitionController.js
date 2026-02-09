@@ -156,6 +156,19 @@ export const createCompetition = async (req, res) => {
       if (Array.isArray(parsed)) competitionData.gallery_images = parsed;
     }
 
+    // Attach uploaded instant win images: align by index, or reuse a single upload for all
+    if (Array.isArray(competitionData.instant_wins) && files.instant_win_images?.length) {
+      const instantWinImages = files.instant_win_images.map(f => getFileUrl(f.path));
+
+      competitionData.instant_wins = competitionData.instant_wins.map((instantWin, index) => ({
+        ...instantWin,
+        image_url:
+          instantWinImages[index] ||
+          (instantWinImages.length === 1 ? instantWinImages[0] : instantWin.image_url) ||
+          instantWin.image_url
+      }));
+    }
+
     // Auto-generate instant win ticket numbers when none are provided
     if (Array.isArray(competitionData.instant_wins) && competitionData.instant_wins.length > 0) {
       const usedNumbers = new Set();
@@ -366,6 +379,44 @@ export const updateCompetition = async (req, res) => {
     const competitionData = {
       ...req.body
     };
+
+    // Allow JSON strings for form-data submissions
+    const parseJsonField = (v) => {
+      if (v === undefined || v === null) return v;
+      if (typeof v === 'string') {
+        try {
+          return JSON.parse(v);
+        } catch (e) {
+          return v;
+        }
+      }
+      return v;
+    };
+
+    if (typeof competitionData.instant_wins === 'string') {
+      const parsedInstantWins = parseJsonField(competitionData.instant_wins);
+      if (parsedInstantWins) competitionData.instant_wins = parsedInstantWins;
+    }
+
+    if (typeof competitionData.achievements === 'string') {
+      const parsedAchievements = parseJsonField(competitionData.achievements);
+      if (parsedAchievements) competitionData.achievements = parsedAchievements;
+    }
+
+    if (typeof competitionData.gallery_images === 'string') {
+      const parsedGalleryImages = parseJsonField(competitionData.gallery_images);
+      if (Array.isArray(parsedGalleryImages)) competitionData.gallery_images = parsedGalleryImages;
+    }
+
+    // Attach uploaded instant win images by index order (if provided)
+    if (Array.isArray(competitionData.instant_wins) && files.instant_win_images?.length) {
+      competitionData.instant_wins = competitionData.instant_wins.map((instantWin, index) => ({
+        ...instantWin,
+        image_url: files.instant_win_images[index]
+          ? getFileUrl(files.instant_win_images[index].path)
+          : instantWin.image_url
+      }));
+    }
 
     // Process uploaded files and delete old ones
     if (files.featured_image?.[0]) {
