@@ -212,7 +212,7 @@ const superAdminController = {
           name: first_name,
           email,
           password: tempPassword,
-          loginUrl: `${process.env.FRONTEND_URL}/admin/login`,
+          loginUrl: `${process.env.FRONTEND_URL}/login`,
         });
       } catch (emailError) {
         emailFailed = true;
