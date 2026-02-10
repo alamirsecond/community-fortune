@@ -114,78 +114,92 @@ app.use(
   })
 );
 
-// Serve static files in development
-if (process.env.NODE_ENV === "development") {
-  // Serve KYC documents
-  app.use(
-    "/uploads/kyc_documents",
-    express.static(path.join(__dirname, "uploads/kyc_documents"), {
-      setHeaders: (res, path) => {
-        res.setHeader("X-Content-Type-Options", "nosniff");
-        res.setHeader("X-Frame-Options", "DENY");
-        res.setHeader("Cache-Control", "private, max-age=86400");
-      },
-    })
-  );
+const kycUploadsPath = path.resolve(
+  __dirname,
+  process.env.KYC_UPLOAD_PATH || "uploads/kyc_documents"
+);
+const competitionUploadsPath = path.resolve(
+  __dirname,
+  process.env.COMPETITION_UPLOAD_PATH || "uploads/competitions"
+);
+const userUploadsPath = path.resolve(
+  __dirname,
+  process.env.USER_UPLOAD_PATH || "uploads/users"
+);
+const gamesUploadsPath = path.resolve(
+  __dirname,
+  process.env.GAMES_UPLOAD_PATH || "uploads/games"
+);
+const spinWheelUploadsPath = path.resolve(
+  __dirname,
+  process.env.SPIN_WHEEL_UPLOAD_PATH || "uploads/spin_wheels"
+);
 
-  // Serve competition uploads
-  app.use(
-    "/uploads/competitions",
-    express.static(path.join(__dirname, "uploads/competitions"), {
-      setHeaders: (res, path) => {
-        res.setHeader("X-Content-Type-Options", "nosniff");
-        res.setHeader("X-Frame-Options", "DENY");
-        res.setHeader("Cache-Control", "public, max-age=31536000");
-      },
-    })
-  );
+// Serve uploaded assets in all environments
+app.use(
+  "/uploads/kyc_documents",
+  express.static(kycUploadsPath, {
+    setHeaders: (res) => {
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("X-Frame-Options", "DENY");
+      res.setHeader("Cache-Control", "private, max-age=86400");
+    },
+  })
+);
 
-  // Serve user uploads
-  app.use(
-    "/uploads/users",
-    express.static(path.join(__dirname, "uploads/users"), {
-      setHeaders: (res, path) => {
-        res.setHeader("X-Content-Type-Options", "nosniff");
-        res.setHeader("X-Frame-Options", "DENY");
-        res.setHeader("Cache-Control", "public, max-age=31536000");
-      },
-    })
-  );
+app.use(
+  "/uploads/competitions",
+  express.static(competitionUploadsPath, {
+    setHeaders: (res) => {
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("X-Frame-Options", "DENY");
+      res.setHeader("Cache-Control", "public, max-age=31536000");
+    },
+  })
+);
 
-  // Serve game uploads
-  app.use(
-    "/uploads/games",
-    express.static(path.join(__dirname, "uploads/games"), {
-      setHeaders: (res, path) => {
-        res.setHeader("X-Content-Type-Options", "nosniff");
-        res.setHeader("X-Frame-Options", "DENY");
-        // Content Security Policy for games
-        res.setHeader(
-          "Content-Security-Policy",
-          "default-src 'self'; " +
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
-            "style-src 'self' 'unsafe-inline'; " +
-            "img-src 'self' data: blob:; " +
-            "font-src 'self' data:; " +
-            "media-src 'self'"
-        );
-        res.setHeader("Cache-Control", "public, max-age=31536000");
-      },
-    })
-  );
+app.use(
+  "/uploads/users",
+  express.static(userUploadsPath, {
+    setHeaders: (res) => {
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("X-Frame-Options", "DENY");
+      res.setHeader("Cache-Control", "public, max-age=31536000");
+    },
+  })
+);
 
-  // Serve spin wheel uploads
-  app.use(
-    "/uploads/spin_wheels",
-    express.static(path.join(__dirname, "uploads/spin_wheels"), {
-      setHeaders: (res, path) => {
-        res.setHeader("X-Content-Type-Options", "nosniff");
-        res.setHeader("X-Frame-Options", "DENY");
-        res.setHeader("Cache-Control", "public, max-age=31536000");
-      },
-    })
-  );
-}
+app.use(
+  "/uploads/games",
+  express.static(gamesUploadsPath, {
+    setHeaders: (res) => {
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("X-Frame-Options", "DENY");
+      // Content Security Policy for games
+      res.setHeader(
+        "Content-Security-Policy",
+        "default-src 'self'; " +
+          "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+          "style-src 'self' 'unsafe-inline'; " +
+          "img-src 'self' data: blob:; " +
+          "font-src 'self' data:; " +
+          "media-src 'self'"
+      );
+      res.setHeader("Cache-Control", "public, max-age=31536000");
+    },
+  })
+);
+
+app.use(
+  "/uploads/spin_wheels",
+  express.static(spinWheelUploadsPath, {
+    setHeaders: (res) => {
+      res.setHeader("X-Content-Type-Options", "nosniff");
+      res.setHeader("X-Frame-Options", "DENY");
+      res.setHeader("Cache-Control", "public, max-age=31536000");
+    },
+  })
+);
 
 // Root endpoint
 app.get("/", (req, res) => {
