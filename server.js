@@ -18,19 +18,37 @@ import maintenanceGuard from "./middleware/maintenanceGuard.js";
 const app = express();
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
+const uploadRoot = process.env.UPLOAD_ROOT
+  ? path.resolve(process.env.UPLOAD_ROOT)
+  : path.join(__dirname, "uploads");
+const kycUploadsPath = process.env.KYC_UPLOAD_PATH
+  ? path.resolve(process.env.KYC_UPLOAD_PATH)
+  : path.join(uploadRoot, "kyc_documents");
+const competitionUploadsPath = process.env.COMPETITION_UPLOAD_PATH
+  ? path.resolve(process.env.COMPETITION_UPLOAD_PATH)
+  : path.join(uploadRoot, "competitions");
+const userUploadsPath = process.env.USER_UPLOAD_PATH
+  ? path.resolve(process.env.USER_UPLOAD_PATH)
+  : path.join(uploadRoot, "users");
+const gamesUploadsPath = process.env.GAMES_UPLOAD_PATH
+  ? path.resolve(process.env.GAMES_UPLOAD_PATH)
+  : path.join(uploadRoot, "games");
+const spinWheelUploadsPath = process.env.SPIN_WHEEL_UPLOAD_PATH
+  ? path.resolve(process.env.SPIN_WHEEL_UPLOAD_PATH)
+  : path.join(uploadRoot, "spin_wheels");
 
 // Initialize upload directories
 const initUploadDirectories = () => {
   const directories = [
-    process.env.KYC_UPLOAD_PATH || "./uploads/kyc_documents",
-    process.env.COMPETITION_UPLOAD_PATH || "./uploads/competitions",
-    process.env.USER_UPLOAD_PATH || "./uploads/users",
-    process.env.GAMES_UPLOAD_PATH || "./uploads/games",
-    process.env.SPIN_WHEEL_UPLOAD_PATH || "./uploads/spin_wheels",
+    kycUploadsPath,
+    competitionUploadsPath,
+    userUploadsPath,
+    gamesUploadsPath,
+    spinWheelUploadsPath,
   ];
 
   directories.forEach((dir) => {
-    const fullPath = path.resolve(dir);
+    const fullPath = dir;
     if (!fs.existsSync(fullPath)) {
       fs.mkdirSync(fullPath, { recursive: true });
       console.log(` Created upload directory: ${fullPath}`);
@@ -112,27 +130,6 @@ app.use(
     extended: true,
     parameterLimit: parseInt(process.env.BODY_PARAMETER_LIMIT) || 100000,
   })
-);
-
-const kycUploadsPath = path.resolve(
-  __dirname,
-  process.env.KYC_UPLOAD_PATH || "uploads/kyc_documents"
-);
-const competitionUploadsPath = path.resolve(
-  __dirname,
-  process.env.COMPETITION_UPLOAD_PATH || "uploads/competitions"
-);
-const userUploadsPath = path.resolve(
-  __dirname,
-  process.env.USER_UPLOAD_PATH || "uploads/users"
-);
-const gamesUploadsPath = path.resolve(
-  __dirname,
-  process.env.GAMES_UPLOAD_PATH || "uploads/games"
-);
-const spinWheelUploadsPath = path.resolve(
-  __dirname,
-  process.env.SPIN_WHEEL_UPLOAD_PATH || "uploads/spin_wheels"
 );
 
 // Serve uploaded assets in all environments
@@ -233,10 +230,10 @@ const initialize = async () => {
 
 // Health check endpoint
 app.get("/health", async (req, res) => {
-  const kycUploadPath = path.join(__dirname, "uploads/kyc_documents");
-  const competitionUploadPath = path.join(__dirname, "uploads/competitions");
-  const userUploadPath = path.join(__dirname, "uploads/users");
-  const gamesUploadPath = path.join(__dirname, "uploads/games");
+  const kycUploadPath = kycUploadsPath;
+  const competitionUploadPath = competitionUploadsPath;
+  const userUploadPath = userUploadsPath;
+  const gamesUploadPath = gamesUploadsPath;
 
   let dbStatus = "unknown";
   try {
@@ -264,7 +261,6 @@ app.get("/health", async (req, res) => {
       nodeVersion: process.version,
       uploads: {
         kyc: fs.existsSync(kycUploadPath) ? kycUploadPath : "Not configured",
-        kyc: fs.existsSync(kycUploadPath) ? kycUploadPath : "Not configured",
         competitions: fs.existsSync(competitionUploadPath)
           ? competitionUploadPath
           : "Not configured",
@@ -287,7 +283,6 @@ app.get("/health", async (req, res) => {
         competitionVideos: "50MB",
         competitionDocuments: "20MB",
         userAvatars: "2MB",
-        userAvatars: "2MB",
         gameZips: "100MB",
       },
       allowedFileTypes: {
@@ -298,7 +293,6 @@ app.get("/health", async (req, res) => {
           "image/webp",
           "image/gif",
         ],
-        competitionVideos: ["video/mp4", "video/mpeg", "video/quicktime"],
         competitionVideos: ["video/mp4", "video/mpeg", "video/quicktime"],
         competitionDocuments: [
           "application/pdf",
@@ -561,11 +555,10 @@ if (
 ) {
   const cleanupTempUploads = () => {
     const tempDirs = [
-      path.join(__dirname, "uploads/kyc_documents/temp"),
-      path.join(__dirname, "uploads/competitions/temp"),
-      path.join(__dirname, "uploads/users/temp"),
-      path.join(__dirname, "uploads/users/temp"),
-      path.join(__dirname, "uploads/games/temp"),
+        path.join(kycUploadsPath, "temp"),
+        path.join(competitionUploadsPath, "temp"),
+        path.join(userUploadsPath, "temp"),
+        path.join(gamesUploadsPath, "temp"),
     ];
 
     tempDirs.forEach((dir) => {
@@ -597,8 +590,17 @@ process.on("unhandledRejection", (reason, promise) => {
 });
 
 // Start server
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 4000;
 const HOST = process.env.HOST || "0.0.0.0";
+
+const maxCompetitionVideoSizeMb = Math.round(
+  (parseInt(process.env.MAX_COMPETITION_VIDEO_SIZE, 10) || 50 * 1024 * 1024) /
+    (1024 * 1024)
+);
+const maxCompetitionImageSizeMb = Math.round(
+  (parseInt(process.env.MAX_COMPETITION_IMAGE_SIZE, 10) || 10 * 1024 * 1024) /
+    (1024 * 1024)
+);
 
 const startServer = async () => {
   try {
@@ -632,12 +634,8 @@ const startServer = async () => {
       Users: /uploads/users/
       
       📏 File Limits:
-      Competition Videos: ${
-        parseInt(process.env.MAX_COMPETITION_VIDEO_SIZE) / (1024 * 1024)
-      }MB
-      Competition Images: ${
-        parseInt(process.env.MAX_COMPETITION_IMAGE_SIZE) / (1024 * 1024)
-      }MB
+      Competition Videos: ${maxCompetitionVideoSizeMb}MB
+      Competition Images: ${maxCompetitionImageSizeMb}MB
       Game ZIPs: 100MB
       `);
       initialize();
