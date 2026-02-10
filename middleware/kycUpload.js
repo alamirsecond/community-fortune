@@ -4,7 +4,12 @@ import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 
-const kycUploadsDir = path.resolve(process.env.KYC_UPLOAD_PATH || './uploads/kyc_documents');
+const uploadRoot = process.env.UPLOAD_ROOT
+  ? path.resolve(process.env.UPLOAD_ROOT)
+  : path.resolve('./uploads');
+const kycUploadsDir = process.env.KYC_UPLOAD_PATH
+  ? path.resolve(process.env.KYC_UPLOAD_PATH)
+  : path.join(uploadRoot, 'kyc_documents');
 
 // Ensure KYC uploads directory exists
 if (!fs.existsSync(kycUploadsDir)) {

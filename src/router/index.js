@@ -20,6 +20,8 @@ import contactRouter from "../api/Contact/contact.routes.js";
 import settingsRouter from "../api/Settingss/setting_routes.js";
 import analyticsRoutes from "../api/Analytics/analyticsRoutes.js";
 import paymentRouter from "../api/Payments/paymentRouter.js";
+import fs from "fs";
+import path from "path";
 const appRouter = Router();
 
 appRouter.use("/checkout", checkoutRouter);
@@ -84,10 +86,13 @@ appRouter.get("/health", async (req, res) => {
       (module) => module.default
     );
     const [result] = await pool.execute("SELECT 1 as db_status");
-    const gamesUploadPath = process.env.GAMES_UPLOAD_PATH || "./uploads/games";
-    const gamesDirExists = fs.existsSync(
-      path.resolve(__dirname, "../../", gamesUploadPath)
-    );
+    const uploadRoot = process.env.UPLOAD_ROOT
+      ? path.resolve(process.env.UPLOAD_ROOT)
+      : path.resolve("./uploads");
+    const gamesUploadPath = process.env.GAMES_UPLOAD_PATH
+      ? path.resolve(process.env.GAMES_UPLOAD_PATH)
+      : path.join(uploadRoot, "games");
+    const gamesDirExists = fs.existsSync(gamesUploadPath);
 
     res.json({
       success: true,

@@ -8,9 +8,18 @@ import { promisify } from 'util';
 
 const execAsync = promisify(exec);
 
-const competitionUploadsDir = path.resolve(process.env.COMPETITION_UPLOAD_PATH || './uploads/competitions');
-const gamesUploadDir = path.resolve(process.env.GAMES_UPLOAD_PATH || './uploads/games');
-const spinWheelUploadsDir = path.resolve(process.env.SPIN_WHEEL_UPLOAD_PATH || './uploads/spin_wheels');
+const uploadRoot = process.env.UPLOAD_ROOT
+  ? path.resolve(process.env.UPLOAD_ROOT)
+  : path.resolve('./uploads');
+const competitionUploadsDir = process.env.COMPETITION_UPLOAD_PATH
+  ? path.resolve(process.env.COMPETITION_UPLOAD_PATH)
+  : path.join(uploadRoot, 'competitions');
+const gamesUploadDir = process.env.GAMES_UPLOAD_PATH
+  ? path.resolve(process.env.GAMES_UPLOAD_PATH)
+  : path.join(uploadRoot, 'games');
+const spinWheelUploadsDir = process.env.SPIN_WHEEL_UPLOAD_PATH
+  ? path.resolve(process.env.SPIN_WHEEL_UPLOAD_PATH)
+  : path.join(uploadRoot, 'spin_wheels');
 
 // Ensure competition uploads directory exists
 if (!fs.existsSync(competitionUploadsDir)) {

@@ -17,6 +17,13 @@ import {
   bulkCompetitionSchema
 } from './competitionValidator.js';
 
+const uploadRoot = process.env.UPLOAD_ROOT
+  ? path.resolve(process.env.UPLOAD_ROOT)
+  : path.resolve('./uploads');
+const competitionUploadsBase = process.env.COMPETITION_UPLOAD_PATH
+  ? path.resolve(process.env.COMPETITION_UPLOAD_PATH)
+  : path.join(uploadRoot, 'competitions');
+
 // Helper function for validation
 export const validateRequest = (schema, data) => {
   const validationResult = schema.safeParse(data);
@@ -293,7 +300,7 @@ if (files.gallery_images?.length > 0) {
     validatedData.gallery_images = galleryUrls;
   } else {
     // Local processing
-    const galleryDir = path.join(process.env.COMPETITION_UPLOAD_PATH, competitionId, 'gallery');
+    const galleryDir = path.join(competitionUploadsBase, competitionId, 'gallery');
     if (!fs.existsSync(galleryDir)) fs.mkdirSync(galleryDir, { recursive: true });
 
     const galleryUrls = [];
@@ -422,7 +429,7 @@ export const updateCompetition = async (req, res) => {
     if (files.featured_image?.[0]) {
       // Delete old featured image if exists
       if (currentCompetition.featured_image) {
-        const oldPath = path.join(process.env.COMPETITION_UPLOAD_PATH, currentCompetition.featured_image.replace('/uploads/competitions/', ''));
+        const oldPath = path.join(competitionUploadsBase, currentCompetition.featured_image.replace('/uploads/competitions/', ''));
         deleteUploadedFiles(oldPath);
       }
       competitionData.featured_image = getFileUrl(files.featured_image[0].path);
@@ -431,7 +438,7 @@ export const updateCompetition = async (req, res) => {
     if (files.featured_video?.[0]) {
       // Delete old featured video if exists
       if (currentCompetition.featured_video) {
-        const oldPath = path.join(process.env.COMPETITION_UPLOAD_PATH, currentCompetition.featured_video.replace('/uploads/competitions/', ''));
+        const oldPath = path.join(competitionUploadsBase, currentCompetition.featured_video.replace('/uploads/competitions/', ''));
         deleteUploadedFiles(oldPath);
       }
       competitionData.featured_video = getFileUrl(files.featured_video[0].path);
@@ -440,7 +447,7 @@ export const updateCompetition = async (req, res) => {
     if (files.banner_image?.[0]) {
       // Delete old banner image if exists
       if (currentCompetition.banner_image) {
-        const oldPath = path.join(process.env.COMPETITION_UPLOAD_PATH, currentCompetition.banner_image.replace('/uploads/competitions/', ''));
+        const oldPath = path.join(competitionUploadsBase, currentCompetition.banner_image.replace('/uploads/competitions/', ''));
         deleteUploadedFiles(oldPath);
       }
       competitionData.banner_image = getFileUrl(files.banner_image[0].path);
@@ -448,7 +455,7 @@ export const updateCompetition = async (req, res) => {
     
     // Handle gallery images
     if (files.gallery_images && files.gallery_images.length > 0) {
-      const galleryDir = path.join(process.env.COMPETITION_UPLOAD_PATH, id, 'gallery');
+      const galleryDir = path.join(competitionUploadsBase, id, 'gallery');
       if (!fs.existsSync(galleryDir)) {
         fs.mkdirSync(galleryDir, { recursive: true });
       }
@@ -968,7 +975,7 @@ export const getCompetitionDetails = async (req, res) => {
     // Get gallery images
     let galleryImages = [];
     try {
-      const galleryDir = path.join(process.env.COMPETITION_UPLOAD_PATH, id, 'gallery');
+      const galleryDir = path.join(competitionUploadsBase, id, 'gallery');
       if (fs.existsSync(galleryDir)) {
         const files = fs.readdirSync(galleryDir);
         galleryImages = files.map(file => getFileUrl(path.join(galleryDir, file)));
@@ -980,7 +987,7 @@ export const getCompetitionDetails = async (req, res) => {
     // Get documents if any
     let documents = [];
     try {
-      const docDir = path.join(process.env.COMPETITION_UPLOAD_PATH, id, 'documents');
+      const docDir = path.join(competitionUploadsBase, id, 'documents');
       if (fs.existsSync(docDir)) {
         const docFiles = fs.readdirSync(docDir);
         documents = docFiles.map(file => ({
@@ -1908,7 +1915,7 @@ export const deleteCompetition = async (req, res) => {
 
     // Convert stored URLs to filesystem paths and delete
     const path = (await import('path')).default;
-    const baseUploads = path.resolve(process.env.COMPETITION_UPLOAD_PATH || './uploads/competitions');
+    const baseUploads = competitionUploadsBase;
     const filesToDelete = [];
     fileUrls.forEach(u => {
       if (!u) return;
@@ -1981,8 +1988,8 @@ export const duplicateCompetition = async (req, res) => {
     const newCompetitionId = await Competition.create(newCompetitionData);
 
     // Copy files if they exist
-    const originalDir = path.join(process.env.COMPETITION_UPLOAD_PATH, id);
-    const newDir = path.join(process.env.COMPETITION_UPLOAD_PATH, newCompetitionId);
+    const originalDir = path.join(competitionUploadsBase, id);
+    const newDir = path.join(competitionUploadsBase, newCompetitionId);
     
     if (fs.existsSync(originalDir)) {
       // Copy directory recursively
