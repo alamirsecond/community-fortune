@@ -43,7 +43,7 @@ export const sendAdminCreationEmail = async ({
           .header { background: #4f46e5; color: white; padding: 20px; text-align: center; }
           .content { background: #f9fafb; padding: 30px; }
           .credentials { background: white; border: 1px solid #e5e7eb; border-radius: 8px; padding: 20px; margin: 20px 0; }
-          .button { display: inline-block; padding: 12px 24px; background: #4f46e5; color: white; text-decoration: none; border-radius: 6px; font-weight: bold; }
+          .button { display: inline-block; padding: 12px 24px; background: #4f46e5; color: #ffffff; text-decoration: none; border-radius: 6px; font-weight: bold; }
           .warning { color: #dc2626; font-weight: bold; }
           .footer { text-align: center; margin-top: 30px; color: #6b7280; font-size: 14px; }
         </style>
