@@ -1,14 +1,23 @@
 import nodemailer from "nodemailer";
 
+const smtpPort = parseInt(process.env.EMAIL_PORT, 10) || 465;
+const smtpSecure = process.env.SMTP_SECURE
+  ? process.env.SMTP_SECURE === "true"
+  : smtpPort === 465;
+const smtpTimeoutMs = parseInt(process.env.SMTP_TIMEOUT_MS, 10) || 10000;
+
 // Create transporter
 const transporter = nodemailer.createTransport({
   host: process.env.EMAIL_HOST,
-  port: process.env.EMAIL_PORT,
-  // secure: process.env.SMTP_SECURE === "true",
+  port: smtpPort,
+  secure: smtpSecure,
   auth: {
     user: process.env.EMAIL_USER,
     pass: process.env.EMAIL_PASSWORD,
   },
+  connectionTimeout: smtpTimeoutMs,
+  greetingTimeout: smtpTimeoutMs,
+  socketTimeout: smtpTimeoutMs,
 });
 
 // Send admin creation email
@@ -110,7 +119,7 @@ export const sendAdminCreationEmail = async ({
       © ${new Date().getFullYear()} Community Fortune
     `;
 
-    const fromAddress = process.env.EMAIL_FROM || process.env.SUPPORT_EMAIL;
+    const fromAddress = process.env.EMAIL_FROM;
 
     await transporter.sendMail({
       from: `"Community Fortune" <${fromAddress}>`,
