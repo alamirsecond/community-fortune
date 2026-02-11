@@ -15,3 +15,8 @@ Optional: set explicit paths if you prefer different folders:
 - `USER_UPLOAD_PATH=/var/data/uploads/users`
 - `GAMES_UPLOAD_PATH=/var/data/uploads/games`
 - `SPIN_WHEEL_UPLOAD_PATH=/var/data/uploads/spin_wheels`
+
+Serving uploaded files requires public URLs. Configure these environment variables (especially in production):
+- `SERVER_URL=https://your-api-domain.com` (base URL used for generated links)
+- `USER_UPLOAD_URL=https://your-api-domain.com/uploads/users` (optional override for user profile images)
+- `COMPETITION_UPLOAD_URL=https://your-api-domain.com/uploads/competitions` (optional override for competitions media)

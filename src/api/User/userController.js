@@ -5,6 +5,7 @@ import { generateToken } from '../../../middleware/authHelpers.js';
 import userSchemas from './userSchemas.js';
 import referralService from '../services/referralService.js';
 import fs from 'fs';
+import { getFileUrl } from '../../../middleware/upload.js';
 import sendEmail, { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail } from '../../Utils/emailSender.js';
 import systemSettingsCache from '../../Utils/systemSettingsCache.js';
 
@@ -2770,10 +2771,62 @@ updateProfile: async (req, res) => {
         });
       }
 
-      const { username, profile_photo, phone } = value;
+      // Accept multiple variants (camelCase or snake_case) from clients
+      const username = value.username ?? value.userName ?? value.user_name;
+      let profile_photo = value.profile_photo ?? value.profilePhoto ?? value.profile;
+      const phoneInput = value.phone ?? value.phone_number ?? value.phoneNumber;
+      const firstNameInput = value.firstName ?? value.first_name ?? value.first;
+      const lastNameInput = value.lastName ?? value.last_name ?? value.last;
+      const emailInput = value.email ?? value.emailAddress ?? value.email_address;
+      const dateOfBirthInput = value.dateOfBirth ?? value.date_of_birth ?? value.dob;
+      const countryInput = value.country ?? value.countryCode ?? value.country_code;
+      const referralCodeInput = value.referralCode ?? value.referral_code ?? value.referral;
+
+      const normalizeNullableString = (input) => {
+        if (input === undefined) return undefined;
+        if (input === null) return null;
+        const trimmed = typeof input === 'string' ? input.trim() : input;
+        return trimmed === '' ? null : trimmed;
+      };
+
+      profile_photo = normalizeNullableString(profile_photo);
+      const normalizedPhone = normalizeNullableString(phoneInput);
+      const normalizedFirstName = normalizeNullableString(firstNameInput);
+      const normalizedLastName = normalizeNullableString(lastNameInput);
+      let normalizedEmail = normalizeNullableString(emailInput);
+      if (normalizedEmail) {
+        normalizedEmail = normalizedEmail.toLowerCase();
+      }
+      const normalizedCountry = countryInput === undefined
+        ? undefined
+        : (countryInput ? countryInput.toString().trim().toUpperCase() : null);
+      const normalizedReferralCode = normalizeNullableString(referralCodeInput);
+
+      let formattedDob;
+      if (dateOfBirthInput !== undefined) {
+        if (!dateOfBirthInput) {
+          formattedDob = null;
+        } else {
+          const dob = new Date(dateOfBirthInput);
+          if (Number.isNaN(dob.getTime())) {
+            return res.status(400).json({
+              success: false,
+              message: 'Invalid date of birth format'
+            });
+          }
+          formattedDob = dob.toISOString().split('T')[0];
+        }
+      }
+
+      // If a profile image was uploaded, override profile_photo with its URL
+      if (req.file) {
+        const uploadedUrl = getFileUrl(req.file.path);
+        profile_photo = uploadedUrl;
+      }
 
       const updates = [];
       const params = [];
+      let updatedReferralCode = null;
 
       if (username) {
         updates.push("username = ?");
@@ -2785,9 +2838,41 @@ updateProfile: async (req, res) => {
         params.push(profile_photo);
       }
 
-      if (phone !== undefined) {
+      if (normalizedPhone !== undefined) {
         updates.push("phone = ?");
-        params.push(phone);
+        params.push(normalizedPhone);
+      }
+
+      if (normalizedFirstName !== undefined) {
+        updates.push("first_name = ?");
+        params.push(normalizedFirstName);
+      }
+
+      if (normalizedLastName !== undefined) {
+        updates.push("last_name = ?");
+        params.push(normalizedLastName);
+      }
+
+      if (normalizedEmail !== undefined) {
+        updates.push("email = ?");
+        params.push(normalizedEmail);
+        updates.push("email_verified = FALSE");
+      }
+
+      if (formattedDob !== undefined) {
+        updates.push("date_of_birth = ?");
+        params.push(formattedDob);
+      }
+
+      if (normalizedCountry !== undefined) {
+        updates.push("country = ?");
+        params.push(normalizedCountry);
+      }
+
+      if (normalizedReferralCode) {
+        updates.push("referral_code = ?");
+        params.push(normalizedReferralCode);
+        updatedReferralCode = normalizedReferralCode;
       }
 
       if (updates.length === 0) {
@@ -2811,6 +2896,48 @@ updateProfile: async (req, res) => {
         }
       }
 
+      if (normalizedEmail) {
+        const [existingEmails] = await pool.query(
+          `SELECT id FROM users WHERE email = ? AND id != UUID_TO_BIN(?)`,
+          [normalizedEmail, req.user.id]
+        );
+
+        if (existingEmails.length > 0) {
+          return res.status(409).json({
+            success: false,
+            message: "Email already in use",
+          });
+        }
+      }
+
+      if (normalizedPhone) {
+        const [existingPhones] = await pool.query(
+          `SELECT id FROM users WHERE phone = ? AND id != UUID_TO_BIN(?)`,
+          [normalizedPhone, req.user.id]
+        );
+
+        if (existingPhones.length > 0) {
+          return res.status(409).json({
+            success: false,
+            message: "Phone number already in use",
+          });
+        }
+      }
+
+      if (updatedReferralCode) {
+        const [existingCodes] = await pool.query(
+          `SELECT id FROM users WHERE referral_code = ? AND id != UUID_TO_BIN(?)`,
+          [updatedReferralCode, req.user.id]
+        );
+
+        if (existingCodes.length > 0) {
+          return res.status(409).json({
+            success: false,
+            message: "Referral code already in use",
+          });
+        }
+      }
+
       params.push(req.user.id);
 
       await pool.query(
@@ -2819,8 +2946,16 @@ updateProfile: async (req, res) => {
         params
       );
 
+      if (updatedReferralCode) {
+        await pool.query(
+          `UPDATE referral_links SET referral_code = ? WHERE user_id = UUID_TO_BIN(?)`,
+          [updatedReferralCode, req.user.id]
+        );
+      }
+
       const [users] = await pool.query(
-        `SELECT BIN_TO_UUID(id) as id, email, username, role, age_verified, profile_photo, phone, email_verified
+        `SELECT BIN_TO_UUID(id) as id, email, username, role, age_verified, profile_photo, phone, email_verified,
+                first_name, last_name, date_of_birth, country, referral_code
          FROM users WHERE id = UUID_TO_BIN(?)`,
         [req.user.id]
       );

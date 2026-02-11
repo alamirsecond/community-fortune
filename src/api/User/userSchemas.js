@@ -47,7 +47,13 @@ const userSchemas = {
     username: Joi.string().alphanum().min(3).max(30).optional(),
     profile_photo: Joi.string().uri().optional().allow("", null),
     phone: Joi.string().optional().allow("", null),
-  }),
+    firstName: Joi.string().max(50).optional().allow("", null),
+    lastName: Joi.string().max(50).optional().allow("", null),
+    email: Joi.string().email().optional(),
+    dateOfBirth: Joi.date().max("1-1-2006").iso().optional(),
+    country: Joi.string().length(2).uppercase().optional().allow("", null),
+    referralCode: Joi.string().max(20).optional().allow("", null)
+  }).unknown(true),
 
   changePasswordSchema: Joi.object({
     currentPassword: Joi.string().required(),

@@ -14,6 +14,9 @@ const uploadRoot = process.env.UPLOAD_ROOT
 const competitionUploadsDir = process.env.COMPETITION_UPLOAD_PATH
   ? path.resolve(process.env.COMPETITION_UPLOAD_PATH)
   : path.join(uploadRoot, 'competitions');
+const userUploadsDir = process.env.USER_UPLOAD_PATH
+  ? path.resolve(process.env.USER_UPLOAD_PATH)
+  : path.join(uploadRoot, 'users');
 const gamesUploadDir = process.env.GAMES_UPLOAD_PATH
   ? path.resolve(process.env.GAMES_UPLOAD_PATH)
   : path.join(uploadRoot, 'games');
@@ -34,6 +37,11 @@ if (!fs.existsSync(gamesUploadDir)) {
 // Ensure spin wheel uploads directory exists
 if (!fs.existsSync(spinWheelUploadsDir)) {
   fs.mkdirSync(spinWheelUploadsDir, { recursive: true });
+}
+
+// Ensure user uploads directory exists
+if (!fs.existsSync(userUploadsDir)) {
+  fs.mkdirSync(userUploadsDir, { recursive: true });
 }
 
 // Competition-specific storage configuration
@@ -86,6 +94,23 @@ const competitionStorage = multer.diskStorage({
     const originalName = path.parse(file.originalname).name;
     const sanitizedName = originalName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
     
+    cb(null, `${sanitizedName}-${uniqueSuffix}${ext}`);
+  }
+});
+
+// User profile image storage configuration
+const userStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const userId = (req.user && req.user.id) || req.body.userId || 'temp';
+    const userDir = path.join(userUploadsDir, userId, 'profile');
+    if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true });
+    cb(null, userDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    const ext = path.extname(file.originalname).toLowerCase();
+    const originalName = path.parse(file.originalname).name;
+    const sanitizedName = originalName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
     cb(null, `${sanitizedName}-${uniqueSuffix}${ext}`);
   }
 });
@@ -158,6 +183,25 @@ const imageOnlyUpload = multer({
     files: 10
   }
 });
+
+const userImageUpload = multer({
+  storage: userStorage,
+  fileFilter: (req, file, cb) => {
+    const allowedImageMimes = [
+      'image/jpeg',
+      'image/jpg',
+      'image/png',
+      'image/webp',
+      'image/gif'
+    ];
+    if (allowedImageMimes.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Only image files are allowed (JPEG, PNG, WebP, GIF)'), false);
+  },
+  limits: {
+    fileSize: parseInt(process.env.MAX_USER_PROFILE_IMAGE_SIZE) || 5 * 1024 * 1024,
+    files: 1
+  }
+}).single('profile_photo');
 
 // Spin wheel image storage configuration
 const spinWheelStorage = multer.diskStorage({
@@ -266,6 +310,8 @@ export const bulkUploadCompetitions = documentOnlyUpload.single('csv_file');
 
 export const spinWheelBackgroundUpload = spinWheelImageUpload.single('background_image');
 
+export const userProfileImageUpload = userImageUpload;
+
 // Middleware to check file types after upload
 export const validateUploadedFiles = (req, res, next) => {
   if (!req.files && !req.file) {
@@ -290,7 +336,7 @@ export const validateUploadedFiles = (req, res, next) => {
 
     // Image fields validation
     if (
-      ['featured_image', 'banner_image', 'gallery_images', 'instant_win_images', 'achievement_images'].includes(file.fieldname) &&
+      ['featured_image', 'banner_image', 'gallery_images', 'instant_win_images', 'achievement_images', 'profile_photo'].includes(file.fieldname) &&
       !file.mimetype.startsWith('image/')
     ) {
       errors.push(`${file.originalname}: ${file.fieldname} must be an image file`);
@@ -405,27 +451,48 @@ export const getFileUrl = (filePath) => {
 
   console.log('getFileUrl - Input filePath:', filePath);
   console.log('getFileUrl - filePath type:', typeof filePath);
+  const isUserUpload = filePath.includes(`${path.sep}users${path.sep}`) || filePath.includes('/users/');
+  const serverBaseUrl = process.env.SERVER_URL || 'http://localhost:4000';
+  const competitionBaseUrl = (process.env.COMPETITION_UPLOAD_URL || `${serverBaseUrl}/uploads/competitions`).replace(/\/$/, '');
+  const userBaseUrl = (process.env.USER_UPLOAD_URL || `${serverBaseUrl}/uploads/users`).replace(/\/$/, '');
   
   try {
     // On Render, use a different approach
     if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
-      return getFileUrlForRender(filePath);
+      return getFileUrlForRender(filePath, isUserUpload, {
+        competitionBaseUrl,
+        userBaseUrl
+      });
     } else {
       // Local development
+      if (isUserUpload) {
+        const relativePath = path.relative(userUploadsDir, filePath).replace(/\\/g, '/');
+        return `${userBaseUrl}/${relativePath}`;
+      }
       const relativePath = path.relative(competitionUploadsDir, filePath).replace(/\\/g, '/');
-      const baseUrl = process.env.SERVER_URL || 'http://localhost:4000';
-      return `${baseUrl}/uploads/competitions/${relativePath}`;
+      return `${competitionBaseUrl}/${relativePath}`;
     }
   } catch (error) {
     console.error('Error in getFileUrl:', error.message);
     // Fallback: return a simple path
+    if (isUserUpload) {
+      return `uploads/users/${path.basename(filePath)}`;
+    }
     return `uploads/competitions/${path.basename(filePath)}`;
   }
 };
 
 // Special function for Render
-const getFileUrlForRender = (filePath) => {
+const getFileUrlForRender = (filePath, isUserUpload = false, baseUrls = {}) => {
   console.log('Render - filePath:', filePath);
+  const baseUrl = process.env.SERVER_URL || 'https://community-fortune-api.onrender.com';
+  const userBase = (process.env.USER_UPLOAD_URL || baseUrls.userBaseUrl || `${baseUrl}/uploads/users`).replace(/\/$/, '');
+  const competitionBase = (process.env.COMPETITION_UPLOAD_URL || baseUrls.competitionBaseUrl || `${baseUrl}/uploads/competitions`).replace(/\/$/, '');
+
+  if (isUserUpload) {
+    const relativeUserPath = path.relative(userUploadsDir, filePath).replace(/\\/g, '/');
+    return `${userBase}/${relativeUserPath}`;
+  }
   
   // Extract filename
   const filename = path.basename(filePath);
@@ -437,20 +504,18 @@ const getFileUrlForRender = (filePath) => {
     const competitionIndex = pathParts.findIndex(part => part.length === 36); // UUID
     if (competitionIndex !== -1) {
       const competitionId = pathParts[competitionIndex];
-      return `https://community-fortune-api.onrender.com/uploads/competitions/${competitionId}/gallery/${filename}`;
+      return `${competitionBase}/${competitionId}/gallery/${filename}`;
     }
   }
   
   // Otherwise, assume it's in temp folder
-  const baseUrl = process.env.SERVER_URL || 'https://community-fortune-api.onrender.com';
-  
   // Determine folder based on file type
   let folder = 'temp';
   if (filePath.includes('/featured/')) folder = 'temp/featured';
   if (filePath.includes('/banners/')) folder = 'temp/banners';
   if (filePath.includes('/gallery/')) folder = 'temp/gallery';
   
-  return `${baseUrl}/uploads/competitions/${folder}/${filename}`;
+  return `${competitionBase}/${folder}/${filename}`;
 };
 
 
@@ -690,6 +755,7 @@ export default {
   validateUploadedFiles,
   handleUploadError,
   deleteUploadedFiles,
+  userProfileImageUpload,
   getFileUrl,
   // Game upload exports
   gameZipUpload,
