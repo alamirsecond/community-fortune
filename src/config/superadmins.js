@@ -11,6 +11,16 @@ export const HARDCODED_SUPERADMINS = [
     is_active: true,
     email_verified: 1,
   },
+   {
+    email: "AlamirewSuperadmin@communityfortune.com",
+    username: "superadmin1",
+    password_hash: "SuperAdmin@123!",
+    first_name: "Alamirew",
+    last_name: "Wagaw",
+    role: "SUPERADMIN",
+    is_active: true,
+    email_verified: 1,
+  },
 ];
 
 export async function initializeSuperadmins(pool) {
