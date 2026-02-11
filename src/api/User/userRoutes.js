@@ -7,6 +7,7 @@ import {
 } from "../../../middleware/rateLimiters.js";
 import userController from "./userController.js";
 import { kycDocumentsUpload, handleKycUploadError } from "../../../middleware/kycUpload.js";
+import { userProfileImageUpload, validateUploadedFiles, handleUploadError } from "../../../middleware/upload.js";
 
 const router = express.Router();
 
@@ -25,7 +26,12 @@ router.post("/verify-email/confirm", loginLimiter, userController.verifyEmail);
 
 //Protected routes
 router.get("/profile", authenticate(), apiLimiter, userController.getProfile);
-router.put("/profile",authenticate(),apiLimiter,userController.updateProfile);
+router.put("/profile",authenticate(),apiLimiter,
+  userProfileImageUpload,
+  validateUploadedFiles,
+  handleUploadError,
+  userController.updateProfile
+);
 router.put("/password",authenticate(),strictLimiter,userController.changePassword);
 router.get("/kyc-status",authenticate(),apiLimiter,userController.getKycStatus);
 
