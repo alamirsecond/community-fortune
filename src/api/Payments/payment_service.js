@@ -1722,7 +1722,7 @@ async getTransactionAnalytics(period = 'this_week', startDate = null, endDate = 
         total_deposits: {
           amount: deposits[0].total_amount,
           count: deposits[0].count,
-          currency: '₹',
+          currency: '£',
           change_percentage: 12, // You'd need to calculate this vs previous period
           change_label: '+12% this week',
           trend: 'up'
@@ -1730,7 +1730,7 @@ async getTransactionAnalytics(period = 'this_week', startDate = null, endDate = 
         total_withdrawals: {
           amount: withdrawals[0].total_amount,
           count: withdrawals[0].count,
-          currency: '₹',
+          currency: '£',
           change_percentage: -5,
           change_label: '-5% vs last week',
           trend: 'down'
@@ -1744,7 +1744,7 @@ async getTransactionAnalytics(period = 'this_week', startDate = null, endDate = 
         },
         net_revenue: {
           amount: netRevenue,
-          currency: '₹',
+          currency: '£',
           profit_margin: parseFloat(profitMargin),
           change_label: `+${profitMargin}% profit margin`,
           trend: 'up'
@@ -1758,7 +1758,7 @@ async getTransactionAnalytics(period = 'this_week', startDate = null, endDate = 
         pending_withdrawals: {
           count: pendingWithdrawals[0].count,
           total_amount: pendingWithdrawals[0].total_amount,
-          label: `₹${pendingWithdrawals[0].total_amount.toLocaleString()} in queue`
+          label: `£${pendingWithdrawals[0].total_amount.toLocaleString()} in queue`
         },
         avg_transaction_value: {
           amount: avgTransaction[0].avg_amount,
