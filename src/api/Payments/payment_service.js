@@ -912,7 +912,7 @@ async initGateways() {
           t.currency,
           t.status,
           t.gateway,
-          t.description,
+         t.description,
           t.created_at,
           t.completed_at,
           t.reference_table,

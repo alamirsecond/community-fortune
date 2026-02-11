@@ -176,6 +176,19 @@ export const createCompetition = async (req, res) => {
       }));
     }
 
+    // Attach uploaded achievement images: align by index, or reuse a single upload for all
+    if (Array.isArray(competitionData.achievements) && files.achievement_images?.length) {
+      const achievementImages = files.achievement_images.map(f => getFileUrl(f.path));
+
+      competitionData.achievements = competitionData.achievements.map((achievement, index) => ({
+        ...achievement,
+        image_url:
+          achievementImages[index] ||
+          (achievementImages.length === 1 ? achievementImages[0] : achievement.image_url) ||
+          achievement.image_url
+      }));
+    }
+
     // Auto-generate instant win ticket numbers when none are provided
     if (Array.isArray(competitionData.instant_wins) && competitionData.instant_wins.length > 0) {
       const usedNumbers = new Set();
@@ -413,6 +426,16 @@ export const updateCompetition = async (req, res) => {
     if (typeof competitionData.gallery_images === 'string') {
       const parsedGalleryImages = parseJsonField(competitionData.gallery_images);
       if (Array.isArray(parsedGalleryImages)) competitionData.gallery_images = parsedGalleryImages;
+    }
+
+    // Attach uploaded achievement images by index order (if provided)
+    if (Array.isArray(competitionData.achievements) && files.achievement_images?.length) {
+      competitionData.achievements = competitionData.achievements.map((achievement, index) => ({
+        ...achievement,
+        image_url: files.achievement_images[index]
+          ? getFileUrl(files.achievement_images[index].path)
+          : achievement.image_url
+      }));
     }
 
     // Attach uploaded instant win images by index order (if provided)
