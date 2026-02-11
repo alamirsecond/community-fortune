@@ -494,7 +494,6 @@ const getFileUrlForRender = (filePath, isUserUpload = false, baseUrls = {}) => {
     return `${userBase}/${relativeUserPath}`;
   }
   
-  // Extract filename
   const filename = path.basename(filePath);
   
   // Check if it's a gallery image (moved to competition folder)
