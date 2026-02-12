@@ -1,6 +1,10 @@
 import pool from "../../../database.js";
 import { v4 as uuidv4 } from 'uuid';
 import {
+  sendContactConfirmationEmail,
+  sendContactResponseEmail
+} from "../../Utils/emailSender.js";
+import {
   ContactMessageSchema,
   ContactResponseSchema,
   ContactSettingsSchema,
@@ -49,8 +53,16 @@ const contactController = {
         [uuidv4(), full_name, email, message, category]
       );
 
-      // Send confirmation email
-      // await sendContactConfirmationEmail(email, full_name);
+      const confirmationResult = await sendContactConfirmationEmail(
+        email,
+        full_name,
+        category,
+        message
+      );
+
+      if (!confirmationResult?.success) {
+        console.warn("Contact confirmation email failed:", confirmationResult?.message);
+      }
 
       res.status(201).json({
         success: true,
@@ -358,11 +370,16 @@ const contactController = {
       );
 
       // Send email response
-      // await sendContactResponseEmail(
-      //   message[0].email,
-      //   message[0].full_name,
-      //   response_message
-      // );
+      const responseResult = await sendContactResponseEmail(
+        message[0].email,
+        message[0].full_name,
+        response_message,
+        adminUser
+      );
+
+      if (!responseResult?.success) {
+        console.warn("Contact response email failed:", responseResult?.message);
+      }
 
       res.status(200).json({
         success: true,
