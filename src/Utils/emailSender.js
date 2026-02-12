@@ -546,6 +546,62 @@ const getTemplate = (templateName, data) => {
         </div>
       `,
     },
+
+    // Contact Confirmation
+    contactConfirmation: {
+      subject: "We received your message - Community Fortune",
+      text: `Hi ${data.fullName || "there"}, thanks for reaching out to Community Fortune. We've logged your request under ${data.category || "GENERAL"} and will get back to you shortly.`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; background: #ffffff;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h2 style="color: #3447AA; margin: 0;">Community Fortune Support</h2>
+          </div>
+
+          <p>Hello ${data.fullName || "there"},</p>
+
+          <p>Thanks for getting in touch. Your message has been received and tagged as <strong>${data.category || "GENERAL"}</strong>. Our support team will review it and respond as soon as possible.</p>
+
+          ${data.messagePreview ? `<div style="background: #f8f9fa; padding: 16px; border-radius: 6px; border-left: 4px solid #3447AA; margin: 20px 0;">
+            <p style="margin: 0; font-size: 13px; color: #555;">
+              <strong>Your message preview:</strong><br>${data.messagePreview}
+            </p>
+          </div>` : ""}
+
+          <p>We typically reply within 1 business day. If you need to add more details, just reply to this email.</p>
+
+          <p style="color: #999; font-size: 12px; text-align: center; border-top: 1px solid #e0e0e0; padding-top: 15px; margin-top: 20px;">
+            Community Fortune Support Team
+          </p>
+        </div>
+      `,
+    },
+
+    // Contact Response
+    contactResponse: {
+      subject: "Community Fortune Support Update",
+      text: `Hi ${data.fullName || "there"}, ${data.adminUser || "our support team"} replied: ${data.responseMessage || ""}`,
+      html: `
+        <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 8px; background: #ffffff;">
+          <div style="text-align: center; margin-bottom: 20px;">
+            <h2 style="color: #3447AA; margin: 0;">Community Fortune Support</h2>
+          </div>
+
+          <p>Hello ${data.fullName || "there"},</p>
+
+          <p>${data.adminUser || "A member of our support team"} sent you a reply:</p>
+
+          <div style="background: #f8f9fa; padding: 16px; border-radius: 6px; border-left: 4px solid #1f8f5a; margin: 20px 0;">
+            <p style="margin: 0; white-space: pre-line; color: #222;">${data.responseMessage || ""}</p>
+          </div>
+
+          <p>If you have additional questions, just reply to this email to keep the conversation going.</p>
+
+          <p style="color: #999; font-size: 12px; text-align: center; border-top: 1px solid #e0e0e0; padding-top: 15px; margin-top: 20px;">
+            Community Fortune Support Team
+          </p>
+        </div>
+      `,
+    },
   };
 
   return templates[templateName] || null;
@@ -645,6 +701,22 @@ export const sendKycRejectionEmail = async (email, username) => {
     return { success: true, message: "KYC rejection email suppressed by settings", suppressed: true };
   }
   return await sendEmail(email, "kycRejected", { username });
+};
+
+export const sendContactConfirmationEmail = async (email, fullName, category = "GENERAL", message = "") => {
+  return await sendEmail(email, "contactConfirmation", {
+    fullName,
+    category,
+    messagePreview: message ? message.slice(0, 200) : ""
+  });
+};
+
+export const sendContactResponseEmail = async (email, fullName, responseMessage, adminUser) => {
+  return await sendEmail(email, "contactResponse", {
+    fullName,
+    responseMessage,
+    adminUser
+  });
 };
 
 // Test email function
