@@ -277,11 +277,12 @@ static async getCompetitionStatsDashboard() {
         gallery_images, rules_and_restrictions,
         created_at, updated_at,
         (SELECT COUNT(*) FROM instant_wins WHERE competition_id = UUID_TO_BIN(?)) as instant_wins_count,
+        (SELECT COUNT(*) FROM instant_wins WHERE competition_id = UUID_TO_BIN(?) AND claimed_by IS NOT NULL) as instant_wins_claimed_count,
         (SELECT COUNT(*) FROM competition_achievements WHERE competition_id = UUID_TO_BIN(?)) as achievements_count,
         TIMESTAMPDIFF(SECOND, NOW(), end_date) as countdown_seconds
        FROM competitions 
        WHERE id = UUID_TO_BIN(?)`,
-      [competitionId, competitionId, competitionId]
+      [competitionId, competitionId, competitionId, competitionId]
     );
     
     const competition = rows[0] || null;
@@ -307,6 +308,9 @@ static async getCompetitionStatsDashboard() {
         c.status, c.competition_type, c.created_at,
         c.prize_option, c.ticket_model, c.subscription_tier,
         c.wheel_type, c.game_type, c.gallery_images, c.rules_and_restrictions,
+        (SELECT COUNT(*) FROM instant_wins iw WHERE iw.competition_id = c.id) as instant_wins_count,
+        (SELECT COUNT(*) FROM instant_wins iw WHERE iw.competition_id = c.id AND iw.claimed_by IS NOT NULL) as instant_wins_claimed_count,
+        (SELECT COUNT(*) FROM competition_achievements ca WHERE ca.competition_id = c.id) as achievements_count,
         TIMESTAMPDIFF(SECOND, NOW(), c.end_date) as countdown_seconds,
         (SELECT COUNT(*) FROM competition_entries ce WHERE ce.competition_id = c.id) as total_entries,
         (SELECT COUNT(DISTINCT user_id) FROM competition_entries ce WHERE ce.competition_id = c.id) as unique_participants
@@ -1098,6 +1102,25 @@ static async getCompetitionStatsDashboard() {
     );
 
     return rows;
+  }
+
+  static async getInstantWinStats(competitionId) {
+    const [rows] = await pool.execute(
+      `SELECT 
+        COUNT(*) as total,
+        SUM(CASE WHEN claimed_by IS NOT NULL THEN 1 ELSE 0 END) as claimed
+       FROM instant_wins
+       WHERE competition_id = UUID_TO_BIN(?)`,
+      [competitionId]
+    );
+
+    const total = rows[0]?.total || 0;
+    const claimed = rows[0]?.claimed || 0;
+    return {
+      total,
+      claimed,
+      remaining: Math.max(0, total - claimed)
+    };
   }
 
   // ==================== GET ACHIEVEMENTS ====================
