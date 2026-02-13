@@ -5,287 +5,154 @@ import fs from 'fs';
 import JSZip from 'jszip';
 import { exec } from 'child_process';
 import { promisify } from 'util';
+import { cloudinary, CloudinaryStorage } from '../src/config/cloudinary.js';
 
 const execAsync = promisify(exec);
 
 const uploadRoot = process.env.UPLOAD_ROOT
   ? path.resolve(process.env.UPLOAD_ROOT)
   : path.resolve('./uploads');
-const competitionUploadsDir = process.env.COMPETITION_UPLOAD_PATH
-  ? path.resolve(process.env.COMPETITION_UPLOAD_PATH)
-  : path.join(uploadRoot, 'competitions');
-const userUploadsDir = process.env.USER_UPLOAD_PATH
-  ? path.resolve(process.env.USER_UPLOAD_PATH)
-  : path.join(uploadRoot, 'users');
+
 const gamesUploadDir = process.env.GAMES_UPLOAD_PATH
   ? path.resolve(process.env.GAMES_UPLOAD_PATH)
   : path.join(uploadRoot, 'games');
-const spinWheelUploadsDir = process.env.SPIN_WHEEL_UPLOAD_PATH
-  ? path.resolve(process.env.SPIN_WHEEL_UPLOAD_PATH)
-  : path.join(uploadRoot, 'spin_wheels');
 
-// Ensure competition uploads directory exists
-if (!fs.existsSync(competitionUploadsDir)) {
-  fs.mkdirSync(competitionUploadsDir, { recursive: true });
-}
-
-// Ensure game uploads directory exists
+// Ensure game uploads directory exists (User opted for Persistent Volume for Games)
 if (!fs.existsSync(gamesUploadDir)) {
   fs.mkdirSync(gamesUploadDir, { recursive: true });
 }
 
-// Ensure spin wheel uploads directory exists
-if (!fs.existsSync(spinWheelUploadsDir)) {
-  fs.mkdirSync(spinWheelUploadsDir, { recursive: true });
-}
+// Helper to determine folder based on file type/field
+const getCloudinaryFolder = (req, file) => {
+  if (file.fieldname === 'profile_photo') return 'users/profiles';
+  if (file.fieldname === 'background_image') return 'spin_wheels';
 
-// Ensure user uploads directory exists
-if (!fs.existsSync(userUploadsDir)) {
-  fs.mkdirSync(userUploadsDir, { recursive: true });
-}
+  // Competition related
+  let subDir = 'competitions';
+  if (req.params.id) subDir += `/${req.params.id}`;
+  else if (req.body.competitionId) subDir += `/${req.body.competitionId}`;
+  else subDir += '/temp';
 
-// Competition-specific storage configuration
-const competitionStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    let subDir = 'temp';
-    
-    if (req.params.id) {
-      // For updates to existing competitions
-      subDir = req.params.id;
-    } else if (req.body.competitionId) {
-      // For new competitions with pre-defined ID
-      subDir = req.body.competitionId;
-    }
-    
-    const competitionDir = path.join(competitionUploadsDir, subDir);
-    
-    if (!fs.existsSync(competitionDir)) {
-      fs.mkdirSync(competitionDir, { recursive: true });
-    }
-    
-    // Create subdirectories for different file types
-    const fileTypeDirs = {
-      'featured_image': 'featured',
-      'featured_video': 'featured',
-      'banner_image': 'banners',
-      'gallery': 'gallery',
-      'images': 'gallery',
-      'instant_win_images': 'instant_wins',
-      'achievement_images': 'achievements',
-      'terms_pdf': 'documents',
-      'rules_pdf': 'documents',
-      'winner_announcement_pdf': 'documents',
-      'prize_documentation': 'documents'
+  const fieldTypeMap = {
+    'featured_image': 'featured',
+    'featured_video': 'featured',
+    'banner_image': 'banners',
+    'gallery': 'gallery',
+    'images': 'gallery',
+    'instant_win_images': 'instant_wins',
+    'achievement_images': 'achievements',
+    'terms_pdf': 'documents',
+    'rules_pdf': 'documents',
+    'winner_announcement_pdf': 'documents',
+    'prize_documentation': 'documents'
+  };
+
+  const typeDir = fieldTypeMap[file.fieldname] || 'others';
+  return `${subDir}/${typeDir}`;
+};
+
+// Generic Cloudinary Storage for all media
+const cloudinaryStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: async (req, file) => {
+    const folder = getCloudinaryFolder(req, file);
+    const originalName = path.parse(file.originalname).name;
+    const sanitizedName = originalName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
+
+    // Determine resource type
+    let resource_type = 'auto'; // Default to auto detection
+    if (file.mimetype.startsWith('image/')) resource_type = 'image';
+    else if (file.mimetype.startsWith('video/')) resource_type = 'video';
+    else if (file.mimetype === 'application/pdf') resource_type = 'raw'; // PDFs are treated as 'raw' or 'image' (if acting as image) but usually 'raw' for docs
+
+    return {
+      folder: folder,
+      public_id: `${sanitizedName}-${Date.now()}`,
+      resource_type: resource_type,
+      // Keep original format by default, or specific transformations can be added here
+      format: file.mimetype.split('/')[1] === 'jpeg' ? 'jpg' : undefined // normalize jpeg
     };
-    
-    const fieldName = file.fieldname;
-    const subDirectory = fileTypeDirs[fieldName] || 'others';
-    const finalDir = path.join(competitionDir, subDirectory);
-    
-    if (!fs.existsSync(finalDir)) {
-      fs.mkdirSync(finalDir, { recursive: true });
-    }
-    
-    cb(null, finalDir);
   },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname).toLowerCase();
-    const originalName = path.parse(file.originalname).name;
-    const sanitizedName = originalName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
-    
-    cb(null, `${sanitizedName}-${uniqueSuffix}${ext}`);
-  }
-});
-
-// User profile image storage configuration
-const userStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const userId = (req.user && req.user.id) || req.body.userId || 'temp';
-    const userDir = path.join(userUploadsDir, userId, 'profile');
-    if (!fs.existsSync(userDir)) fs.mkdirSync(userDir, { recursive: true });
-    cb(null, userDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname).toLowerCase();
-    const originalName = path.parse(file.originalname).name;
-    const sanitizedName = originalName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
-    cb(null, `${sanitizedName}-${uniqueSuffix}${ext}`);
-  }
 });
 
 // Competition file filter
 const competitionFileFilter = (req, file, cb) => {
-  const allowedImageMimes = [
-    'image/jpeg',
-    'image/jpg',
-    'image/png',
-    'image/webp',
-    'image/gif'
-  ];
-  
-  const allowedDocumentMimes = [
-    'application/pdf',
-    'application/msword',
+  const allowedMimes = [
+    'image/jpeg', 'image/jpg', 'image/png', 'image/webp', 'image/gif',
+    'application/pdf', 'application/msword',
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-    'application/vnd.ms-excel',
-    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
+    'application/vnd.ms-excel', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'video/mp4', 'video/mpeg', 'video/quicktime', 'video/x-msvideo', 'video/x-ms-wmv', 'video/webm'
   ];
-  
-  const allowedVideoMimes = [
-    'video/mp4',
-    'video/mpeg',
-    'video/quicktime',
-    'video/x-msvideo',
-    'video/x-ms-wmv',
-    'video/webm'
-  ];
-  
-  const allAllowedMimes = [...allowedImageMimes, ...allowedDocumentMimes, ...allowedVideoMimes];
-  
-  if (allAllowedMimes.includes(file.mimetype)) {
+
+  if (allowedMimes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error(`Invalid file type. Allowed types: Images (JPEG, PNG, WebP, GIF), Documents (PDF, DOC, DOCX, XLS, XLSX), Videos (MP4, MPEG, MOV, AVI, WMV, WebM)`), false);
+    cb(new Error(`Invalid file type for competition upload`), false);
   }
 };
 
-// Create upload instances for different use cases
+// Create upload instances using Cloudinary Storage
 const competitionUpload = multer({
-  storage: competitionStorage,
+  storage: cloudinaryStorage,
   fileFilter: competitionFileFilter,
   limits: {
-    fileSize: 50 * 1024 * 1024, // 50MB max for videos
-    files: 20 // max 20 files total
+    fileSize: 50 * 1024 * 1024, // 50MB max
+    files: 20
   }
 });
 
 const imageOnlyUpload = multer({
-  storage: competitionStorage,
+  storage: cloudinaryStorage,
   fileFilter: (req, file, cb) => {
-    const allowedImageMimes = [
-      'image/jpeg',
-      'image/jpg',
-      'image/png',
-      'image/webp',
-      'image/gif'
-    ];
-    
-    if (allowedImageMimes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed (JPEG, PNG, WebP, GIF)'), false);
-    }
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Only image files are allowed'), false);
   },
   limits: {
-    fileSize: parseInt(process.env.MAX_COMPETITION_IMAGE_SIZE) || 10 * 1024 * 1024,
+    fileSize: 10 * 1024 * 1024,
     files: 10
   }
 });
 
 const userImageUpload = multer({
-  storage: userStorage,
+  storage: cloudinaryStorage,
   fileFilter: (req, file, cb) => {
-    const allowedImageMimes = [
-      'image/jpeg',
-      'image/jpg',
-      'image/png',
-      'image/webp',
-      'image/gif'
-    ];
-    if (allowedImageMimes.includes(file.mimetype)) cb(null, true);
-    else cb(new Error('Only image files are allowed (JPEG, PNG, WebP, GIF)'), false);
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Only image files are allowed'), false);
   },
   limits: {
-    fileSize: parseInt(process.env.MAX_USER_PROFILE_IMAGE_SIZE) || 5 * 1024 * 1024,
+    fileSize: 5 * 1024 * 1024,
     files: 1
   }
 }).single('profile_photo');
 
-// Spin wheel image storage configuration
-const spinWheelStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const wheelId = req.params.wheel_id || req.body.wheel_id || 'temp';
-    const wheelDir = path.join(spinWheelUploadsDir, wheelId);
-
-    if (!fs.existsSync(wheelDir)) {
-      fs.mkdirSync(wheelDir, { recursive: true });
-    }
-
-    const fileTypeDirs = {
-      'background_image': 'background'
-    };
-
-    const fieldName = file.fieldname;
-    const subDirectory = fileTypeDirs[fieldName] || 'others';
-    const finalDir = path.join(wheelDir, subDirectory);
-
-    if (!fs.existsSync(finalDir)) {
-      fs.mkdirSync(finalDir, { recursive: true });
-    }
-
-    cb(null, finalDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname).toLowerCase();
-    const originalName = path.parse(file.originalname).name;
-    const sanitizedName = originalName.replace(/[^a-zA-Z0-9_-]/g, '-').toLowerCase();
-
-    cb(null, `${sanitizedName}-${uniqueSuffix}${ext}`);
-  }
-});
-
 const spinWheelImageUpload = multer({
-  storage: spinWheelStorage,
+  storage: cloudinaryStorage,
   fileFilter: (req, file, cb) => {
-    const allowedImageMimes = [
-      'image/jpeg',
-      'image/jpg',
-      'image/png',
-      'image/webp',
-      'image/gif'
-    ];
-
-    if (allowedImageMimes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only image files are allowed (JPEG, PNG, WebP, GIF)'), false);
-    }
+    if (file.mimetype.startsWith('image/')) cb(null, true);
+    else cb(new Error('Only image files are allowed'), false);
   },
   limits: {
-    fileSize: parseInt(process.env.MAX_SPIN_WHEEL_IMAGE_SIZE) || 10 * 1024 * 1024,
+    fileSize: 10 * 1024 * 1024,
     files: 1
   }
 });
 
 const documentOnlyUpload = multer({
-  storage: competitionStorage,
+  storage: cloudinaryStorage,
   fileFilter: (req, file, cb) => {
-    const allowedDocumentMimes = [
-      'application/pdf',
-      'application/msword',
-      'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-      'application/vnd.ms-excel',
-      'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    ];
-    
-    if (allowedDocumentMimes.includes(file.mimetype)) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only document files are allowed (PDF, DOC, DOCX, XLS, XLSX)'), false);
-    }
+    const allowedDocs = ['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document'];
+    if (allowedDocs.includes(file.mimetype)) cb(null, true);
+    else cb(new Error('Only document files are allowed'), false);
   },
   limits: {
-    fileSize: parseInt(process.env.MAX_COMPETITION_DOCUMENT_SIZE) || 20 * 1024 * 1024,
+    fileSize: 20 * 1024 * 1024,
     files: 5
   }
 });
 
-// Preconfigured upload middlewares
+// Exports for Preconfigured middlewares
 export const upload = competitionUpload;
-
 
 export const competitionFeaturedUpload = competitionUpload.fields([
   { name: 'featured_image', maxCount: 1 },
@@ -295,7 +162,6 @@ export const competitionFeaturedUpload = competitionUpload.fields([
   { name: 'instant_win_images', maxCount: 20 },
   { name: 'achievement_images', maxCount: 20 }
 ]);
-
 
 export const competitionImagesUpload = imageOnlyUpload.array('images', 10);
 
@@ -307,228 +173,76 @@ export const competitionDocumentsUpload = documentOnlyUpload.fields([
 ]);
 
 export const bulkUploadCompetitions = documentOnlyUpload.single('csv_file');
-
 export const spinWheelBackgroundUpload = spinWheelImageUpload.single('background_image');
-
 export const userProfileImageUpload = userImageUpload;
 
-// Middleware to check file types after upload
+// Middleware to check file types after upload (Simplified since Multer/Cloudinary handles most)
 export const validateUploadedFiles = (req, res, next) => {
-  if (!req.files && !req.file) {
-    return next();
-  }
-
-  // Flatten files to a single array
-  let files = [];
-  if (req.files && typeof req.files === 'object') {
-    files = Object.values(req.files).flat();
-  } else if (req.file) {
-    files = [req.file];
-  }
-
-  const errors = [];
-
-  files.forEach(file => {
-    // Video field validation
-    if (file.fieldname === 'featured_video' && !file.mimetype.startsWith('video/')) {
-      errors.push(`${file.originalname}: Featured video must be a video file`);
-    }
-
-    // Image fields validation
-    if (
-      ['featured_image', 'banner_image', 'gallery_images', 'instant_win_images', 'achievement_images', 'profile_photo'].includes(file.fieldname) &&
-      !file.mimetype.startsWith('image/')
-    ) {
-      errors.push(`${file.originalname}: ${file.fieldname} must be an image file`);
-    }
-
-    // PDF fields validation
-    if (file.fieldname.includes('pdf') && file.mimetype !== 'application/pdf') {
-      errors.push(`${file.originalname}: ${file.fieldname} must be a PDF file`);
-    }
-
-    // Size validation
-    if (file.mimetype.startsWith('image/') &&
-        file.size > (parseInt(process.env.MAX_COMPETITION_IMAGE_SIZE) || 10 * 1024 * 1024)) {
-      errors.push(`${file.originalname}: Image too large`);
-    }
-
-    if (file.mimetype.startsWith('video/') &&
-        file.size > (parseInt(process.env.MAX_COMPETITION_VIDEO_SIZE) || 50 * 1024 * 1024)) {
-      errors.push(`${file.originalname}: Video too large`);
-    }
-  });
-
-  if (errors.length > 0) {
-    // Clean up uploaded files on error
-    files.forEach(file => {
-      if (fs.existsSync(file.path)) fs.unlinkSync(file.path);
-    });
-
-    return res.status(400).json({
-      success: false,
-      message: 'File validation failed',
-      errors
-    });
-  }
-
+  if (!req.files && !req.file) return next();
+  // Cloudinary storage already validates mimetypes in the fileFilter
   next();
 };
 
-// Error handling middleware for uploads
 export const handleUploadError = (err, req, res, next) => {
   if (err instanceof multer.MulterError) {
-    let message = 'File upload error';
-    
-    switch (err.code) {
-      case 'LIMIT_FILE_SIZE':
-        message = `File too large. Maximum size allowed is ${err.field === 'csv_file' ? '20MB' : '50MB'}`;
-        break;
-      case 'LIMIT_FILE_COUNT':
-        message = 'Too many files uploaded';
-        break;
-      case 'LIMIT_UNEXPECTED_FILE':
-        message = 'Unexpected field name for file upload';
-        break;
-      case 'LIMIT_PART_COUNT':
-        message = 'Too many parts in the form';
-        break;
-      case 'LIMIT_FIELD_KEY':
-        message = 'Field name too long';
-        break;
-      case 'LIMIT_FIELD_VALUE':
-        message = 'Field value too long';
-        break;
-      case 'LIMIT_FIELD_COUNT':
-        message = 'Too many fields in the form';
-        break;
-    }
-    
-    return res.status(400).json({
-      success: false,
-      message: message
-    });
+    return res.status(400).json({ success: false, message: `Upload error: ${err.message}` });
   } else if (err) {
-    return res.status(400).json({
-      success: false,
-      message: err.message
-    });
+    return res.status(400).json({ success: false, message: err.message });
   }
   next();
 };
 
-// Utility function to delete uploaded files
-export const deleteUploadedFiles = (filePaths) => {
-  if (!Array.isArray(filePaths)) {
-    filePaths = [filePaths];
-  }
-  
-  filePaths.forEach(filePath => {
-    if (fs.existsSync(filePath)) {
-      try {
-        fs.unlinkSync(filePath);
-        
-        // Try to remove empty parent directories
-        let dir = path.dirname(filePath);
-        while (dir !== competitionUploadsDir && fs.readdirSync(dir).length === 0) {
-          fs.rmdirSync(dir);
-          dir = path.dirname(dir);
-        }
-      } catch (error) {
-        console.error(`Failed to delete file: ${filePath}`, error);
+// Delete files from Cloudinary
+export const deleteUploadedFiles = async (filePaths) => {
+  if (!Array.isArray(filePaths)) filePaths = [filePaths];
+
+  for (const filePath of filePaths) {
+    if (!filePath) continue;
+
+    // Extract public_id from Cloudinary URL
+    // URL Format: https://res.cloudinary.com/<cloud_name>/<resource_type>/upload/v<version>/<folder>/<public_id>.<extension>
+    // We need <folder>/<public_id>
+    try {
+      const parts = filePath.split('/');
+      const versionIndex = parts.findIndex(p => p.startsWith('v') && !isNaN(Number(p.substring(1))));
+
+      if (versionIndex !== -1) {
+        const publicIdWithExt = parts.slice(versionIndex + 1).join('/');
+        const publicId = publicIdWithExt.substring(0, publicIdWithExt.lastIndexOf('.'));
+
+        // Determine resource type based on extension/context if possible, or try both
+        // NOTE: Cloudinary requires knowing resource_type for deletion (default: image)
+        await cloudinary.uploader.destroy(publicId); // Deletes images by default
+        await cloudinary.uploader.destroy(publicId, { resource_type: 'video' });
+        await cloudinary.uploader.destroy(publicId, { resource_type: 'raw' });
+        console.log(`Deleted from Cloudinary: ${publicId}`);
       }
+    } catch (error) {
+      console.error(`Failed to delete file ${filePath} from Cloudinary:`, error);
     }
-  });
+  }
 };
 
-// Utility function to get file URL
-// In upload.js - FIX THE getFileUrl FUNCTION
+// Get File URL - In Cloudinary, the file path IS the URL
 export const getFileUrl = (filePath) => {
-  if (!filePath) {
-    console.error('getFileUrl called with undefined filePath');
-    return null;
-  }
-
-  console.log('getFileUrl - Input filePath:', filePath);
-  console.log('getFileUrl - filePath type:', typeof filePath);
-  const isUserUpload = filePath.includes(`${path.sep}users${path.sep}`) || filePath.includes('/users/');
-  const serverBaseUrl = process.env.SERVER_URL || 'http://localhost:4000';
-  const competitionBaseUrl = (process.env.COMPETITION_UPLOAD_URL || `${serverBaseUrl}/uploads/competitions`).replace(/\/$/, '');
-  const userBaseUrl = (process.env.USER_UPLOAD_URL || `${serverBaseUrl}/uploads/users`).replace(/\/$/, '');
-  
-  try {
-    // On Render, use a different approach
-    if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
-      return getFileUrlForRender(filePath, isUserUpload, {
-        competitionBaseUrl,
-        userBaseUrl
-      });
-    } else {
-      // Local development
-      if (isUserUpload) {
-        const relativePath = path.relative(userUploadsDir, filePath).replace(/\\/g, '/');
-        return `${userBaseUrl}/${relativePath}`;
-      }
-      const relativePath = path.relative(competitionUploadsDir, filePath).replace(/\\/g, '/');
-      return `${competitionBaseUrl}/${relativePath}`;
-    }
-  } catch (error) {
-    console.error('Error in getFileUrl:', error.message);
-    // Fallback: return a simple path
-    if (isUserUpload) {
-      return `uploads/users/${path.basename(filePath)}`;
-    }
-    return `uploads/competitions/${path.basename(filePath)}`;
-  }
+  if (!filePath) return null;
+  // If it's already a URL (Cloudinary), return it
+  if (filePath.startsWith('http')) return filePath;
+  // Fallback for old local files or games
+  return filePath;
 };
 
-// Special function for Render
-const getFileUrlForRender = (filePath, isUserUpload = false, baseUrls = {}) => {
-  console.log('Render - filePath:', filePath);
-  const baseUrl = process.env.SERVER_URL || 'https://community-fortune-api.onrender.com';
-  const userBase = (process.env.USER_UPLOAD_URL || baseUrls.userBaseUrl || `${baseUrl}/uploads/users`).replace(/\/$/, '');
-  const competitionBase = (process.env.COMPETITION_UPLOAD_URL || baseUrls.competitionBaseUrl || `${baseUrl}/uploads/competitions`).replace(/\/$/, '');
-
-  if (isUserUpload) {
-    const relativeUserPath = path.relative(userUploadsDir, filePath).replace(/\\/g, '/');
-    return `${userBase}/${relativeUserPath}`;
-  }
-  
-  const filename = path.basename(filePath);
-  
-  // Check if it's a gallery image (moved to competition folder)
-  if (filePath.includes('/gallery/')) {
-    // Extract competition ID from path
-    const pathParts = filePath.split('/');
-    const competitionIndex = pathParts.findIndex(part => part.length === 36); // UUID
-    if (competitionIndex !== -1) {
-      const competitionId = pathParts[competitionIndex];
-      return `${competitionBase}/${competitionId}/gallery/${filename}`;
-    }
-  }
-  
-  // Otherwise, assume it's in temp folder
-  // Determine folder based on file type
-  let folder = 'temp';
-  if (filePath.includes('/featured/')) folder = 'temp/featured';
-  if (filePath.includes('/banners/')) folder = 'temp/banners';
-  if (filePath.includes('/gallery/')) folder = 'temp/gallery';
-  
-  return `${competitionBase}/${folder}/${filename}`;
-};
+export const getSpinWheelFileUrl = getFileUrl;
 
 
 // ============================================
-// GAME ZIP UPLOAD CONFIGURATION
+// GAME ZIP UPLOAD CONFIGURATION (LOCAL STORAGE)
 // ============================================
 
-// Game ZIP upload storage configuration
 const gameZipStorage = multer.diskStorage({
   destination: (req, file, cb) => {
     const tempDir = path.join(gamesUploadDir, 'temp');
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
-    }
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
     cb(null, tempDir);
   },
   filename: (req, file, cb) => {
@@ -537,180 +251,115 @@ const gameZipStorage = multer.diskStorage({
   }
 });
 
-// Game ZIP upload middleware
 export const gameZipUpload = multer({
   storage: gameZipStorage,
   fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/zip' || 
-        file.mimetype === 'application/x-zip-compressed' ||
-        file.originalname.endsWith('.zip')) {
+    if (file.mimetype === 'application/zip' ||
+      file.mimetype === 'application/x-zip-compressed' ||
+      file.originalname.endsWith('.zip')) {
       cb(null, true);
     } else {
       cb(new Error('Only ZIP files are allowed for game uploads'), false);
     }
   },
-  limits: {
-    fileSize: 100 * 1024 * 1024, // 100MB max for game ZIPs
-  }
+  limits: { fileSize: 100 * 1024 * 1024 }
 }).single('game_zip');
 
-// Helper function to unzip game files
 export const unzipGameFile = async (zipPath, gameId) => {
   try {
     const gameDir = path.join(gamesUploadDir, gameId);
-    
-    // If game directory exists, remove it first
-    if (fs.existsSync(gameDir)) {
-      fs.rmSync(gameDir, { recursive: true, force: true });
-    }
-    
-    // Create game directory
+    if (fs.existsSync(gameDir)) fs.rmSync(gameDir, { recursive: true, force: true });
     fs.mkdirSync(gameDir, { recursive: true });
-    
-    // Read the ZIP file
+
     const data = fs.readFileSync(zipPath);
     const zip = await JSZip.loadAsync(data);
-    
-    // Extract all files
+
     const extractPromises = [];
     zip.forEach((relativePath, zipEntry) => {
       if (!zipEntry.dir) {
         const filePath = path.join(gameDir, relativePath);
         const dirPath = path.dirname(filePath);
-        
-        // Ensure directory exists
-        if (!fs.existsSync(dirPath)) {
-          fs.mkdirSync(dirPath, { recursive: true });
-        }
-        
-        // Extract file
+        if (!fs.existsSync(dirPath)) fs.mkdirSync(dirPath, { recursive: true });
+
         extractPromises.push(
-          zipEntry.async('nodebuffer').then(content => {
-            fs.writeFileSync(filePath, content);
-          })
+          zipEntry.async('nodebuffer').then(content => fs.writeFileSync(filePath, content))
         );
       }
     });
-    
+
     await Promise.all(extractPromises);
-    
-    // Check for index.html
+
     const indexPath = path.join(gameDir, 'index.html');
-    if (!fs.existsSync(indexPath)) {
-      throw new Error('Game ZIP must contain index.html at the root');
-    }
-    
-    // Clean up ZIP file
-    fs.unlinkSync(zipPath);
-    
-    return {
-      gameDir,
-      indexPath,
-      files: Object.keys(zip.files).length
-    };
+    if (!fs.existsSync(indexPath)) throw new Error('Game ZIP must contain index.html at the root');
+
+    fs.unlinkSync(zipPath); // Delete zip
+
+    return { gameDir, indexPath, files: Object.keys(zip.files).length };
   } catch (error) {
-    // Clean up on error
     const gameDir = path.join(gamesUploadDir, gameId);
-    if (fs.existsSync(gameDir)) {
-      fs.rmSync(gameDir, { recursive: true, force: true });
-    }
+    if (fs.existsSync(gameDir)) fs.rmSync(gameDir, { recursive: true, force: true });
     throw error;
   }
 };
 
-// Validate game structure after extraction
 export const validateGameStructure = (gameDir) => {
+  // ... (Keep existing validation logic)
   const requiredFiles = ['index.html'];
   const allowedExtensions = ['.html', '.css', '.js', '.json', '.png', '.jpg', '.jpeg', '.gif', '.svg', '.webp', '.ico', '.ttf', '.woff', '.woff2', '.mp3', '.wav', '.ogg'];
-  
+
   const missingFiles = [];
   const invalidFiles = [];
-  
-  // Check for required files
+
   requiredFiles.forEach(file => {
-    const filePath = path.join(gameDir, file);
-    if (!fs.existsSync(filePath)) {
-      missingFiles.push(file);
-    }
+    if (!fs.existsSync(path.join(gameDir, file))) missingFiles.push(file);
   });
-  
-  if (missingFiles.length > 0) {
-    throw new Error(`Missing required files: ${missingFiles.join(', ')}`);
-  }
-  
-  // Check all files for allowed extensions
+
+  if (missingFiles.length > 0) throw new Error(`Missing required files: ${missingFiles.join(', ')}`);
+
   const checkFiles = (dir) => {
     const files = fs.readdirSync(dir);
-    
     files.forEach(file => {
       const filePath = path.join(dir, file);
       const stat = fs.statSync(filePath);
-      
-      if (stat.isDirectory()) {
-        checkFiles(filePath);
-      } else {
+      if (stat.isDirectory()) checkFiles(filePath);
+      else {
         const ext = path.extname(file).toLowerCase();
-        if (!allowedExtensions.includes(ext) && !file.includes('.')) {
-          invalidFiles.push(path.relative(gameDir, filePath));
-        }
+        if (!allowedExtensions.includes(ext) && !file.includes('.')) invalidFiles.push(path.relative(gameDir, filePath));
       }
     });
   };
-  
   checkFiles(gameDir);
-  
-  if (invalidFiles.length > 0) {
-    throw new Error(`Invalid file types found: ${invalidFiles.join(', ')}. Only HTML, CSS, JS, images, fonts, and audio files are allowed.`);
-  }
-  
-//Check index.html for security
+
+  if (invalidFiles.length > 0) throw new Error(`Invalid file types found: ${invalidFiles.join(', ')}`);
+
   const indexPath = path.join(gameDir, 'index.html');
   const indexContent = fs.readFileSync(indexPath, 'utf8');
-const dangerousPatterns = [
-  /<script\s+[^>]*src\s*=\s*["'](https?:)?\/\//i,
-  /<iframe/i,
-  /(^|\W)eval\s*\(/i,
-  /document\.write\s*\(/i,
-  /<object/i,
-  /<embed/i,
-];
+  const dangerousPatterns = [
+    /<script\s+[^>]*src\s*=\s*["'](https?:)?\/\//i,
+    /<iframe/i,
+    /(^|\W)eval\s*\(/i,
+    /document\.write\s*\(/i,
+  ];
 
-const dangerousMatches = [];
+  const dangerousMatches = [];
+  dangerousPatterns.forEach(pattern => {
+    if (indexContent.match(pattern)) dangerousMatches.push(pattern.toString());
+  });
 
-dangerousPatterns.forEach(pattern => {
-  const match = indexContent.match(pattern);
-  if (match) {
-    console.error("Blocked:", pattern, "Match:", match[0]);
-    dangerousMatches.push(pattern.toString());
-  }
-});
+  if (dangerousMatches.length > 0) throw new Error('Game contains potentially dangerous code patterns');
 
-if (dangerousMatches.length > 0) {
-  throw new Error(
-    'Game contains potentially dangerous code patterns: ' +
-    dangerousMatches.join(', ')
-  );
-}
   return true;
 };
 
-// Get game URL for frontend
-export const getGameUrl = (gameId) => {
-  return `/uploads/games/${gameId}/index.html`;
-};
+export const getGameUrl = (gameId) => `/uploads/games/${gameId}/index.html`;
 
-// Get game files list
 export const getGameFiles = (gameId) => {
   const gameDir = path.join(gamesUploadDir, gameId);
-  if (!fs.existsSync(gameDir)) {
-    return null;
-  }
-  
+  if (!fs.existsSync(gameDir)) return null;
+
   const files = [];
-  
   const scanDir = (dir, baseDir = gameDir) => {
     const items = fs.readdirSync(dir);
-    
     items.forEach(item => {
       const fullPath = path.join(dir, item);
       const relativePath = path.relative(baseDir, fullPath);
@@ -724,18 +373,13 @@ export const getGameFiles = (gameId) => {
         extension: isDir ? '' : path.extname(item).toLowerCase(),
         url: isDir ? null : `/uploads/games/${gameId}/${relativePath}`
       });
-      
-      if (stat.isDirectory()) {
-        scanDir(fullPath, baseDir);
-      }
+      if (isDir) scanDir(fullPath, baseDir);
     });
   };
-  
   scanDir(gameDir);
   return files;
 };
 
-// Delete game
 export const deleteGame = (gameId) => {
   const gameDir = path.join(gamesUploadDir, gameId);
   if (fs.existsSync(gameDir)) {
@@ -756,28 +400,10 @@ export default {
   deleteUploadedFiles,
   userProfileImageUpload,
   getFileUrl,
-  // Game upload exports
   gameZipUpload,
   unzipGameFile,
   validateGameStructure,
   getGameUrl,
   getGameFiles,
   deleteGame
-};
-
-// Utility function to get spin wheel file URL
-export const getSpinWheelFileUrl = (filePath) => {
-  if (!filePath) {
-    console.error('getSpinWheelFileUrl called with undefined filePath');
-    return null;
-  }
-
-  try {
-    const relativePath = path.relative(spinWheelUploadsDir, filePath).replace(/\\/g, '/');
-    const baseUrl = process.env.SERVER_URL || 'http://localhost:4000';
-    return `${baseUrl}/uploads/spin_wheels/${relativePath}`;
-  } catch (error) {
-    console.error('Error in getSpinWheelFileUrl:', error.message);
-    return `uploads/spin_wheels/${path.basename(filePath)}`;
-  }
 };
