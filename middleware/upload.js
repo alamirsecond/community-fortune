@@ -152,6 +152,31 @@ const documentOnlyUpload = multer({
   }
 });
 
+// CSV Storage (Local)
+const csvStorage = multer.diskStorage({
+  destination: (req, file, cb) => {
+    const tempDir = path.join(uploadRoot, 'temp');
+    if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
+    cb(null, tempDir);
+  },
+  filename: (req, file, cb) => {
+    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+    cb(null, 'bulk-import-' + uniqueSuffix + '.csv');
+  }
+});
+
+const csvUpload = multer({
+  storage: csvStorage,
+  fileFilter: (req, file, cb) => {
+    if (file.mimetype === 'text/csv' || file.mimetype === 'application/vnd.ms-excel') {
+      cb(null, true);
+    } else {
+      cb(new Error('Only CSV files are allowed'), false);
+    }
+  },
+  limits: { fileSize: 20 * 1024 * 1024 }
+});
+
 // Exports for Preconfigured middlewares
 export const upload = competitionUpload;
 
@@ -173,7 +198,7 @@ export const competitionDocumentsUpload = documentOnlyUpload.fields([
   { name: 'prize_documentation', maxCount: 3 }
 ]);
 
-export const bulkUploadCompetitions = documentOnlyUpload.single('csv_file');
+export const bulkUploadCompetitions = csvUpload.single('csv_file');
 export const spinWheelBackgroundUpload = spinWheelImageUpload.single('background_image');
 export const userProfileImageUpload = userImageUpload;
 
@@ -199,6 +224,17 @@ export const deleteUploadedFiles = async (filePaths) => {
 
   for (const filePath of filePaths) {
     if (!filePath) continue;
+
+    // Check if it's a local file first (for games and CSVs)
+    if (fs.existsSync(filePath)) {
+      try {
+        fs.unlinkSync(filePath);
+        console.log(`Deleted local file: ${filePath}`);
+        continue; // It was local, done.
+      } catch (err) {
+        console.error(`Failed to delete local file ${filePath}:`, err);
+      }
+    }
 
     // Extract public_id from Cloudinary URL
     // URL Format: https://res.cloudinary.com/<cloud_name>/<resource_type>/upload/v<version>/<folder>/<public_id>.<extension>
