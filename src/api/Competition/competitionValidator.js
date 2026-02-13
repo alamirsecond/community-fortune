@@ -4,10 +4,10 @@ import { z } from 'zod';
 const baseCompetitionSchema = {
   title: z.string().min(1, "Title is required").max(255),
   description: z.string().optional(),
-featured_image: z.string().url("Invalid featured image URL").optional().nullable(),
-featured_video: z.string().url("Invalid featured video URL").optional().nullable(),
-banner_image: z.string().url("Invalid banner image URL").optional().nullable(),
-gallery_images: z.array(z.string().url("Invalid image URL")).optional().default([]),
+  featured_image: z.string().url("Invalid featured image URL").optional().nullable(),
+  featured_video: z.string().url("Invalid featured video URL").optional().nullable(),
+  banner_image: z.string().url("Invalid banner image URL").optional().nullable(),
+  gallery_images: z.array(z.string().url("Invalid image URL")).optional().default([]),
   price: z.number().min(0, "Price must be positive"),
   total_tickets: z.number().int().positive("Total tickets must be positive"),
   category: z.enum(['PAID', 'FREE', 'JACKPOT', 'MINI_GAME', 'SUBSCRIPTION', 'VIP', 'INSTANT_WIN', 'ROLLING']),
@@ -124,6 +124,13 @@ const documentsSchema = {
   prize_documentation: z.array(z.string().url("Invalid document URL")).optional().default([])
 };
 
+const rulesAndRestrictionsSchema = {
+  rules_and_restrictions: z.array(z.object({
+    title: z.string().min(1, "Rule title is required"),
+    description: z.string().optional()
+  })).max(20, "Maximum 20 rules or restrictions").optional().default([])
+};
+
 export const createCompetitionSchema = z.object({
   body: z.object({
     ...baseCompetitionSchema,
@@ -134,7 +141,8 @@ export const createCompetitionSchema = z.object({
     ...achievementSchema,
     ...vipSchema,
     ...rollingSchema,
-    ...documentsSchema
+    ...documentsSchema,
+    ...rulesAndRestrictionsSchema
   }).superRefine((data, ctx) => {
     // UK compliance validation for paid competitions (PDF page 7)
     if (data.competition_type === 'PAID' && data.category !== 'JACKPOT') {

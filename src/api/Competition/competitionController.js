@@ -47,6 +47,58 @@ const cleanupFiles = (files) => {
   });
 };
 
+// Normalize incoming rules/restrictions payloads into a consistent array structure
+const normalizeRulesAndRestrictions = (rawValue) => {
+  if (rawValue === undefined || rawValue === null) {
+    return [];
+  }
+
+  const formatEntry = (entry) => {
+    if (typeof entry === 'string') {
+      const trimmed = entry.trim();
+      return trimmed ? { title: trimmed, description: null } : null;
+    }
+
+    if (entry && typeof entry === 'object') {
+      const title = entry.title || entry.rule || entry.label || '';
+      const description = entry.description || entry.details || entry.restriction || null;
+      return title ? { title, description } : null;
+    }
+
+    return null;
+  };
+
+  const parseValue = (value) => {
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) return [];
+
+      try {
+        return parseValue(JSON.parse(trimmed));
+      } catch (err) {
+        return trimmed
+          .split('\n')
+          .map(line => line.trim())
+          .filter(Boolean)
+          .map(line => ({ title: line, description: null }));
+      }
+    }
+
+    if (Array.isArray(value)) {
+      return value.map(formatEntry).filter(Boolean);
+    }
+
+    if (value && typeof value === 'object') {
+      const normalized = formatEntry(value);
+      return normalized ? [normalized] : [];
+    }
+
+    return [];
+  };
+
+  return parseValue(rawValue);
+};
+
 // Utility: convert ISO string or Date to MySQL DATETIME string
 const toMySQLDateTime = (date) => {
   if (!date) return null;
@@ -133,7 +185,9 @@ export const createCompetition = async (req, res) => {
   gallery_images:
     files?.gallery_images?.length
       ? files.gallery_images.map(f => getFileUrl(f.path))
-      : []
+      : [],
+
+  rules_and_restrictions: normalizeRulesAndRestrictions(req.body.rules_and_restrictions)
 };
 
     // Allow JSON string fields when using multipart/form-data (Postman form-data)
@@ -399,6 +453,10 @@ export const updateCompetition = async (req, res) => {
     const competitionData = {
       ...req.body
     };
+
+    if (Object.prototype.hasOwnProperty.call(req.body, 'rules_and_restrictions')) {
+      competitionData.rules_and_restrictions = normalizeRulesAndRestrictions(req.body.rules_and_restrictions);
+    }
 
     // Allow JSON strings for form-data submissions
     const parseJsonField = (v) => {
@@ -717,6 +775,7 @@ export const getCompetitions = async (req, res) => {
       end_date: comp.end_date,
       tags: getCompetitionTags(comp),
       features: getCompetitionFeatures(comp),
+      rules_and_restrictions: comp.rules_and_restrictions || [],
       eligibility: comp.user_eligibility || null,
       stats: {
         entries: comp.total_entries || 0,
@@ -916,7 +975,7 @@ export const getCompetitionDetails = async (req, res) => {
           eligibility.achievements_progress = userAchievements;
         }
       } catch (userError) {
-        console.error('❌ User eligibility check error:', userError);
+        console.error('User eligibility check error:', userError);
         // Don't fail the entire request for user-specific checks
       }
     }

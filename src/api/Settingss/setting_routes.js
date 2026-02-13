@@ -3,9 +3,23 @@ import authenticate from "../../../middleware/auth.js";
 import settingsController from "./settings_controller.js";
 
 const settingsRouter = Router();
+const adminAuth = authenticate(["SUPERADMIN", "ADMIN"]);
+const userAuth = authenticate();
 
-// All routes require SUPERADMIN or ADMIN access
-settingsRouter.use(authenticate(["SUPERADMIN", "ADMIN"]));
+// ==================== SUBSCRIPTION TIERS (USER ACCESS) ====================
+settingsRouter.get(
+	"/subscription-tiers",
+	userAuth,
+	settingsController.getSubscriptionTiers
+);
+settingsRouter.get(
+	"/subscription-tiers/:id",
+	userAuth,
+	settingsController.getSubscriptionTierById
+);
+
+// All routes below require SUPERADMIN or ADMIN access
+settingsRouter.use(adminAuth);
 
 // ==================== PASSWORD SETTINGS ====================
 settingsRouter.post("/password/change", settingsController.changeAdminPassword);
@@ -31,12 +45,12 @@ settingsRouter.post("/security", settingsController.updateSecuritySettings);
 settingsRouter.get("/secrets", settingsController.getSecrets);
 settingsRouter.post("/secrets", settingsController.updateSecrets);
 
-// ==================== SUBSCRIPTION TIERS ====================
-settingsRouter.get("/subscription-tiers", settingsController.getSubscriptionTiers);
-settingsRouter.get("/subscription-tiers/:id", settingsController.getSubscriptionTierById);
+
+// ==================== SUBSCRIPTION TIERS (ADMIN CRUD) ====================
 settingsRouter.post("/subscription-tiers", settingsController.createSubscriptionTier);
 settingsRouter.put("/subscription-tiers/:id", settingsController.updateSubscriptionTier);
 settingsRouter.delete("/subscription-tiers/:id", settingsController.deleteSubscriptionTier);
+
 
 // ==================== NOTIFICATION SETTINGS ====================
 settingsRouter.get("/notifications", settingsController.getNotificationSettings);
