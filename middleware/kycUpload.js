@@ -1,8 +1,8 @@
 import { v2 as cloudinary } from 'cloudinary';
 import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import path from 'path';
-import '../src/config/cloudinary.js'; // Ensure config is loaded
-
+import multer from 'multer';
+import '../src/config/cloudinary.js'; 
 const uploadRoot = process.env.UPLOAD_ROOT
   ? path.resolve(process.env.UPLOAD_ROOT)
   : path.resolve('./uploads');
