@@ -146,6 +146,7 @@ getWalletBalances: async (req, res) => {
     const cashWallet = wallets.find(wallet => wallet.type === 'CASH');
     const creditWallet = wallets.find(wallet => wallet.type === 'CREDIT');
     const pointsWallet = wallets.find(wallet => wallet.type === 'POINTS'); // Added for completeness
+   const totalUniversalTickets = wallets.reduce((sum, wallet) => sum + (wallet.universal_tickets || 0),0);
 
     // Get wallet statistics
     const [stats] = await pool.query(
@@ -180,6 +181,7 @@ getWalletBalances: async (req, res) => {
         creditWallet: creditWallet || { type: 'CREDIT', balance: 0, isFrozen: false },
         pointsWallet: pointsWallet || { type: 'POINTS', balance: 0, isFrozen: false }, // Added for completeness
         statistics: stats[0],
+        universal_tickets:totalUniversalTickets,
         spendingLimits: limits[0] || null
       }
     });
