@@ -133,6 +133,7 @@ getWalletBalances: async (req, res) => {
       `SELECT 
         type,
         balance,
+        universal_tickets,
         is_frozen as isFrozen,
         created_at as createdAt,
         updated_at as updatedAt
