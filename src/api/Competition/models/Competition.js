@@ -1089,7 +1089,7 @@ static async getCompetitionStatsDashboard() {
       `SELECT 
         BIN_TO_UUID(id) as id,
         ticket_number,
-        title,
+        prize_name,
         prize_value,
         payout_type,
         claimed_by,
