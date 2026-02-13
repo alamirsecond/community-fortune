@@ -341,7 +341,8 @@ static async getCompetitionStatsDashboard() {
     `;
     
     const params = [];
-    const offset = (filters.page - 1) * filters.limit;
+    const hasLimit = Number.isInteger(filters.limit) && filters.limit > 0;
+    const offset = hasLimit ? (filters.page - 1) * filters.limit : null;
     
     // Apply filters
     if (filters.category) {
@@ -416,15 +417,17 @@ static async getCompetitionStatsDashboard() {
     }
     
     // Get total count for pagination
-    const countQuery = `SELECT COUNT(*) as total FROM (${query.replace(/SELECT.*FROM/, 'SELECT 1 FROM')}) as count_query`;
+    const countQuery = `SELECT COUNT(*) as total FROM (${query}) as count_query`;
     const [countResult] = await pool.execute(countQuery, params);
     const total = countResult[0].total;
-    const totalPages = Math.ceil(total / filters.limit);
+    const totalPages = hasLimit ? Math.ceil(total / filters.limit) : 1;
     
     // Add sorting and pagination
     query += ` ORDER BY ${filters.sort_by} ${filters.sort_order}`;
-    query += ' LIMIT ? OFFSET ?';
-    params.push(filters.limit, offset);
+    if (hasLimit) {
+      query += ' LIMIT ? OFFSET ?';
+      params.push(filters.limit, offset);
+    }
     
     const [rows] = await pool.query(query, params);
 
