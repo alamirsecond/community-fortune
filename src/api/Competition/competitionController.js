@@ -769,6 +769,11 @@ export const getCompetitions = async (req, res) => {
       ? (normalizedStatus === 'ALL' ? undefined : normalizedStatus)
       : 'ACTIVE';
 
+    const rawLimit = req.query.limit;
+    const limitIsAll = typeof rawLimit === 'string' && rawLimit.toUpperCase() === 'ALL';
+    const limit = limitIsAll ? null : (parseInt(rawLimit) || 20);
+    const page = limitIsAll ? 1 : (parseInt(req.query.page) || 1);
+
     const isFreeParam = req.query.is_free;
     let isFreeFilter;
     if (isFreeParam === 'true' || isFreeParam === true) {
@@ -787,8 +792,8 @@ export const getCompetitions = async (req, res) => {
       min_price: req.query.min_price,
       max_price: req.query.max_price,
       search: req.query.search,
-      limit: parseInt(req.query.limit) || 20,
-      page: parseInt(req.query.page) || 1,
+      limit,
+      page,
       sort_by: req.query.sort_by || 'created_at',
       sort_order: req.query.sort_order || 'desc'
     };
@@ -883,6 +888,8 @@ export const getCompetitions = async (req, res) => {
 // ==================== COMPETITION PRESET ROUTES ====================
 export const getAllCompetitions = (req, res) => {
   req.query.status = 'ALL';
+  req.query.limit = 'ALL'; // disable pagination for this endpoint
+  req.query.page = 1;
   return getCompetitions(req, res);
 };
 
