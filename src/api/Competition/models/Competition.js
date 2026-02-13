@@ -76,9 +76,9 @@ console.log(competitionData);
 static async getCompetitionStatsDashboard() {
   try {
     const statusCase = `CASE 
-      WHEN start_date IS NOT NULL AND NOW() < start_date THEN 'UPCOMING'
+      WHEN status = 'CANCELLED' THEN 'CANCELLED'
       WHEN end_date IS NOT NULL AND NOW() > end_date THEN 'COMPLETED'
-      ELSE 'ACTIVE'
+      ELSE status
     END`;
 
     // Execute all queries in parallel for better performance
@@ -267,9 +267,9 @@ static async getCompetitionStatsDashboard() {
   
   static async findById(competitionId) {
     const statusCase = `CASE 
-        WHEN start_date IS NOT NULL AND NOW() < start_date THEN 'UPCOMING'
+        WHEN status = 'CANCELLED' THEN 'CANCELLED'
         WHEN end_date IS NOT NULL AND NOW() > end_date THEN 'COMPLETED'
-        ELSE 'ACTIVE'
+        ELSE status
       END`;
 
     const [rows] = await pool.execute(
@@ -313,9 +313,9 @@ static async getCompetitionStatsDashboard() {
   
   static async findCompetitions(filters = {}) {
     const statusCase = `CASE 
-      WHEN c.start_date IS NOT NULL AND NOW() < c.start_date THEN 'UPCOMING'
+      WHEN c.status = 'CANCELLED' THEN 'CANCELLED'
       WHEN c.end_date IS NOT NULL AND NOW() > c.end_date THEN 'COMPLETED'
-      ELSE 'ACTIVE'
+      ELSE c.status
     END`;
 
     let query = `
