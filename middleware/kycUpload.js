@@ -1,38 +1,26 @@
-// src/middleware/kycUpload.js
-import multer from 'multer';
+import { v2 as cloudinary } from 'cloudinary';
+import { CloudinaryStorage } from 'multer-storage-cloudinary';
 import path from 'path';
-import fs from 'fs';
-import { v4 as uuidv4 } from 'uuid';
+import '../src/config/cloudinary.js'; // Ensure config is loaded
 
 const uploadRoot = process.env.UPLOAD_ROOT
   ? path.resolve(process.env.UPLOAD_ROOT)
   : path.resolve('./uploads');
-const kycUploadsDir = process.env.KYC_UPLOAD_PATH
-  ? path.resolve(process.env.KYC_UPLOAD_PATH)
-  : path.join(uploadRoot, 'kyc_documents');
-
-// Ensure KYC uploads directory exists
-if (!fs.existsSync(kycUploadsDir)) {
-  fs.mkdirSync(kycUploadsDir, { recursive: true });
-}
 
 // KYC-specific storage configuration
-const kycStorage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    const tempUserId = req.body.email || 'temp';
-    const userDir = path.join(kycUploadsDir, tempUserId);
-    
-    if (!fs.existsSync(userDir)) {
-      fs.mkdirSync(userDir, { recursive: true });
+const kycStorage = new CloudinaryStorage({
+  cloudinary: cloudinary,
+  params: {
+    folder: 'kyc_documents',
+    allowed_formats: ['jpg', 'jpeg', 'png', 'pdf'],
+    public_id: (req, file) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      const documentType = file.fieldname;
+      // Use email or 'temp' as a subfolder-like prefix if needed, or just part of filename
+      // To keep it simple and avoid folder creation issues, we'll just use a descriptive filename
+      const userId = req.body.email ? req.body.email.replace(/[^a-zA-Z0-9]/g, '_') : 'temp';
+      return `${userId}-${documentType}-${uniqueSuffix}`;
     }
-    
-    cb(null, userDir);
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    const ext = path.extname(file.originalname);
-    const documentType = file.fieldname;
-    cb(null, `${documentType}-${uniqueSuffix}${ext}`);
   }
 });
 
@@ -44,7 +32,7 @@ const kycFileFilter = (req, file, cb) => {
     'image/jpg',
     'application/pdf'
   ];
-  
+
   if (allowedMimes.includes(file.mimetype)) {
     cb(null, true);
   } else {
