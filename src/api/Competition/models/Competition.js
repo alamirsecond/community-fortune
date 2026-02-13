@@ -3,6 +3,21 @@ import { v4 as uuidv4 } from 'uuid';
 
 class Competition {
   // ==================== CREATE COMPETITION ====================
+  static parseJSONField(value, fallback = null) {
+    if (value === null || value === undefined) {
+      return fallback;
+    }
+
+    if (typeof value === 'string') {
+      try {
+        return JSON.parse(value);
+      } catch (error) {
+        return fallback;
+      }
+    }
+
+    return value;
+  }
   
   static async create(competitionData) {
     const connection = await pool.getConnection();
@@ -26,7 +41,7 @@ console.log(competitionData);
         'subscription_tier', 'auto_entry_enabled', 'subscriber_competition_type',
         'wheel_type', 'spins_per_user',
         'game_id', 'game_type', 'leaderboard_type', 'game_name', 'game_code', 'points_per_play',
-        'gallery_images'
+        'gallery_images', 'rules_and_restrictions'
       ];
 
       const values = fields.map(field => {
@@ -35,6 +50,9 @@ console.log(competitionData);
         if (field === 'gallery_images') {
           // Store as JSON string if array
           return competitionData[field] ? JSON.stringify(competitionData[field]) : null;
+        }
+        if (field === 'rules_and_restrictions') {
+          return competitionData[field] ? JSON.stringify(competitionData[field]) : JSON.stringify([]);
         }
         return competitionData[field] !== undefined ? competitionData[field] : null;
       });
@@ -256,6 +274,7 @@ static async getCompetitionStatsDashboard() {
         subscription_tier, auto_entry_enabled, subscriber_competition_type,
         wheel_type, spins_per_user,
         game_id, game_type, leaderboard_type, game_name, game_code, points_per_play,
+        gallery_images, rules_and_restrictions,
         created_at, updated_at,
         (SELECT COUNT(*) FROM instant_wins WHERE competition_id = UUID_TO_BIN(?)) as instant_wins_count,
         (SELECT COUNT(*) FROM competition_achievements WHERE competition_id = UUID_TO_BIN(?)) as achievements_count,
@@ -265,7 +284,15 @@ static async getCompetitionStatsDashboard() {
       [competitionId, competitionId, competitionId]
     );
     
-    return rows[0] || null;
+    const competition = rows[0] || null;
+    if (!competition) {
+      return null;
+    }
+
+    competition.gallery_images = this.parseJSONField(competition.gallery_images, []);
+    competition.rules_and_restrictions = this.parseJSONField(competition.rules_and_restrictions, []);
+
+    return competition;
   }
 
   // ==================== FIND COMPETITIONS WITH FILTERS ====================
@@ -279,7 +306,7 @@ static async getCompetitionStatsDashboard() {
         c.start_date, c.end_date, c.no_end_date, c.is_free_competition,
         c.status, c.competition_type, c.created_at,
         c.prize_option, c.ticket_model, c.subscription_tier,
-        c.wheel_type, c.game_type,
+        c.wheel_type, c.game_type, c.gallery_images, c.rules_and_restrictions,
         TIMESTAMPDIFF(SECOND, NOW(), c.end_date) as countdown_seconds,
         (SELECT COUNT(*) FROM competition_entries ce WHERE ce.competition_id = c.id) as total_entries,
         (SELECT COUNT(DISTINCT user_id) FROM competition_entries ce WHERE ce.competition_id = c.id) as unique_participants
@@ -375,6 +402,16 @@ static async getCompetitionStatsDashboard() {
     
     const [rows] = await pool.query(query, params);
 
+    rows.forEach(row => {
+      row.gallery_images = this.parseJSONField(row.gallery_images, []);
+      row.rules_and_restrictions = this.parseJSONField(row.rules_and_restrictions, []);
+    });
+
+    for (const row of rows) {
+      row.gallery_images = this.parseJSONField(row.gallery_images, []);
+      row.rules_and_restrictions = this.parseJSONField(row.rules_and_restrictions, []);
+    }
+
     // Add user eligibility to each row
     if (filters.user_id) {
       for (const row of rows) {
@@ -408,6 +445,9 @@ static async getCompetitionStatsDashboard() {
       Object.keys(updateData).forEach(key => {
         if (key !== 'id' && key !== 'created_at') {
           if (key === 'gallery_images' && Array.isArray(updateData[key])) {
+            fields.push(`${key} = ?`);
+            values.push(JSON.stringify(updateData[key]));
+          } else if (key === 'rules_and_restrictions' && Array.isArray(updateData[key])) {
             fields.push(`${key} = ?`);
             values.push(JSON.stringify(updateData[key]));
           } else {
