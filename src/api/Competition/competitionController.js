@@ -140,6 +140,74 @@ const generateUniqueTicketNumbers = (count, maxTicket, usedNumbers) => {
   return numbers.length === count ? numbers : null;
 };
 
+const ensureInstantWinCapacity = (instantWins, totalTickets) => {
+  if (!Array.isArray(instantWins) || instantWins.length === 0) {
+    return { valid: true };
+  }
+
+  const normalizedTotalTickets = parseInt(totalTickets, 10);
+  if (!Number.isInteger(normalizedTotalTickets) || normalizedTotalTickets <= 0) {
+    return {
+      valid: false,
+      message: 'Total tickets must be a positive integer when configuring instant wins'
+    };
+  }
+
+  const usedTicketNumbers = new Set();
+  let allocatedSlots = 0;
+
+  for (let index = 0; index < instantWins.length; index += 1) {
+    const instantWin = instantWins[index] || {};
+    const tickets = Array.isArray(instantWin.ticket_numbers) ? instantWin.ticket_numbers : [];
+
+    for (const rawTicket of tickets) {
+      const ticketNumber = parseInt(rawTicket, 10);
+      if (!Number.isInteger(ticketNumber) || ticketNumber < 1 || ticketNumber > normalizedTotalTickets) {
+        return {
+          valid: false,
+          message: `Instant win #${index + 1} has ticket number ${rawTicket} outside the range 1-${normalizedTotalTickets}`
+        };
+      }
+
+      if (usedTicketNumbers.has(ticketNumber)) {
+        return {
+          valid: false,
+          message: `Instant win ticket number ${ticketNumber} is duplicated across prizes`
+        };
+      }
+
+      usedTicketNumbers.add(ticketNumber);
+    }
+
+    const maxCount = parseInt(instantWin.max_count ?? instantWin.max_winners, 10);
+    if (Number.isInteger(maxCount) && maxCount > 0) {
+      allocatedSlots += maxCount;
+      continue;
+    }
+
+    const randomCount = parseInt(instantWin.random_count, 10);
+    const firstEntryCount = parseInt(instantWin.first_entry_count, 10);
+    const derivedSlotCount =
+      (Number.isInteger(randomCount) ? randomCount : 0) +
+      (Number.isInteger(firstEntryCount) ? firstEntryCount : 0);
+
+    if (derivedSlotCount > 0) {
+      allocatedSlots += derivedSlotCount;
+    } else {
+      allocatedSlots += tickets.length;
+    }
+  }
+
+  if (allocatedSlots > normalizedTotalTickets) {
+    return {
+      valid: false,
+      message: `Instant win allocations (${allocatedSlots}) exceed total tickets (${normalizedTotalTickets})`
+    };
+  }
+
+  return { valid: true };
+};
+
 export const createCompetition = async (req, res) => {
   try {
     const files = req.files || {};
@@ -313,6 +381,25 @@ export const createCompetition = async (req, res) => {
 
     const validatedData = validationResult.data.body;
 
+    const instantWinCapacity = ensureInstantWinCapacity(
+      validatedData.instant_wins,
+      validatedData.total_tickets
+    );
+
+    if (!instantWinCapacity.valid) {
+      cleanupFiles(files);
+      return res.status(400).json({
+        success: false,
+        message: 'Instant win validation failed',
+        errors: [
+          {
+            path: 'body.instant_wins',
+            message: instantWinCapacity.message
+          }
+        ]
+      });
+    }
+
     // Convert dates to MySQL DATETIME format
     validatedData.start_date = toMySQLDateTime(validatedData.start_date);
     validatedData.end_date = toMySQLDateTime(validatedData.end_date);
@@ -417,7 +504,66 @@ if (files.gallery_images?.length > 0) {
     console.error('Create competition error:', error);
     if (req.files) Object.values(req.files).flat().forEach(file => deleteUploadedFiles(file.path));
 
-    res.status(500).json({
+          const updateData = validationResult.data.body;
+
+          const resolvedTotalTickets = parseInt(
+            updateData.total_tickets ?? currentCompetition.total_tickets,
+            10
+          );
+
+          if (
+            updateData.instant_wins &&
+            Number.isInteger(resolvedTotalTickets) &&
+            resolvedTotalTickets > 0
+          ) {
+            const instantWinCapacity = ensureInstantWinCapacity(
+              updateData.instant_wins,
+              resolvedTotalTickets
+            );
+
+            if (!instantWinCapacity.valid) {
+              if (files) {
+                Object.values(files).forEach(fileArray => {
+                  fileArray.forEach(file => deleteUploadedFiles(file.path));
+                });
+              }
+
+              return res.status(400).json({
+                success: false,
+                message: 'Instant win validation failed',
+                errors: [
+                  {
+                    path: 'body.instant_wins',
+                    message: instantWinCapacity.message
+                  }
+                ]
+              });
+            }
+          }
+
+          if (
+            updateData.total_tickets !== undefined &&
+            Number.isInteger(resolvedTotalTickets) &&
+            currentCompetition.instant_wins_count > resolvedTotalTickets &&
+            !updateData.instant_wins
+          ) {
+            if (files) {
+              Object.values(files).forEach(fileArray => {
+                fileArray.forEach(file => deleteUploadedFiles(file.path));
+              });
+            }
+
+            return res.status(400).json({
+              success: false,
+              message: 'Instant win validation failed',
+              errors: [
+                {
+                  path: 'body.total_tickets',
+                  message: `Existing instant win allocations (${currentCompetition.instant_wins_count}) exceed the requested total tickets (${resolvedTotalTickets})`
+                }
+              ]
+            });
+          }
       success: false,
       message: 'Failed to create competition',
       error: error.message,
@@ -775,6 +921,12 @@ export const getCompetitions = async (req, res) => {
       end_date: comp.end_date,
       tags: getCompetitionTags(comp),
       features: getCompetitionFeatures(comp),
+      has_instant_wins: (comp.instant_wins_count || 0) > 0,
+      instant_wins_summary: (comp.instant_wins_count || 0) > 0 ? {
+        total: comp.instant_wins_count || 0,
+        claimed: comp.instant_wins_claimed_count || 0,
+        remaining: Math.max(0, (comp.instant_wins_count || 0) - (comp.instant_wins_claimed_count || 0))
+      } : null,
       rules_and_restrictions: comp.rules_and_restrictions || [],
       eligibility: comp.user_eligibility || null,
       stats: {
@@ -949,6 +1101,14 @@ export const getCompetitionDetails = async (req, res) => {
     let instantWins = [];
     let achievements = [];
     let leaderboard = null;
+    let instantWinSummary = {
+      total: competition.instant_wins_count || 0,
+      claimed: competition.instant_wins_claimed_count || 0,
+      remaining: Math.max(
+        0,
+        (competition.instant_wins_count || 0) - (competition.instant_wins_claimed_count || 0)
+      )
+    };
 
     if (req.user) {
       try {
@@ -1015,13 +1175,10 @@ export const getCompetitionDetails = async (req, res) => {
 
 
     // Get instant wins if enabled
-    if (
-      competition.category === 'PAID' ||
-      competition.category === 'JACKPOT' ||
-      competition.category === 'INSTANT_WIN'
-    ) {
+    if ((competition.instant_wins_count || 0) > 0) {
       try {
         instantWins = await Competition.getInstantWins(id);
+        instantWinSummary = await Competition.getInstantWinStats(id);
       } catch (instantWinError) {
         console.error('❌ Instant wins fetch error:', instantWinError);
       }
@@ -1095,6 +1252,10 @@ export const getCompetitionDetails = async (req, res) => {
         jackpot_progress: jackpotProgress,
         instant_wins: instantWinsResponse,
         instant_wins_rows: instantWins,
+        instant_wins_summary: instantWinSummary,
+        instant_wins_total: instantWinSummary.total,
+        instant_wins_claimed: instantWinSummary.claimed,
+        instant_wins_remaining: instantWinSummary.remaining,
         achievements: achievements,
         leaderboard: leaderboard,
         stats: stats,

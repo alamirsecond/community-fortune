@@ -145,6 +145,25 @@ achievements: '[{
 }]'
 
 achievements_enabled: "true"
+📜 Rules & Restrictions (Textarea → JSON)
+```javascript
+// Recommended: build array client-side then JSON.stringify when using multipart/form-data
+rules_and_restrictions: '[{
+  "title": "18+ only",
+  "description": "Winners must provide valid ID"
+}, {
+  "title": "UK residents",
+  "description": "Prize fulfillment limited to mainland UK"
+}]'
+
+// If admins type plain text lines in a textarea, split on new lines and map to objects before sending:
+const rulesArray = textareaValue
+  .split('\n')
+  .map(line => line.trim())
+  .filter(Boolean)
+  .map(line => ({ title: line }));
+formData.append('rules_and_restrictions', JSON.stringify(rulesArray));
+```
 ⭐ VIP-Specific Fields
 javascript
 vip_required: "true"

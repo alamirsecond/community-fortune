@@ -7,6 +7,7 @@ Allow competitions to transition into an `INACTIVE` state through the admin stat
 - Expanded the allowed status list in `updateCompetitionStatus` to include `INACTIVE`, preventing legitimate transitions from being rejected as invalid.
 - Kept auditing metadata, IP capture, and update flows unchanged so downstream persistence continues as before.
 - Normalized `rules_and_restrictions` payloads during create/update operations and surfaced them in list/detail responses so the admin UI can display the same rule copy the frontend enforces.
+- Added instant-win safeguards (range, uniqueness, capacity) plus exposed summary data (total/claimed/remaining) and boolean flags so both detail and list endpoints can reflect real-time instant-win availability.
 
 ## Integration Notes
 This small change aligns the controller with the status values supported by the underlying model and admin UI, avoiding manual data fixes when competitions are paused long term.
