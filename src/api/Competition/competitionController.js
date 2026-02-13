@@ -767,7 +767,7 @@ export const getCompetitions = async (req, res) => {
     const normalizedStatus = hasStatusParam ? String(req.query.status).toUpperCase() : undefined;
     const statusFilter = hasStatusParam
       ? (normalizedStatus === 'ALL' ? undefined : normalizedStatus)
-      : 'ACTIVE';
+      : undefined; // default: no status filter, return all
 
     const rawLimit = req.query.limit;
     const limitIsAll = typeof rawLimit === 'string' && rawLimit.toUpperCase() === 'ALL';
