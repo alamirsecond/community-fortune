@@ -4,10 +4,10 @@ import path from 'path';
 import { Parser } from 'json2csv';
 import { getFileUrl, deleteUploadedFiles } from '../../../middleware/upload.js';
 import SubscriptionTicketService from '../Payments/SubscriptionTicketService.js';
-import { 
-  createCompetitionSchema, 
-  updateCompetitionSchema, 
-  skillQuestionAnswerSchema, 
+import {
+  createCompetitionSchema,
+  updateCompetitionSchema,
+  skillQuestionAnswerSchema,
   freeEntrySchema,
   subscribeToCompetitionSchema,
   jackpotThresholdSchema,
@@ -202,31 +202,31 @@ export const createCompetition = async (req, res) => {
     };
 
     // Combine body and uploaded files
-   const competitionData = {
-  ...bodyData,
+    const competitionData = {
+      ...bodyData,
 
-  featured_image:
-    files?.featured_image?.[0]
-      ? getFileUrl(files.featured_image[0].path)
-      : null,
+      featured_image:
+        files?.featured_image?.[0]
+          ? getFileUrl(files.featured_image[0].path)
+          : null,
 
-  featured_video:
-    files?.featured_video?.[0]
-      ? getFileUrl(files.featured_video[0].path)
-      : null,
+      featured_video:
+        files?.featured_video?.[0]
+          ? getFileUrl(files.featured_video[0].path)
+          : null,
 
-  banner_image:
-    files?.banner_image?.[0]
-      ? getFileUrl(files.banner_image[0].path)
-      : null,
+      banner_image:
+        files?.banner_image?.[0]
+          ? getFileUrl(files.banner_image[0].path)
+          : null,
 
-  gallery_images:
-    files?.gallery_images?.length
-      ? files.gallery_images.map(f => getFileUrl(f.path))
-      : [],
+      gallery_images:
+        files?.gallery_images?.length
+          ? files.gallery_images.map(f => getFileUrl(f.path))
+          : [],
 
-  rules_and_restrictions: normalizeRulesAndRestrictions(req.body.rules_and_restrictions)
-};
+      rules_and_restrictions: normalizeRulesAndRestrictions(req.body.rules_and_restrictions)
+    };
 
     // Allow JSON string fields when using multipart/form-data (Postman form-data)
     const parseJsonField = (v) => {
@@ -415,28 +415,13 @@ export const createCompetition = async (req, res) => {
 
     // Process gallery images
     // Process gallery images - with Render workaround
-if (files.gallery_images?.length > 0) {
-  // On Render, skip file moving and just use the original paths
-  if (process.env.NODE_ENV === 'production' || process.env.RENDER) {
-    console.log('Render detected - using original file paths for gallery');
-    const galleryUrls = files.gallery_images.map(file => getFileUrl(file.path));
-    await Competition.update(competitionId, { gallery_images: galleryUrls });
-    validatedData.gallery_images = galleryUrls;
-  } else {
-    // Local processing
-    const galleryDir = path.join(competitionUploadsBase, competitionId, 'gallery');
-    if (!fs.existsSync(galleryDir)) fs.mkdirSync(galleryDir, { recursive: true });
-
-    const galleryUrls = [];
-    for (const file of files.gallery_images) {
-      const newPath = path.join(galleryDir, path.basename(file.path));
-      fs.renameSync(file.path, newPath);
-      galleryUrls.push(getFileUrl(newPath));
+    // Process gallery images
+    if (files.gallery_images?.length > 0) {
+      // Cloudinary/Render: Use original file paths (URLs)
+      const galleryUrls = files.gallery_images.map(file => getFileUrl(file.path));
+      await Competition.update(competitionId, { gallery_images: galleryUrls });
+      validatedData.gallery_images = galleryUrls;
     }
-    await Competition.update(competitionId, { gallery_images: galleryUrls });
-    validatedData.gallery_images = galleryUrls;
-  }
-}
 
     // Instant wins
     if (validatedData.instant_wins?.length > 0) {
@@ -486,7 +471,7 @@ export const updateCompetition = async (req, res) => {
   try {
     const { id } = req.params;
     const files = req.files || {};
-    
+
     // Get current competition to check existing files
     const currentCompetition = await Competition.findById(id);
     if (!currentCompetition) {
@@ -498,7 +483,7 @@ export const updateCompetition = async (req, res) => {
           });
         });
       }
-      
+
       return res.status(404).json({
         success: false,
         message: 'Competition not found'
@@ -571,7 +556,7 @@ export const updateCompetition = async (req, res) => {
       }
       competitionData.featured_image = getFileUrl(files.featured_image[0].path);
     }
-    
+
     if (files.featured_video?.[0]) {
       // Delete old featured video if exists
       if (currentCompetition.featured_video) {
@@ -580,7 +565,7 @@ export const updateCompetition = async (req, res) => {
       }
       competitionData.featured_video = getFileUrl(files.featured_video[0].path);
     }
-    
+
     if (files.banner_image?.[0]) {
       // Delete old banner image if exists
       if (currentCompetition.banner_image) {
@@ -589,7 +574,7 @@ export const updateCompetition = async (req, res) => {
       }
       competitionData.banner_image = getFileUrl(files.banner_image[0].path);
     }
-    
+
     // Handle gallery images
     if (files.gallery_images && files.gallery_images.length > 0) {
       const galleryDir = path.join(competitionUploadsBase, id, 'gallery');
@@ -664,7 +649,7 @@ export const updateCompetition = async (req, res) => {
     }
 
     const validationResult = validateRequest(updateCompetitionSchema, { body: competitionData });
-    
+
     if (!validationResult.success) {
       // Clean up uploaded files if validation fails
       if (files) {
@@ -674,7 +659,7 @@ export const updateCompetition = async (req, res) => {
           });
         });
       }
-      
+
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
@@ -691,7 +676,7 @@ export const updateCompetition = async (req, res) => {
           });
         });
       }
-      
+
       return res.status(403).json({
         success: false,
         message: 'Only administrators can update competitions'
@@ -710,7 +695,7 @@ export const updateCompetition = async (req, res) => {
           });
         });
       }
-      
+
       return res.status(404).json({
         success: false,
         message: 'Competition not found or update failed'
@@ -729,7 +714,7 @@ export const updateCompetition = async (req, res) => {
     res.json({
       success: true,
       message: 'Competition updated successfully',
-      data: { 
+      data: {
         competitionId: id,
         updated_files: {
           featured_image: updateData.featured_image,
@@ -741,7 +726,7 @@ export const updateCompetition = async (req, res) => {
     });
   } catch (error) {
     console.error('Update competition error:', error);
-    
+
     // Clean up uploaded files on error
     if (req.files) {
       Object.values(req.files).forEach(fileArray => {
@@ -750,7 +735,7 @@ export const updateCompetition = async (req, res) => {
         });
       });
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Failed to update competition',
@@ -797,10 +782,10 @@ export const getCompetitions = async (req, res) => {
       sort_by: req.query.sort_by || 'created_at',
       sort_order: req.query.sort_order || 'desc'
     };
-    
+
     if (req.user) {
       filters.user_id = req.user.id;
-      
+
       // Filter out subscription competitions user can't access
       if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPERADMIN') {
         filters.exclude_inaccessible_subscription = true;
@@ -808,7 +793,7 @@ export const getCompetitions = async (req, res) => {
     }
 
     const { competitions, total, totalPages } = await Competition.findCompetitions(filters);
-    
+
     const formattedCompetitions = competitions.map(comp => ({
       id: comp.id,
       title: comp.title,
@@ -850,7 +835,7 @@ export const getCompetitions = async (req, res) => {
         instant_wins_available: comp.instant_wins_count || 0
       }
     }));
-    
+
     res.json({
       success: true,
       data: {
@@ -925,9 +910,9 @@ export const getCompetitionStatsDashboard = async (req, res) => {
   try {
     // Get stats data from the model/service
     const statsData = await Competition.getCompetitionStatsDashboard();
-    
+
     const { active, thisMonth, completed, ending, totalTickets, soldTickets, fillRate, todayEntries } = statsData;
-    
+
     // Format response matching your pattern
     res.status(200).json({
       success: true,
@@ -973,7 +958,7 @@ export const getCompetitionStatsDashboard = async (req, res) => {
         }
       }
     });
-    
+
   } catch (error) {
     console.error('Get competition stats error:', error);
     res.status(500).json({
@@ -988,19 +973,19 @@ export const getCompetitionStatsDashboard = async (req, res) => {
 export const getCompetitionDetails = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     // Validate the ID format
     const uuidRegex = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-    
+
     if (!uuidRegex.test(id)) {
       return res.status(400).json({
         success: false,
         message: 'Invalid competition ID format'
       });
     }
-    
+
     console.log('🔍 Fetching competition with ID:', id);
-    
+
     const competition = await Competition.findById(id);
 
     if (!competition) {
@@ -1033,19 +1018,19 @@ export const getCompetitionDetails = async (req, res) => {
         userEntryStatus = await Competition.canUserEnter(id, req.user.id);
         eligibility.can_enter = userEntryStatus.canEnter;
         eligibility.reason = userEntryStatus.reason;
-        
+
         // Check entry count and limits
         const userEntries = await Competition.getUserEntries(id, req.user.id);
         eligibility.entries_used = userEntries.length;
         eligibility.entries_remaining = competition.max_entries_per_user - userEntries.length;
-        
+
         // Check if user has any instant wins
         const userInstantWins = await Competition.getUserInstantWins(id, req.user.id);
         if (userInstantWins.length > 0) {
           eligibility.has_instant_wins = true;
           eligibility.instant_wins = userInstantWins;
         }
-        
+
         // Check achievements progress
         const userAchievements = await Competition.getUserAchievementsProgress(id, req.user.id);
         if (userAchievements.length > 0) {
@@ -1076,7 +1061,7 @@ export const getCompetitionDetails = async (req, res) => {
       try {
         jackpotProgress = await Competition.getJackpotProgress(id);
         eligibility.jackpot_info = jackpotProgress;
-        
+
         // Check threshold status
         const thresholdStatus = await Competition.checkThreshold(id);
         eligibility.threshold_reached = thresholdStatus.threshold_reached;
@@ -1193,7 +1178,7 @@ export const getCompetitionDetails = async (req, res) => {
         timestamps: {
           created_at: competition.created_at,
           updated_at: competition.updated_at,
-          time_remaining: competition.end_date ? 
+          time_remaining: competition.end_date ?
             Math.max(0, new Date(competition.end_date) - new Date()) : null
         }
       }
@@ -1222,7 +1207,7 @@ export const answerSkillQuestion = async (req, res) => {
 
     const { answer, competition_id, user_id, useUniversalTicket } = validationResult.data.body;
     const userId = user_id || req.user.id;
-    
+
     const competition = await Competition.findById(competition_id);
 
     if (!competition) {
@@ -1253,7 +1238,7 @@ export const answerSkillQuestion = async (req, res) => {
       return res.status(400).json({
         success: false,
         message: 'You have already answered the skill question for this competition',
-        data: { 
+        data: {
           previously_correct: existingEntry.skill_question_correct,
           attempts_remaining: 0
         }
@@ -1261,7 +1246,7 @@ export const answerSkillQuestion = async (req, res) => {
     }
 
     const isCorrect = answer.toLowerCase().trim() === competition.skill_question_answer.toLowerCase().trim();
-    
+
     // Record the attempt
     await Competition.recordSkillQuestionAttempt({
       competition_id,
@@ -1343,11 +1328,11 @@ export const answerSkillQuestion = async (req, res) => {
     } else {
       const attemptsAllowed = 3; // Configurable
       const attemptsRemaining = attemptsAllowed - 1;
-      
+
       res.json({
         success: false,
         message: 'Incorrect answer',
-        data: { 
+        data: {
           qualified: false,
           attempts_remaining: attemptsRemaining,
           can_retry: attemptsRemaining > 0,
@@ -1370,7 +1355,7 @@ export const submitFreeEntry = async (req, res) => {
     // Handle file uploads for postal proof
     const files = req.files || {};
     let postalProofUrl = null;
-    
+
     if (files.postal_proof?.[0]) {
       postalProofUrl = getFileUrl(files.postal_proof[0].path);
     }
@@ -1382,13 +1367,13 @@ export const submitFreeEntry = async (req, res) => {
         postal_proof: postalProofUrl
       }
     });
-    
+
     if (!validationResult.success) {
       // Clean up uploaded files if validation fails
       if (files.postal_proof?.[0]) {
         deleteUploadedFiles(files.postal_proof[0].path);
       }
-      
+
       return res.status(400).json({
         success: false,
         message: 'Validation failed',
@@ -1398,7 +1383,7 @@ export const submitFreeEntry = async (req, res) => {
 
     const { competition_id, user_address, postal_proof, answer, user_id } = validationResult.data.body;
     const userId = user_id || req.user.id;
-    
+
     const competition = await Competition.findById(competition_id);
 
     if (!competition) {
@@ -1406,7 +1391,7 @@ export const submitFreeEntry = async (req, res) => {
       if (files.postal_proof?.[0]) {
         deleteUploadedFiles(files.postal_proof[0].path);
       }
-      
+
       return res.status(404).json({
         success: false,
         message: 'Competition not found'
@@ -1418,7 +1403,7 @@ export const submitFreeEntry = async (req, res) => {
       if (files.postal_proof?.[0]) {
         deleteUploadedFiles(files.postal_proof[0].path);
       }
-      
+
       return res.status(400).json({
         success: false,
         message: 'Free entry not available for this competition'
@@ -1431,7 +1416,7 @@ export const submitFreeEntry = async (req, res) => {
       if (files.postal_proof?.[0]) {
         deleteUploadedFiles(files.postal_proof[0].path);
       }
-      
+
       return res.status(400).json({
         success: false,
         message: canEnter.reason
@@ -1445,20 +1430,20 @@ export const submitFreeEntry = async (req, res) => {
         if (files.postal_proof?.[0]) {
           deleteUploadedFiles(files.postal_proof[0].path);
         }
-        
+
         return res.status(400).json({
           success: false,
           message: 'Skill question answer is required for free entry'
         });
       }
-      
+
       const isCorrect = answer.toLowerCase().trim() === competition.skill_question_answer.toLowerCase().trim();
       if (!isCorrect) {
         // Clean up uploaded files if answer incorrect
         if (files.postal_proof?.[0]) {
           deleteUploadedFiles(files.postal_proof[0].path);
         }
-        
+
         return res.status(400).json({
           success: false,
           message: 'Incorrect answer to skill question'
@@ -1473,7 +1458,7 @@ export const submitFreeEntry = async (req, res) => {
       if (files.postal_proof?.[0]) {
         deleteUploadedFiles(files.postal_proof[0].path);
       }
-      
+
       return res.status(400).json({
         success: false,
         message: 'Maximum free entries reached for this competition'
@@ -1501,7 +1486,7 @@ export const submitFreeEntry = async (req, res) => {
     res.json({
       success: true,
       message: postal_proof ? 'Free entry submitted and verified' : 'Free entry submitted successfully',
-      data: { 
+      data: {
         entry_id: entryId,
         entry_received: true,
         requires_postal_confirmation: !postal_proof,
@@ -1515,12 +1500,12 @@ export const submitFreeEntry = async (req, res) => {
     });
   } catch (error) {
     console.error('Free entry error:', error);
-    
+
     // Clean up uploaded files on error
     if (req.files?.postal_proof?.[0]) {
       deleteUploadedFiles(req.files.postal_proof[0].path);
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Failed to submit free entry',
@@ -1543,9 +1528,9 @@ export const startJackpotCountdown = async (req, res) => {
     }
 
     const { competition_id, start_countdown, threshold_value } = validationResult.data.body;
-    
+
     const competition = await Competition.findById(competition_id);
-    
+
     if (!competition) {
       return res.status(404).json({
         success: false,
@@ -1577,7 +1562,7 @@ export const startJackpotCountdown = async (req, res) => {
     res.json({
       success: true,
       message: start_countdown ? 'Jackpot countdown started successfully' : 'Jackpot countdown stopped',
-      data: { 
+      data: {
         competition_id,
         threshold_type: start_countdown ? 'MANUAL' : 'AUTOMATIC',
         threshold_value: threshold_value || competition.threshold_value,
@@ -1608,9 +1593,9 @@ export const submitMiniGameScore = async (req, res) => {
 
     const { competition_id, game_id, score, time_taken, level_reached, session_data } = validationResult.data.body;
     const userId = req.user.id;
-    
+
     const competition = await Competition.findById(competition_id);
-    
+
     if (!competition) {
       return res.status(404).json({
         success: false,
@@ -1693,9 +1678,9 @@ export const claimInstantWin = async (req, res) => {
 
     const { competition_id, ticket_number, user_id } = validationResult.data.body;
     const userId = user_id || req.user.id;
-    
+
     const competition = await Competition.findById(competition_id);
-    
+
     if (!competition) {
       return res.status(404).json({
         success: false,
@@ -1705,7 +1690,7 @@ export const claimInstantWin = async (req, res) => {
 
     // Check if ticket number is a winning instant win
     const instantWin = await Competition.getInstantWinByTicketNumber(competition_id, ticket_number);
-    
+
     if (!instantWin) {
       return res.status(404).json({
         success: false,
@@ -1773,9 +1758,9 @@ export const selectWinners = async (req, res) => {
     }
 
     const { competition_id, method, winners_count, criteria } = validationResult.data.body;
-    
+
     const competition = await Competition.findById(competition_id);
-    
+
     if (!competition) {
       return res.status(404).json({
         success: false,
@@ -1792,12 +1777,12 @@ export const selectWinners = async (req, res) => {
     }
 
     let winners = [];
-    
+
     switch (method) {
       case 'RANDOM_DRAW':
         winners = await Competition.selectRandomWinners(competition_id, winners_count || 1);
         break;
-        
+
       case 'MANUAL_SELECTION':
         if (!criteria || !criteria.user_ids) {
           return res.status(400).json({
@@ -1807,7 +1792,7 @@ export const selectWinners = async (req, res) => {
         }
         winners = await Competition.selectManualWinners(competition_id, criteria.user_ids);
         break;
-        
+
       case 'SKILL_BASED':
         if (!criteria || !criteria.min_score) {
           return res.status(400).json({
@@ -1817,7 +1802,7 @@ export const selectWinners = async (req, res) => {
         }
         winners = await Competition.selectSkillBasedWinners(competition_id, criteria);
         break;
-        
+
       case 'FIRST_ENTRY':
         winners = await Competition.selectFirstEntryWinners(competition_id, winners_count || 1);
         break;
@@ -1860,7 +1845,7 @@ export const selectWinners = async (req, res) => {
 export const autoSubscribeUsers = async (req, res) => {
   try {
     const { competition_id } = req.body;
-    
+
     if (!competition_id) {
       return res.status(400).json({
         success: false,
@@ -1869,7 +1854,7 @@ export const autoSubscribeUsers = async (req, res) => {
     }
 
     const competition = await Competition.findById(competition_id);
-    
+
     if (!competition) {
       return res.status(404).json({
         success: false,
@@ -1886,10 +1871,10 @@ export const autoSubscribeUsers = async (req, res) => {
 
     // Get eligible users based on subscription tier
     const eligibleUsers = await Competition.getEligibleUsersForSubscription(competition_id);
-    
+
     // Auto-subscribe users
     const results = await Competition.autoSubscribeToCompetition(competition_id);
-    
+
     res.json({
       success: true,
       message: `Auto-subscription completed for ${results.subscribed_count} users`,
@@ -1966,9 +1951,9 @@ export const getCompetitionLeaderboard = async (req, res) => {
   try {
     const { id } = req.params;
     const { type = 'DAILY', limit = 50 } = req.query;
-    
+
     const leaderboard = await Competition.getLeaderboard(id, type, parseInt(limit));
-    
+
     res.json({
       success: true,
       data: leaderboard
@@ -1987,9 +1972,9 @@ export const getCompetitionAnalytics = async (req, res) => {
   try {
     const { id } = req.params;
     const { period = '7d' } = req.query;
-    
+
     const analytics = await Competition.getAnalytics(id, period);
-    
+
     res.json({
       success: true,
       data: analytics
@@ -2008,28 +1993,28 @@ export const updateCompetitionStatus = async (req, res) => {
   try {
     const { id } = req.params;
     const { status, reason } = req.body;
-    
-    if (!status || !['ACTIVE', 'PAUSED','INACTIVE', 'COMPLETED', 'CANCELLED'].includes(status)) {
+
+    if (!status || !['ACTIVE', 'PAUSED', 'INACTIVE', 'COMPLETED', 'CANCELLED'].includes(status)) {
       return res.status(400).json({
         success: false,
         message: 'Valid status is required'
       });
     }
-    
+
     const meta = {
       ip_address: req.ip || (req.headers['x-forwarded-for'] || null),
       user_agent: req.get('User-Agent') || null
     };
 
     const updated = await Competition.updateStatus(id, status, reason, req.user?.id || null, meta);
-    
+
     if (!updated) {
       return res.status(404).json({
         success: false,
         message: 'Competition not found'
       });
     }
-    
+
     res.json({
       success: true,
       message: `Competition status updated to ${status}`,
@@ -2079,18 +2064,9 @@ export const deleteCompetition = async (req, res) => {
     const filesToDelete = [];
     fileUrls.forEach(u => {
       if (!u) return;
-      const idx = u.indexOf('/uploads/competitions/');
-      if (idx !== -1) {
-        const rel = u.substring(idx + '/uploads/competitions/'.length).replace(/\//g, path.sep);
-        filesToDelete.push(path.join(baseUploads, rel));
-      } else {
-        // fallback: try basename search
-        const fname = path.basename(u);
-        // attempt to find file under baseUploads recursively - skip heavy IO, try likely locations
-        filesToDelete.push(path.join(baseUploads, 'temp', fname));
-        filesToDelete.push(path.join(baseUploads, id, 'featured', fname));
-        filesToDelete.push(path.join(baseUploads, id, 'gallery', fname));
-      }
+      // Cloudinary: URLs are passed directly to deleteUploadedFiles
+      // Local files (legacy): Paths are also handled by deleteUploadedFiles (if they exist)
+      filesToDelete.push(u);
     });
 
     // Use deleteUploadedFiles utility
@@ -2123,7 +2099,7 @@ export const duplicateCompetition = async (req, res) => {
   try {
     const { id } = req.params;
     const { title_suffix = 'Copy', ...overrides } = req.body;
-    
+
     const originalCompetition = await Competition.findById(id);
     if (!originalCompetition) {
       return res.status(404).json({
@@ -2150,7 +2126,10 @@ export const duplicateCompetition = async (req, res) => {
     // Copy files if they exist
     const originalDir = path.join(competitionUploadsBase, id);
     const newDir = path.join(competitionUploadsBase, newCompetitionId);
-    
+
+    // Cloudinary Migration: File copying for duplicates is disabled for now.
+    // Users will need to re-upload images for the new competition.
+    /*
     if (fs.existsSync(originalDir)) {
       // Copy directory recursively
       const copyDirRecursive = (src, dest) => {
@@ -2175,12 +2154,14 @@ export const duplicateCompetition = async (req, res) => {
       
       copyDirRecursive(originalDir, newDir);
     }
-    
+    */
+    console.log(`Competition duplicated (ID: ${newCompetitionId}). Files were NOT copied (Cloudinary data model requires re-upload or advanced duplication logic).`);
+
     res.json({
       success: true,
       message: 'Competition duplicated successfully',
-      data: { 
-        original_id: id, 
+      data: {
+        original_id: id,
         new_competition_id: newCompetitionId,
         duplicated_at: new Date()
       }
@@ -2199,7 +2180,7 @@ export const exportCompetitionData = async (req, res) => {
   try {
     const { id } = req.params;
     const { format = 'json', include = 'all' } = req.query;
-    
+
     const competition = await Competition.findById(id);
     if (!competition) {
       return res.status(404).json({
@@ -2225,7 +2206,7 @@ export const exportCompetitionData = async (req, res) => {
       // Convert to CSV format
       const parser = new Parser();
       const csv = parser.parse(exportData.competition);
-      
+
       res.setHeader('Content-Type', 'text/csv');
       res.setHeader('Content-Disposition', `attachment; filename="competition-${id}-export.csv"`);
       return res.send(csv);
@@ -2338,9 +2319,9 @@ export const exportJackpotCompetitionsCSV = (req, res) => {
 export const getCompetitionWinners = async (req, res) => {
   try {
     const { id } = req.params;
-    
+
     const winners = await Competition.getWinners(id);
-    
+
     res.json({
       success: true,
       data: winners
@@ -2358,17 +2339,17 @@ export const getCompetitionWinners = async (req, res) => {
 export const validateCompetitionEntry = async (req, res) => {
   try {
     const { competition_id, user_id } = req.body;
-    
+
     if (!competition_id) {
       return res.status(400).json({
         success: false,
         message: 'Competition ID is required'
       });
     }
-    
+
     const userId = user_id || req.user?.id;
     const validation = await Competition.validateEntry(competition_id, userId);
-    
+
     res.json({
       success: true,
       data: validation
@@ -2454,19 +2435,19 @@ export const bulkCreateCompetitions = async (req, res) => {
     }
 
     const csvPath = req.file.path;
-    
+
     // Read and parse CSV file
     const competitions = await parseCompetitionsCSV(csvPath);
-    
+
     // Validate each competition
     const validCompetitions = [];
     const invalidCompetitions = [];
-    
+
     for (const competition of competitions) {
-      const validationResult = createCompetitionSchema.safeParse({ 
-        body: competition 
+      const validationResult = createCompetitionSchema.safeParse({
+        body: competition
       });
-      
+
       if (validationResult.success) {
         validCompetitions.push(validationResult.data.body);
       } else {
@@ -2477,11 +2458,11 @@ export const bulkCreateCompetitions = async (req, res) => {
         });
       }
     }
-    
+
     // Create valid competitions
     const createdIds = [];
     const errors = [];
-    
+
     for (const competition of validCompetitions) {
       try {
         const competitionId = await Competition.create(competition);
@@ -2494,10 +2475,10 @@ export const bulkCreateCompetitions = async (req, res) => {
         });
       }
     }
-    
+
     // Delete CSV file
     deleteUploadedFiles(csvPath);
-    
+
     res.json({
       success: true,
       message: 'Bulk competition creation completed',
@@ -2512,12 +2493,12 @@ export const bulkCreateCompetitions = async (req, res) => {
     });
   } catch (error) {
     console.error('Bulk create error:', error);
-    
+
     // Clean up uploaded file on error
     if (req.file) {
       deleteUploadedFiles(req.file.path);
     }
-    
+
     res.status(500).json({
       success: false,
       message: 'Failed to bulk create competitions',
@@ -2531,10 +2512,10 @@ const parseCompetitionsCSV = async (csvPath) => {
   return new Promise((resolve, reject) => {
     const fs = require('fs');
     const csv = require('csv-parser');
-    
+
     const competitions = [];
     let rowNumber = 1;
-    
+
     fs.createReadStream(csvPath)
       .pipe(csv())
       .on('data', (row) => {
@@ -2550,7 +2531,7 @@ const parseCompetitionsCSV = async (csvPath) => {
           end_date: row.end_date || null,
           _row: rowNumber++
         };
-        
+
         competitions.push(competition);
       })
       .on('end', () => {
@@ -2622,7 +2603,7 @@ export const getCompetitionTypes = async (req, res) => {
         icon: '🔄'
       }
     ];
-    
+
     res.json({
       success: true,
       data: types
@@ -2640,7 +2621,7 @@ export const getCompetitionTypes = async (req, res) => {
 export const getCompetitionTemplates = async (req, res) => {
   try {
     const { category } = req.query;
-    
+
     const templates = {
       'JACKPOT': {
         name: 'Standard Jackpot',
@@ -2692,9 +2673,9 @@ export const getCompetitionTemplates = async (req, res) => {
         }
       }
     };
-    
+
     const result = category ? { [category]: templates[category] } : templates;
-    
+
     res.json({
       success: true,
       data: result
@@ -2730,31 +2711,31 @@ export const processWheelSpin = async (req, res) => {
 
 function getCompetitionTags(competition) {
   const tags = [competition.category, competition.competition_type];
-  
+
   if (competition.subscription_tier) {
     tags.push(competition.subscription_tier);
   }
-  
+
   if (competition.game_type) {
     tags.push(competition.game_type);
   }
-  
+
   if (competition.is_free_competition) {
     tags.push('FREE');
   }
-  
+
   if (competition.skill_question_enabled) {
     tags.push('SKILL_QUESTION');
   }
-  
+
   if (competition.free_entry_enabled) {
     tags.push('FREE_ENTRY');
   }
-  
+
   if (competition.leaderboard_type) {
     tags.push(competition.leaderboard_type);
   }
-  
+
   return [...new Set(tags)]; // Remove duplicates
 }
 
@@ -2781,6 +2762,6 @@ function getCompetitionNextSteps(category) {
     'PAID': ['Set up payment integration', 'Configure compliance options', 'Start ticket sales'],
     'FREE': ['Configure entry limits', 'Set up sharing options', 'Start promotion']
   };
-  
+
   return steps[category] || ['Review settings', 'Test functionality', 'Launch competition'];
 }

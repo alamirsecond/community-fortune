@@ -12,6 +12,7 @@ import path from "path";
 import { fileURLToPath } from "url";
 import pool from "./database.js";
 import fs from "fs";
+import { cloudinary } from "./src/config/cloudinary.js";
 import trafficMonitor from "./middleware/trafficMonitor.js";
 import maintenanceGuard from "./middleware/maintenanceGuard.js";
 
@@ -176,11 +177,11 @@ app.use(
       res.setHeader(
         "Content-Security-Policy",
         "default-src 'self'; " +
-          "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
-          "style-src 'self' 'unsafe-inline'; " +
-          "img-src 'self' data: blob:; " +
-          "font-src 'self' data:; " +
-          "media-src 'self'"
+        "script-src 'self' 'unsafe-inline' 'unsafe-eval'; " +
+        "style-src 'self' 'unsafe-inline'; " +
+        "img-src 'self' data: blob: https://res.cloudinary.com; " +
+        "font-src 'self' data:; " +
+        "media-src 'self' https://res.cloudinary.com"
       );
       res.setHeader("Cache-Control", "public, max-age=31536000");
     },
@@ -244,6 +245,14 @@ app.get("/health", async (req, res) => {
     dbStatus = "disconnected";
   }
 
+  let cloudinaryStatus = "unknown";
+  try {
+    const result = await cloudinary.api.ping();
+    cloudinaryStatus = result.status === 'ok' ? 'connected' : 'error';
+  } catch (error) {
+    cloudinaryStatus = "disconnected";
+  }
+
   const healthInfo = {
     success: true,
     message: "Server is running healthy",
@@ -254,6 +263,10 @@ app.get("/health", async (req, res) => {
     database: {
       status: dbStatus,
       name: process.env.DB_NAME || "community_fortune",
+    },
+    cloudinary: {
+      status: cloudinaryStatus,
+      cloudName: process.env.CLOUDINARY_CLOUD_NAME || "Not configured"
     },
     server: {
       uptime: `${process.uptime().toFixed(2)} seconds`,
@@ -555,10 +568,10 @@ if (
 ) {
   const cleanupTempUploads = () => {
     const tempDirs = [
-        path.join(kycUploadsPath, "temp"),
-        path.join(competitionUploadsPath, "temp"),
-        path.join(userUploadsPath, "temp"),
-        path.join(gamesUploadsPath, "temp"),
+      path.join(kycUploadsPath, "temp"),
+      path.join(competitionUploadsPath, "temp"),
+      path.join(userUploadsPath, "temp"),
+      path.join(gamesUploadsPath, "temp"),
     ];
 
     tempDirs.forEach((dir) => {
@@ -595,17 +608,17 @@ const HOST = process.env.HOST || "0.0.0.0";
 
 const maxCompetitionVideoSizeMb = Math.round(
   (parseInt(process.env.MAX_COMPETITION_VIDEO_SIZE, 10) || 50 * 1024 * 1024) /
-    (1024 * 1024)
+  (1024 * 1024)
 );
 const maxCompetitionImageSizeMb = Math.round(
   (parseInt(process.env.MAX_COMPETITION_IMAGE_SIZE, 10) || 10 * 1024 * 1024) /
-    (1024 * 1024)
+  (1024 * 1024)
 );
 
 const startServer = async () => {
   try {
     initUploadDirectories();
-       // Start server
+    // Start server
     app.listen(PORT, HOST, () => {
       console.log(`
        ${process.env.APP_NAME || "Community Fortune"} running successfully!
