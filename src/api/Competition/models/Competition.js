@@ -75,6 +75,12 @@ console.log(competitionData);
   // Basic competition stats using only competitions table
 static async getCompetitionStatsDashboard() {
   try {
+    const statusCase = `CASE 
+      WHEN start_date IS NOT NULL AND NOW() < start_date THEN 'UPCOMING'
+      WHEN end_date IS NOT NULL AND NOW() > end_date THEN 'COMPLETED'
+      ELSE 'ACTIVE'
+    END`;
+
     // Execute all queries in parallel for better performance
     const [
       [activeResult],
@@ -84,37 +90,37 @@ static async getCompetitionStatsDashboard() {
       [totalTicketsResult],
       [soldTicketsResult]
     ] = await Promise.all([
-      pool.query(`SELECT COUNT(*) as count FROM competitions WHERE status = 'ACTIVE'`),
+      pool.query(`SELECT COUNT(*) as count FROM competitions WHERE ${statusCase} = 'ACTIVE'`),
       pool.query(`
         SELECT COUNT(*) as count 
         FROM competitions 
-        WHERE status = 'ACTIVE' 
+        WHERE ${statusCase} = 'ACTIVE' 
         AND MONTH(created_at) = MONTH(CURRENT_DATE()) 
         AND YEAR(created_at) = YEAR(CURRENT_DATE())
       `),
       pool.query(`
         SELECT COUNT(*) as count 
         FROM competitions 
-        WHERE status = 'COMPLETED'
+        WHERE ${statusCase} = 'COMPLETED'
         AND MONTH(updated_at) = MONTH(CURRENT_DATE()) 
         AND YEAR(updated_at) = YEAR(CURRENT_DATE())
       `),
       pool.query(`
         SELECT COUNT(*) as count 
         FROM competitions 
-        WHERE status = 'ACTIVE'
+        WHERE ${statusCase} = 'ACTIVE'
         AND end_date IS NOT NULL
         AND DATE(end_date) = CURDATE()
       `),
       pool.query(`
         SELECT COALESCE(SUM(total_tickets), 0) as total 
         FROM competitions 
-        WHERE status = 'ACTIVE'
+        WHERE ${statusCase} = 'ACTIVE'
       `),
       pool.query(`
         SELECT COALESCE(SUM(sold_tickets), 0) as sold 
         FROM competitions 
-        WHERE status = 'ACTIVE'
+        WHERE ${statusCase} = 'ACTIVE'
       `)
     ]);
 
@@ -260,13 +266,19 @@ static async getCompetitionStatsDashboard() {
   // ==================== FIND COMPETITION BY ID ====================
   
   static async findById(competitionId) {
+    const statusCase = `CASE 
+        WHEN start_date IS NOT NULL AND NOW() < start_date THEN 'UPCOMING'
+        WHEN end_date IS NOT NULL AND NOW() > end_date THEN 'COMPLETED'
+        ELSE 'ACTIVE'
+      END`;
+
     const [rows] = await pool.execute(
       `SELECT 
         BIN_TO_UUID(id) as id,
         title, description, featured_image, featured_video,
         price, total_tickets, sold_tickets, category, type,
         start_date, end_date, no_end_date, is_free_competition,
-        points_per_pound, status, competition_type,
+        points_per_pound, ${statusCase} as status, competition_type,
         skill_question_enabled, skill_question_text, skill_question_answer,
         free_entry_enabled, free_entry_instructions, postal_address,
         max_entries_per_user, requires_address,
@@ -300,13 +312,19 @@ static async getCompetitionStatsDashboard() {
   // ==================== FIND COMPETITIONS WITH FILTERS ====================
   
   static async findCompetitions(filters = {}) {
+    const statusCase = `CASE 
+      WHEN c.start_date IS NOT NULL AND NOW() < c.start_date THEN 'UPCOMING'
+      WHEN c.end_date IS NOT NULL AND NOW() > c.end_date THEN 'COMPLETED'
+      ELSE 'ACTIVE'
+    END`;
+
     let query = `
       SELECT 
         BIN_TO_UUID(c.id) as id,
         c.title, c.description, c.featured_image, c.featured_video,
         c.price, c.total_tickets, c.sold_tickets, c.category, c.type,
         c.start_date, c.end_date, c.no_end_date, c.is_free_competition,
-        c.status, c.competition_type, c.created_at,
+        ${statusCase} as status, c.competition_type, c.created_at,
         c.prize_option, c.ticket_model, c.subscription_tier,
         c.wheel_type, c.game_type, c.gallery_images, c.rules_and_restrictions,
         (SELECT COUNT(*) FROM instant_wins iw WHERE iw.competition_id = c.id) as instant_wins_count,
@@ -329,7 +347,7 @@ static async getCompetitionStatsDashboard() {
     }
     
     if (filters.status) {
-      query += ' AND c.status = ?';
+      query += ` AND (${statusCase}) = ?`;
       params.push(filters.status);
     }
     
@@ -395,7 +413,7 @@ static async getCompetitionStatsDashboard() {
     }
     
     // Get total count for pagination
-    const countQuery = `SELECT COUNT(*) as total FROM (${query.replace(/SELECT.*FROM/, 'SELECT 1 FROM')}) as count_query`;
+    const countQuery = `SELECT COUNT(*) as total FROM (${query}) as count_query`;
     const [countResult] = await pool.execute(countQuery, params);
     const total = countResult[0].total;
     const totalPages = Math.ceil(total / filters.limit);
