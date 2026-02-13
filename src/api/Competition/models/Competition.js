@@ -77,6 +77,7 @@ static async getCompetitionStatsDashboard() {
   try {
     const statusCase = `CASE 
       WHEN status = 'CANCELLED' THEN 'CANCELLED'
+      WHEN start_date IS NOT NULL AND NOW() < start_date THEN 'UPCOMING'
       WHEN end_date IS NOT NULL AND NOW() > end_date THEN 'COMPLETED'
       ELSE status
     END`;
@@ -268,6 +269,7 @@ static async getCompetitionStatsDashboard() {
   static async findById(competitionId) {
     const statusCase = `CASE 
         WHEN status = 'CANCELLED' THEN 'CANCELLED'
+        WHEN start_date IS NOT NULL AND NOW() < start_date THEN 'UPCOMING'
         WHEN end_date IS NOT NULL AND NOW() > end_date THEN 'COMPLETED'
         ELSE status
       END`;
@@ -314,6 +316,7 @@ static async getCompetitionStatsDashboard() {
   static async findCompetitions(filters = {}) {
     const statusCase = `CASE 
       WHEN c.status = 'CANCELLED' THEN 'CANCELLED'
+      WHEN c.start_date IS NOT NULL AND NOW() < c.start_date THEN 'UPCOMING'
       WHEN c.end_date IS NOT NULL AND NOW() > c.end_date THEN 'COMPLETED'
       ELSE c.status
     END`;
@@ -413,7 +416,7 @@ static async getCompetitionStatsDashboard() {
     }
     
     // Get total count for pagination
-    const countQuery = `SELECT COUNT(*) as total FROM (${query}) as count_query`;
+    const countQuery = `SELECT COUNT(*) as total FROM (${query.replace(/SELECT.*FROM/, 'SELECT 1 FROM')}) as count_query`;
     const [countResult] = await pool.execute(countQuery, params);
     const total = countResult[0].total;
     const totalPages = Math.ceil(total / filters.limit);
