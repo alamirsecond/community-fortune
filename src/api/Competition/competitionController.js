@@ -40,6 +40,17 @@ const safeParseInt = (val) => (val !== undefined ? parseInt(val) : undefined);
 const safeParseFloat = (val) => (val !== undefined ? parseFloat(val) : undefined);
 const safeParseBool = (val) => val === 'true' || val === true;
 
+const toMySQLDateTime = (value) => {
+  if (!value) return null;
+
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return null;
+
+  const pad = (num) => String(num).padStart(2, '0');
+
+  return `${date.getUTCFullYear()}-${pad(date.getUTCMonth() + 1)}-${pad(date.getUTCDate())} ${pad(date.getUTCHours())}:${pad(date.getUTCMinutes())}:${pad(date.getUTCSeconds())}`;
+};
+
 // Helper to delete uploaded files
 const cleanupFiles = (files) => {
   Object.values(files).flat().forEach(file => {
@@ -97,47 +108,6 @@ const normalizeRulesAndRestrictions = (rawValue) => {
   };
 
   return parseValue(rawValue);
-};
-
-// Utility: convert ISO string or Date to MySQL DATETIME string
-const toMySQLDateTime = (date) => {
-  if (!date) return null;
-
-  const d = date instanceof Date ? date : new Date(date);
-  if (isNaN(d.getTime())) return null; // invalid date
-  return d.toISOString().slice(0, 19).replace('T', ' ');
-};
-
-const generateUniqueTicketNumbers = (count, maxTicket, usedNumbers) => {
-  const numbers = [];
-  const maxAvailable = maxTicket - usedNumbers.size;
-
-  if (count > maxAvailable) {
-    return null;
-  }
-
-  let attempts = 0;
-  const maxAttempts = Math.max(1000, maxTicket * 5);
-
-  while (numbers.length < count && attempts < maxAttempts) {
-    const candidate = Math.floor(Math.random() * maxTicket) + 1;
-    if (!usedNumbers.has(candidate)) {
-      usedNumbers.add(candidate);
-      numbers.push(candidate);
-    }
-    attempts += 1;
-  }
-
-  if (numbers.length < count) {
-    for (let candidate = 1; candidate <= maxTicket && numbers.length < count; candidate += 1) {
-      if (!usedNumbers.has(candidate)) {
-        usedNumbers.add(candidate);
-        numbers.push(candidate);
-      }
-    }
-  }
-
-  return numbers.length === count ? numbers : null;
 };
 
 const ensureInstantWinCapacity = (instantWins, totalTickets) => {
@@ -503,67 +473,7 @@ if (files.gallery_images?.length > 0) {
   } catch (error) {
     console.error('Create competition error:', error);
     if (req.files) Object.values(req.files).flat().forEach(file => deleteUploadedFiles(file.path));
-
-          const updateData = validationResult.data.body;
-
-          const resolvedTotalTickets = parseInt(
-            updateData.total_tickets ?? currentCompetition.total_tickets,
-            10
-          );
-
-          if (
-            updateData.instant_wins &&
-            Number.isInteger(resolvedTotalTickets) &&
-            resolvedTotalTickets > 0
-          ) {
-            const instantWinCapacity = ensureInstantWinCapacity(
-              updateData.instant_wins,
-              resolvedTotalTickets
-            );
-
-            if (!instantWinCapacity.valid) {
-              if (files) {
-                Object.values(files).forEach(fileArray => {
-                  fileArray.forEach(file => deleteUploadedFiles(file.path));
-                });
-              }
-
-              return res.status(400).json({
-                success: false,
-                message: 'Instant win validation failed',
-                errors: [
-                  {
-                    path: 'body.instant_wins',
-                    message: instantWinCapacity.message
-                  }
-                ]
-              });
-            }
-          }
-
-          if (
-            updateData.total_tickets !== undefined &&
-            Number.isInteger(resolvedTotalTickets) &&
-            currentCompetition.instant_wins_count > resolvedTotalTickets &&
-            !updateData.instant_wins
-          ) {
-            if (files) {
-              Object.values(files).forEach(fileArray => {
-                fileArray.forEach(file => deleteUploadedFiles(file.path));
-              });
-            }
-
-            return res.status(400).json({
-              success: false,
-              message: 'Instant win validation failed',
-              errors: [
-                {
-                  path: 'body.total_tickets',
-                  message: `Existing instant win allocations (${currentCompetition.instant_wins_count}) exceed the requested total tickets (${resolvedTotalTickets})`
-                }
-              ]
-            });
-          }
+    res.status(500).json({
       success: false,
       message: 'Failed to create competition',
       error: error.message,
