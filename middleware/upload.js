@@ -37,6 +37,7 @@ const getCloudinaryFolder = (req, file) => {
     'featured_image': 'featured',
     'featured_video': 'featured',
     'banner_image': 'banners',
+    'gallery_images': 'gallery',
     'gallery': 'gallery',
     'images': 'gallery',
     'instant_win_images': 'instant_wins',
