@@ -168,16 +168,18 @@ static async getCompetitionStatsDashboard() {
       for (const instantWin of instantWins) {
         for (const ticketNumber of instantWin.ticket_numbers) {
           await connection.execute(
-            `INSERT INTO instant_wins (id, competition_id, ticket_number, prize_name, prize_value, prize_type, max_winners, image_url)
-             VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?, ?, ?, ?)`,
+            `INSERT INTO instant_wins (
+               id, competition_id, ticket_number, prize_name, prize_value, prize_type,
+               max_winners, current_winners, image_url
+             ) VALUES (UUID_TO_BIN(UUID()), ?, ?, ?, ?, ?, ?, ?, ?)`,
             [
               binaryCompetitionId,
               ticketNumber,
               instantWin.prize_name,
               instantWin.prize_amount,
               instantWin.payout_type,
-              // map incoming max_count (schema) to DB column max_winners
-              instantWin.max_count ?? instantWin.max_winners ?? 1,
+              1,
+              0,
               instantWin.image_url || null
             ]
           );
@@ -1117,6 +1119,9 @@ static async getCompetitionStatsDashboard() {
         prize_name,
         prize_value,
         payout_type,
+        max_winners,
+        current_winners,
+        GREATEST(max_winners - current_winners, 0) as remaining_tickets,
         claimed_by,
         claimed_at,
         image_url
