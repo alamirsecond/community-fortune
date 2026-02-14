@@ -427,7 +427,7 @@ class SubscriptionTicketService {
     try {
       await connection.beginTransaction();
 
-      const { competition_id, quantity, payment_method, use_wallet = true } = purchaseData;
+      const { competition_id, quantity, payment_method, use_wallet = true, payment_method_id } = purchaseData;
 
       const [competition] = await connection.query(
         `SELECT * FROM competitions 
@@ -448,6 +448,18 @@ class SubscriptionTicketService {
       let walletUsed = 0;
       let externalPayment = totalAmount;
       let paymentMethodUsed = payment_method;
+
+      if (payment_method_id) {
+        const [methods] = await connection.query(
+          `SELECT id FROM user_payment_methods
+           WHERE id = UUID_TO_BIN(?) AND user_id = UUID_TO_BIN(?) AND is_active = TRUE`,
+          [payment_method_id, userId]
+        );
+
+        if (!methods.length) {
+          throw new Error('Payment method not found for user');
+        }
+      }
 
       if (use_wallet) {
         const [wallets] = await connection.query(
@@ -491,11 +503,21 @@ class SubscriptionTicketService {
           throw new Error('External payment method required');
         }
 
+        if (!payment_method_id) {
+          throw new Error('Payment method is required');
+        }
+
         const [paymentRequest] = await connection.query(
           `INSERT INTO payment_requests 
-           (id, user_id, type, gateway, amount, currency, status, metadata)
-           VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'TICKET', ?, ?, 'GBP', 'PENDING', ?)`,
-          [userId, payment_method, externalPayment, JSON.stringify({ competition_id, quantity, ticket_type: 'COMPETITION' })]
+           (id, user_id, type, gateway, amount, currency, status, metadata, payment_method_id)
+           VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'TICKET', ?, ?, 'GBP', 'PENDING', ?, UUID_TO_BIN(?))`,
+          [
+            userId,
+            payment_method,
+            externalPayment,
+            JSON.stringify({ competition_id, quantity, ticket_type: 'COMPETITION' }),
+            payment_method_id || null
+          ]
         );
 
         const requestId = paymentRequest.insertId;
@@ -798,7 +820,7 @@ class SubscriptionTicketService {
     try {
       await connection.beginTransaction();
 
-      const { ticket_type, quantity, payment_method, use_wallet = true } = purchaseData;
+      const { ticket_type, quantity, payment_method, use_wallet = true, payment_method_id } = purchaseData;
 
       const ticketConfig = {
         JACKPOT: { price: 2.00 },
@@ -814,6 +836,18 @@ class SubscriptionTicketService {
       let walletUsed = 0;
       let externalPayment = totalAmount;
       let paymentMethodUsed = payment_method;
+
+      if (payment_method_id) {
+        const [methods] = await connection.query(
+          `SELECT id FROM user_payment_methods
+           WHERE id = UUID_TO_BIN(?) AND user_id = UUID_TO_BIN(?) AND is_active = TRUE`,
+          [payment_method_id, userId]
+        );
+
+        if (!methods.length) {
+          throw new Error('Payment method not found for user');
+        }
+      }
 
       if (use_wallet) {
         const [wallets] = await connection.query(
@@ -855,6 +889,10 @@ class SubscriptionTicketService {
       if (externalPayment > 0) {
         if (!payment_method || payment_method === 'WALLET') {
           throw new Error('External payment method required');
+        }
+
+        if (!payment_method_id) {
+          throw new Error('Payment method is required');
         }
 
         const userEmail = await this.getUserEmail(userId);

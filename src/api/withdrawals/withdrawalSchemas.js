@@ -16,10 +16,10 @@ const withdrawalSchemas = {
         'any.required': 'Amount is required'
       }),
     paymentMethod: Joi.string()
-      .valid('REVOLT', 'STRIPE', 'BANK_TRANSFER', 'PAYPAL')
+      .valid('REVOLUT', 'STRIPE', 'BANK_TRANSFER', 'PAYPAL')
       .required()
       .messages({
-        'any.only': 'Payment method must be REVOLT, STRIPE, BANK_TRANSFER, or PAYPAL',
+        'any.only': 'Payment method must be REVOLUT, STRIPE, BANK_TRANSFER, or PAYPAL',
         'any.required': 'Payment method is required'
       }),
     accountDetails: Joi.object({
@@ -90,23 +90,23 @@ const withdrawalSchemas = {
           otherwise: Joi.forbidden()
         }),
 
-      // REVOLT (Revolut-style identifiers)
+      // REVOLUT (Revolut-style identifiers)
       revolutEmail: Joi.string()
         .email()
         .when('...paymentMethod', {
-          is: 'REVOLT',
+          is: 'REVOLUT',
           then: Joi.optional(),
           otherwise: Joi.forbidden()
         }),
       counterpartyId: Joi.string()
         .when('...paymentMethod', {
-          is: 'REVOLT',
+          is: 'REVOLUT',
           then: Joi.optional(),
           otherwise: Joi.forbidden()
         }),
       accountId: Joi.string()
         .when('...paymentMethod', {
-          is: 'REVOLT',
+          is: 'REVOLUT',
           then: Joi.optional(),
           otherwise: Joi.forbidden()
         })
@@ -120,14 +120,16 @@ const withdrawalSchemas = {
           if (!ok) return helpers.error('any.custom', { message: 'For STRIPE withdrawals provide at least one of stripeAccountId, stripeDestination, or stripeBankAccount' });
         }
 
-        if (method === 'REVOLT') {
+        if (method === 'REVOLUT') {
           const ok = !!(details.revolutEmail || details.counterpartyId || details.accountId);
-          if (!ok) return helpers.error('any.custom', { message: 'For REVOLT withdrawals provide at least one of revolutEmail, counterpartyId, or accountId' });
+          if (!ok) return helpers.error('any.custom', { message: 'For REVOLUT withdrawals provide at least one of revolutEmail, counterpartyId, or accountId' });
         }
 
         return details;
       })
       .required()
+    ,
+    payment_method_id: Joi.string().uuid().optional().allow(null)
   }),
 
   otpVerificationSchema: Joi.object({
@@ -179,7 +181,7 @@ const withdrawalSchemas = {
     endDate: Joi.date().optional(),
     minAmount: Joi.number().positive().optional(),
     maxAmount: Joi.number().positive().optional(),
-    paymentMethod: Joi.string().valid('REVOLT', 'STRIPE', 'BANK_TRANSFER', 'PAYPAL').optional(),
+    paymentMethod: Joi.string().valid('REVOLUT', 'STRIPE', 'BANK_TRANSFER', 'PAYPAL').optional(),
     userId: Joi.string().uuid().optional(),
     sortBy: Joi.string()
       .valid('amount', 'requested_at', 'updated_at', 'status')
@@ -195,7 +197,7 @@ const withdrawalSchemas = {
     endDate: Joi.date().optional(),
     minAmount: Joi.number().positive().optional(),
     maxAmount: Joi.number().positive().optional(),
-    paymentMethod: Joi.string().valid('REVOLT', 'STRIPE', 'BANK_TRANSFER', 'PAYPAL').optional(),
+    paymentMethod: Joi.string().valid('REVOLUT', 'STRIPE', 'BANK_TRANSFER', 'PAYPAL').optional(),
     userId: Joi.string().uuid().optional(),
     sortBy: Joi.string()
       .valid('amount', 'requested_at', 'updated_at', 'status')

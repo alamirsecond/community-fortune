@@ -8,6 +8,7 @@ import fs from 'fs';
 import { getFileUrl } from '../../../middleware/upload.js';
 import sendEmail, { sendVerificationEmail, sendWelcomeEmail, sendPasswordResetEmail } from '../../Utils/emailSender.js';
 import systemSettingsCache from '../../Utils/systemSettingsCache.js';
+import { getUserAccountSettings, saveUserAccountSettings } from '../../Utils/userAccountSettings.js';
 
 // Generate 6-digit OTP
 const generateOTP = () => {
@@ -260,6 +261,7 @@ const logUserActivity = async (connection, activityData) => {
     // Don't throw error, just log it
   }
 };
+
 const generateUniqueReferralCode = async (username) => {
   let referralCode;
   let attempts = 0;
@@ -707,7 +709,7 @@ registerUser: async (req, res) => {
       let welcomeEmailSent = false;
       if (emailSent) {
         try {
-          const welcomeResult = await sendWelcomeEmail(email, username);
+          const welcomeResult = await sendWelcomeEmail(email, username, userId);
           if (welcomeResult.success) {
             console.log(`✅ Welcome email sent successfully to ${email}`);
             welcomeEmailSent = true;
@@ -1953,6 +1955,8 @@ getProfile: async (req, res) => {
       [userUUID]
     );
 
+    const accountSettings = await getUserAccountSettings(userUUID);
+
     // Determine user badge/tier
     let badge = 'User';
     let tier = 'STANDARD';
@@ -2138,20 +2142,7 @@ getProfile: async (req, res) => {
         },
 
         // Account Settings
-        accountSettings: {
-          emailNotifications: {
-            notifyInstantWins: true,
-            notifyNewCompetitions: true,
-            notifyWins: true,
-            notifyWithdrawals: true,
-            newsletter: true
-          },
-          privacySettings: {
-            showMyWinsPublicly: true,
-            showMyProfilePublicly: true,
-            showMyActivityPublicly: false
-          }
-        },
+        accountSettings: accountSettings,
 
         // Navigation Tabs
         navigation: [
@@ -2176,6 +2167,58 @@ getProfile: async (req, res) => {
       success: false,
       message: "Internal server error",
       error: error.message
+    });
+  }
+},
+
+getAccountSettings: async (req, res) => {
+  try {
+    const settings = await getUserAccountSettings(req.user.id);
+    res.json({ success: true, data: settings });
+  } catch (error) {
+    console.error("Get account settings error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
+  }
+},
+
+updateAccountSettings: async (req, res) => {
+  try {
+    const { error, value } = userSchemas.accountSettingsSchema.validate(req.body);
+    if (error) {
+      return res.status(400).json({
+        success: false,
+        message: error.details[0].message,
+      });
+    }
+
+    const currentSettings = await getUserAccountSettings(req.user.id);
+
+    const mergedSettings = {
+      emailNotifications: {
+        ...currentSettings.emailNotifications,
+        ...(value.emailNotifications || {})
+      },
+      privacySettings: {
+        ...currentSettings.privacySettings,
+        ...(value.privacySettings || {})
+      }
+    };
+
+    await saveUserAccountSettings(req.user.id, mergedSettings);
+
+    res.json({
+      success: true,
+      message: "Account settings updated successfully",
+      data: mergedSettings
+    });
+  } catch (error) {
+    console.error("Update account settings error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
     });
   }
 },
@@ -3076,7 +3119,8 @@ updateProfile: async (req, res) => {
       const emailResult = await sendPasswordResetEmail(
         user.email,
         user.username,
-        resetToken
+        resetToken,
+        user.id
       );
 
       if (!emailResult.success) {

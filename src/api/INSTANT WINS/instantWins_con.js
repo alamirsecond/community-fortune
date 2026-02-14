@@ -1,6 +1,7 @@
 import pool from "../../../database.js";
 import { v4 as uuidv4 } from "uuid";
 import instantWinSchemas from "./instantWins_zod.js";
+import { isUserNotificationEnabled } from "../../Utils/userAccountSettings.js";
 
 class InstantWinController {
 
@@ -436,26 +437,33 @@ class InstantWinController {
       win
     );
 
-    // Create notification for user
-  await connection.query(
-    `
-    INSERT INTO notifications (
-      id, user_id, type, title, message, data
-    ) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'INSTANT_WIN', 
-      'Congratulations!', ?, ?)
-    `,
-    [
+    const notifyInstantWin = await isUserNotificationEnabled(
       user_id,
-      `You won ${instantWin.prize_value} ${instantWin.prize_type} in an instant win!`,
-      JSON.stringify({
-        instant_win_id: win.id,
-        prize_name: win.prize_name,
-        prize_value: win.prize_value,
-        prize_type: win.prize_type,
-        ticket_number: win.ticket_number
-      })
-    ]
-  );
+      "instant_win",
+      connection
+    );
+
+    if (notifyInstantWin) {
+      await connection.query(
+        `
+        INSERT INTO notifications (
+          id, user_id, type, title, message, data
+        ) VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'INSTANT_WIN', 
+          'Congratulations!', ?, ?)
+        `,
+        [
+          user_id,
+          `You won ${instantWin.prize_value} ${instantWin.prize_type} in an instant win!`,
+          JSON.stringify({
+            instant_win_id: win.id,
+            prize_name: win.prize_name,
+            prize_value: win.prize_value,
+            prize_type: win.prize_type,
+            ticket_number: win.ticket_number
+          })
+        ]
+      );
+    }
 
    return {
       success: true,
