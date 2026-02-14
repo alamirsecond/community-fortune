@@ -1,6 +1,5 @@
 
 import pool from "../../database.js";
-import pool from "../../database.js";
 
 export const DEFAULT_ACCOUNT_SETTINGS = {
   emailNotifications: {
