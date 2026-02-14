@@ -239,6 +239,53 @@ const generateUniqueTicketNumbers = (count, maxTicket, usedNumbers = new Set()) 
   return selected;
 };
 
+const groupInstantWins = (instantWins = []) => {
+  const grouped = new Map();
+
+  instantWins.forEach((win) => {
+    const key = JSON.stringify({
+      prize_name: win.prize_name || null,
+      prize_value: win.prize_value ?? null,
+      payout_type: win.payout_type || null,
+      image_url: win.image_url || null,
+      prize_type: win.prize_type || null,
+      title: win.title || null
+    });
+
+    if (!grouped.has(key)) {
+      grouped.set(key, {
+        ...win,
+        ticket_numbers: [],
+        claimed_ticket_numbers: []
+      });
+    }
+
+    const entry = grouped.get(key);
+
+    if (Number.isInteger(win.ticket_number)) {
+      if (!entry.ticket_numbers.includes(win.ticket_number)) {
+        entry.ticket_numbers.push(win.ticket_number);
+      }
+
+      if (win.claimed_by && !entry.claimed_ticket_numbers.includes(win.ticket_number)) {
+        entry.claimed_ticket_numbers.push(win.ticket_number);
+      }
+    }
+  });
+
+  return Array.from(grouped.values()).map((win) => {
+    const totalSlots = win.ticket_numbers.length;
+    const claimedSlots = win.claimed_ticket_numbers.length;
+    return {
+      ...win,
+      ticket_numbers: win.ticket_numbers.sort((a, b) => a - b),
+      total_slots: totalSlots,
+      claimed_slots: claimedSlots,
+      remaining_slots: Math.max(0, totalSlots - claimedSlots)
+    };
+  });
+};
+
 export const createCompetition = async (req, res) => {
   try {
     const files = req.files || {};
@@ -330,8 +377,15 @@ export const createCompetition = async (req, res) => {
     }
 
     // Attach uploaded achievement images: align by index, or reuse a single upload for all
-    if (Array.isArray(competitionData.achievements) && files.achievement_images?.length) {
-      const achievementImages = files.achievement_images.map(f => getFileUrl(f.path));
+    const achievementFiles =
+      files.achievement_images?.length
+        ? files.achievement_images
+        : (Array.isArray(competitionData.instant_wins) && competitionData.instant_wins.length > 0)
+          ? []
+          : (files.instant_win_images || []);
+
+    if (Array.isArray(competitionData.achievements) && achievementFiles.length) {
+      const achievementImages = achievementFiles.map(f => getFileUrl(f.path));
 
       competitionData.achievements = competitionData.achievements.map((achievement, index) => ({
         ...achievement,
@@ -589,11 +643,18 @@ export const updateCompetition = async (req, res) => {
     }
 
     // Attach uploaded achievement images by index order (if provided)
-    if (Array.isArray(competitionData.achievements) && files.achievement_images?.length) {
+    const updateAchievementFiles =
+      files.achievement_images?.length
+        ? files.achievement_images
+        : (Array.isArray(competitionData.instant_wins) && competitionData.instant_wins.length > 0)
+          ? []
+          : (files.instant_win_images || []);
+
+    if (Array.isArray(competitionData.achievements) && updateAchievementFiles.length) {
       competitionData.achievements = competitionData.achievements.map((achievement, index) => ({
         ...achievement,
-        image_url: files.achievement_images[index]
-          ? getFileUrl(files.achievement_images[index].path)
+        image_url: updateAchievementFiles[index]
+          ? getFileUrl(updateAchievementFiles[index].path)
           : achievement.image_url
       }));
     }
@@ -928,6 +989,11 @@ export const getCompetitions = async (req, res) => {
       subscription_tier: comp.subscription_tier,
       wheel_type: comp.wheel_type,
       game_type: comp.game_type,
+      game_id: comp.game_id,
+      leaderboard_type: comp.leaderboard_type,
+      game_name: comp.game_name,
+      game_code: comp.game_code,
+      points_per_play: comp.points_per_play,
       progress: {
         sold: comp.sold_tickets,
         total: comp.total_tickets,
@@ -1204,7 +1270,7 @@ export const getCompetitionDetails = async (req, res) => {
       }
     }
 
-    const instantWinsResponse = instantWins;
+    const instantWinsResponse = groupInstantWins(instantWins);
 
     // Get achievements if enabled - FIXED WITH TRY-CATCH
     try {
