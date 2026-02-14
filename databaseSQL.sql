@@ -105,6 +105,25 @@ USE community_fortune;
 );
 
 -- ===========================================
+-- USER ACCOUNT SETTINGS (NOTIFICATIONS + PRIVACY)
+-- ===========================================
+CREATE TABLE IF NOT EXISTS user_account_settings (
+    user_id BINARY(16) PRIMARY KEY,
+    notify_instant_wins BOOLEAN DEFAULT TRUE,
+    notify_new_competitions BOOLEAN DEFAULT TRUE,
+    notify_wins BOOLEAN DEFAULT TRUE,
+    notify_withdrawals BOOLEAN DEFAULT TRUE,
+    newsletter BOOLEAN DEFAULT TRUE,
+    show_my_wins_publicly BOOLEAN DEFAULT TRUE,
+    show_my_profile_publicly BOOLEAN DEFAULT TRUE,
+    show_my_activity_publicly BOOLEAN DEFAULT FALSE,
+    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
+    FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
+    INDEX idx_user_account_settings_user (user_id)
+);
+
+-- ===========================================
 -- EMAIL VERIFICATION TOKENS TABLE - BINARY(16) UUIDs
 -- ===========================================
 CREATE TABLE email_verification_tokens (

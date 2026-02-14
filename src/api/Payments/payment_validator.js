@@ -50,7 +50,6 @@ export const depositValidator = [
     .withMessage('Invalid currency'),
   
   body('payment_method_id')
-    .optional()
     .isLength({ min: 32, max: 36 })
     .withMessage('Invalid payment method ID'),
 ];
@@ -64,6 +63,10 @@ export const withdrawalValidator = [
     .isIn(['PAYPAL', 'BANK_TRANSFER', 'REVOLUT'])
     .withMessage('Invalid withdrawal gateway'),
   
+  body('payment_method_id')
+    .isLength({ min: 32, max: 36 })
+    .withMessage('Invalid payment method ID'),
+
   body('account_details')
     .isObject()
     .withMessage('Account details must be an object'),

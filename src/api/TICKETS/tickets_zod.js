@@ -23,7 +23,8 @@ const purchaseTickets = z.object({
   competition_id: z.string().uuid(),
   quantity: z.number().int().positive().min(1).max(100),
   payment_method: z.enum(['STRIPE', 'PAYPAL', 'REVOLUT', 'WALLET']).optional().default('WALLET'),
-  use_wallet: z.boolean().optional().default(true)
+  use_wallet: z.boolean().optional().default(true),
+  payment_method_id: z.string().uuid().optional().nullable()
 });
 
 export default {

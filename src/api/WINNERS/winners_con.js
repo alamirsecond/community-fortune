@@ -2,6 +2,7 @@ import db from "../../../database.js";
 import winnerSchema from "./winners_zod.js";
 import { v4 as uuidv4 } from "uuid";
 import { z } from "zod";
+import { isUserNotificationEnabled } from "../../Utils/userAccountSettings.js";
 
 // Create a validate function for Zod schemas
 const validate = (schema, data) => {
@@ -1263,6 +1264,16 @@ async function notifyWinners(competition_id, winners) {
 
   // Log notification attempts
   for (const winner of winners) {
+    const notifyWinner = await isUserNotificationEnabled(
+      winner.user_id,
+      "wins",
+      db
+    );
+
+    if (!notifyWinner) {
+      continue;
+    }
+
     await db.query(
       `INSERT INTO notifications (id, user_id, type, title, message, data, created_at)
        VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'WINNER', 'Congratulations!', ?, ?, CURRENT_TIMESTAMP)`,

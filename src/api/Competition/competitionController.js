@@ -2555,6 +2555,7 @@ export const enterCompetition = async (req, res) => {
     const quantity = Number.isInteger(req.body?.quantity) ? req.body.quantity : 1;
     const payment_method = req.body?.payment_method || 'WALLET';
     const use_wallet = req.body?.use_wallet !== undefined ? req.body.use_wallet : true;
+    const payment_method_id = req.body?.payment_method_id || null;
 
     if (!id) {
       return res.status(400).json({ success: false, message: 'Competition ID is required' });
@@ -2586,6 +2587,7 @@ export const enterCompetition = async (req, res) => {
       quantity,
       payment_method,
       use_wallet,
+      payment_method_id,
     });
 
     return res.status(200).json({

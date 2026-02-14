@@ -120,6 +120,21 @@ const userSchemas = {
   rewardClaimSchema: Joi.object({
     rewardId: Joi.string().uuid().required(),
   }),
+
+  accountSettingsSchema: Joi.object({
+    emailNotifications: Joi.object({
+      notifyInstantWins: Joi.boolean().optional(),
+      notifyNewCompetitions: Joi.boolean().optional(),
+      notifyWins: Joi.boolean().optional(),
+      notifyWithdrawals: Joi.boolean().optional(),
+      newsletter: Joi.boolean().optional()
+    }).optional(),
+    privacySettings: Joi.object({
+      showMyWinsPublicly: Joi.boolean().optional(),
+      showMyProfilePublicly: Joi.boolean().optional(),
+      showMyActivityPublicly: Joi.boolean().optional()
+    }).optional()
+  }).min(1),
 };
 
 export default userSchemas;

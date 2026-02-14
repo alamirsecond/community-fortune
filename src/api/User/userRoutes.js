@@ -26,6 +26,8 @@ router.post("/verify-email/confirm", loginLimiter, userController.verifyEmail);
 
 //Protected routes
 router.get("/profile", authenticate(), apiLimiter, userController.getProfile);
+router.get("/account-settings", authenticate(), apiLimiter, userController.getAccountSettings);
+router.put("/account-settings", authenticate(), apiLimiter, userController.updateAccountSettings);
 router.put("/profile",authenticate(),apiLimiter,
   userProfileImageUpload,
   validateUploadedFiles,

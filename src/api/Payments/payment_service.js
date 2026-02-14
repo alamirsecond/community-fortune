@@ -365,6 +365,22 @@ async initGateways() {
       const { amount, gateway, wallet_type, currency = 'GBP', payment_method_id, return_url, cancel_url } = depositData;
       const normalizedGateway = this.ensureGatewayInitialized(gateway);
 
+      if (!payment_method_id) {
+        throw new Error('Payment method is required');
+      }
+
+      if (payment_method_id) {
+        const [methods] = await connection.query(
+          `SELECT id FROM user_payment_methods
+           WHERE id = UUID_TO_BIN(?) AND user_id = UUID_TO_BIN(?) AND is_active = TRUE`,
+          [payment_method_id, userId]
+        );
+
+        if (!methods.length) {
+          throw new Error('Payment method not found for user');
+        }
+      }
+
       const [user] = await connection.query(
         `SELECT email, country FROM users WHERE id = UUID_TO_BIN(?)`,
         [userId]
@@ -626,6 +642,22 @@ async initGateways() {
 
       const { amount, gateway, account_details, payment_method_id } = withdrawalData;
       const normalizedGateway = this.ensureGatewayInitialized(gateway);
+
+      if (!payment_method_id) {
+        throw new Error('Payment method is required');
+      }
+
+      if (payment_method_id) {
+        const [methods] = await connection.query(
+          `SELECT id FROM user_payment_methods
+           WHERE id = UUID_TO_BIN(?) AND user_id = UUID_TO_BIN(?) AND is_active = TRUE`,
+          [payment_method_id, userId]
+        );
+
+        if (!methods.length) {
+          throw new Error('Payment method not found for user');
+        }
+      }
 
       const [wallet] = await connection.query(
         `SELECT balance FROM wallets 
@@ -1952,7 +1984,6 @@ async getWithdrawalDetails(withdrawalId, userId) {
     connection.release();
   }
 }
-
 
  async processWithdrawal(adminId, withdrawalId, transactionReference) {
     const connection = await pool.getConnection();

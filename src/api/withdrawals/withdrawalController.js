@@ -30,10 +30,26 @@ const withdrawalController = {
         });
       }
 
-      const { amount, paymentMethod, accountDetails } = value;
+      const { amount, paymentMethod, accountDetails, payment_method_id } = value;
       const userId = req.user.id;
 
       await connection.beginTransaction();
+
+      if (payment_method_id) {
+        const [methods] = await connection.query(
+          `SELECT id FROM user_payment_methods
+           WHERE id = UUID_TO_BIN(?) AND user_id = UUID_TO_BIN(?) AND is_active = TRUE`,
+          [payment_method_id, userId]
+        );
+
+        if (!methods.length) {
+          await connection.rollback();
+          return res.status(400).json({
+            success: false,
+            message: 'Payment method not found for user'
+          });
+        }
+      }
 
       // CHECK 1: Verify user KYC status (from SQL schema)
       const [users] = await connection.query(
@@ -271,7 +287,8 @@ const withdrawalController = {
           status,
           requested_at,
           updated_at,
-          is_payment_method
+          is_payment_method,
+          payment_method_id
         ) VALUES (
           UUID_TO_BIN(?),
           UUID_TO_BIN(?),
@@ -284,7 +301,8 @@ const withdrawalController = {
           'PENDING',
           CURRENT_TIMESTAMP,
           CURRENT_TIMESTAMP,
-          FALSE
+          FALSE,
+          UUID_TO_BIN(?)
         )`,
         [
           withdrawalId,
@@ -294,7 +312,8 @@ const withdrawalController = {
           JSON.stringify(accountDetails),
           paypalEmail,
           bankAccountLastFour,
-          bankName
+          bankName,
+          payment_method_id || null
         ]
       );
 
@@ -310,10 +329,11 @@ const withdrawalController = {
       // Send confirmation email
       try {
         await sendWithdrawalRequestEmail(
-          user.email, 
-          user.username, 
-          amount, 
-          withdrawalId
+          user.email,
+          user.username,
+          amount,
+          withdrawalId,
+          userId
         );
       } catch (emailError) {
         console.error('Failed to send withdrawal confirmation email:', emailError);
@@ -1180,26 +1200,30 @@ getAllWithdrawals: async (req, res) => {
             await sendWithdrawalApprovalEmail(
               withdrawal.email,
               withdrawal.username,
-              withdrawal.amount
+              withdrawal.amount,
+              withdrawal.userId
             );
           } else if (status === 'REJECTED') {
             await sendWithdrawalRejectionEmail(
               withdrawal.email,
               withdrawal.username,
               withdrawal.amount,
-              reason || 'Please contact support for details'
+              reason || 'Please contact support for details',
+              withdrawal.userId
             );
           } else if (status === 'COMPLETED') {
             await sendWithdrawalCompletionEmail(
               withdrawal.email,
               withdrawal.username,
-              withdrawal.amount
+              withdrawal.amount,
+              withdrawal.userId
             );
           } else if (status === 'PROCESSING') {
             await sendWithdrawalProcessingEmail(
               withdrawal.email,
               withdrawal.username,
-              withdrawal.amount
+              withdrawal.amount,
+              withdrawal.userId
             );
           }
         } catch (emailError) {
@@ -1572,7 +1596,7 @@ getAllWithdrawals: async (req, res) => {
       // Send appropriate email notification
       try {
         if (kycStatus === 'verified') {
-          await emailSender.sendKycApproval(user.email, user.username);
+          await emailSender.sendKycApproval(user.email, user.username, userId);
           
           // Also send subscription perks if user has subscription (PDF Section 5)
           const [subscription] = await pool.query(
@@ -1608,7 +1632,7 @@ getAllWithdrawals: async (req, res) => {
           }
           
         } else if (kycStatus === 'rejected') {
-          await emailSender.sendKycRejection(user.email, user.username);
+          await emailSender.sendKycRejection(user.email, user.username, userId);
         }
       } catch (emailError) {
         console.error('Failed to send KYC status email:', emailError);
