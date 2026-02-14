@@ -64,6 +64,37 @@ class InstantWinController {
         );
       }
 
+      const uniqueNumbers = new Set(winningTicketNumbers);
+      if (uniqueNumbers.size !== winningTicketNumbers.length) {
+        throw new Error("Duplicate ticket numbers found in this instant win request");
+      }
+
+      const requestedSlots = prizes.reduce((sum, prize) => {
+        const count = parseInt(prize.max_winners, 10);
+        return sum + (Number.isInteger(count) && count > 0 ? count : 0);
+      }, 0);
+
+      if (requestedSlots !== winningTicketNumbers.length) {
+        throw new Error(
+          `Total instant win slots (${requestedSlots}) must match ticket numbers count (${winningTicketNumbers.length})`
+        );
+      }
+
+      const [existingCountRows] = await connection.query(
+        `
+        SELECT COUNT(*) as total FROM instant_wins
+        WHERE competition_id = UUID_TO_BIN(?)
+        `,
+        [competition_id]
+      );
+
+      const existingCount = existingCountRows[0]?.total || 0;
+      if (existingCount + winningTicketNumbers.length > comp.total_tickets) {
+        throw new Error(
+          `Instant win allocations (${existingCount + winningTicketNumbers.length}) exceed total tickets (${comp.total_tickets})`
+        );
+      }
+
       const [existingWins] = await connection.query(
         `
         SELECT ticket_number FROM instant_wins 
@@ -129,8 +160,8 @@ class InstantWinController {
           prize.value,
           prize.payout_type || null,
           prize.type,
-          prize.max_winners || 1,
-          prize.current_winners || 0, // ADDED: current_winners
+          1,
+          0,
           prize.probability || 0.00   // ADDED: probability
         ];
 
@@ -220,6 +251,10 @@ class InstantWinController {
         claimed_at,
         user_details,
       } = validationResult.data;
+
+      if (max_winners > 1) {
+        throw new Error("Instant wins are limited to one winner per ticket number");
+      }
 
       // Check if competition exists
       const [competition] = await connection.query(
@@ -459,6 +494,7 @@ class InstantWinController {
           iw.image_url,
           iw.max_winners,
           iw.current_winners,
+          GREATEST(iw.max_winners - iw.current_winners, 0) as remaining_tickets,
           iw.probability,  -- ADDED: probability field
           iw.claimed_at,
           iw.user_details,
@@ -1004,6 +1040,7 @@ class InstantWinController {
           iw.prize_type,
           iw.max_winners,
           iw.current_winners,
+          GREATEST(iw.max_winners - iw.current_winners, 0) as remaining_tickets,
           iw.claimed_at,
           iw.user_details,
           iw.created_at,

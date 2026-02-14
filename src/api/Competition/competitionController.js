@@ -178,6 +178,67 @@ const ensureInstantWinCapacity = (instantWins, totalTickets) => {
   return { valid: true };
 };
 
+const generateUniqueTicketNumbers = (count, maxTicket, usedNumbers = new Set()) => {
+  if (!Number.isInteger(count) || count <= 0) {
+    return [];
+  }
+
+  if (!Number.isInteger(maxTicket) || maxTicket <= 0) {
+    return null;
+  }
+
+  const availableCount = maxTicket - usedNumbers.size;
+  if (count > availableCount) {
+    return null;
+  }
+
+  if (count > availableCount / 2) {
+    const available = [];
+    for (let i = 1; i <= maxTicket; i += 1) {
+      if (!usedNumbers.has(i)) {
+        available.push(i);
+      }
+    }
+
+    for (let i = available.length - 1; i > 0; i -= 1) {
+      const j = Math.floor(Math.random() * (i + 1));
+      [available[i], available[j]] = [available[j], available[i]];
+    }
+
+    return available.slice(0, count);
+  }
+
+  const selected = [];
+  const localUsed = new Set(usedNumbers);
+  let attempts = 0;
+  const maxAttempts = count * 25 + 500;
+
+  while (selected.length < count && attempts < maxAttempts) {
+    const candidate = Math.floor(Math.random() * maxTicket) + 1;
+    if (!localUsed.has(candidate)) {
+      localUsed.add(candidate);
+      selected.push(candidate);
+    }
+    attempts += 1;
+  }
+
+  if (selected.length < count) {
+    const remaining = [];
+    for (let i = 1; i <= maxTicket; i += 1) {
+      if (!localUsed.has(i)) {
+        remaining.push(i);
+      }
+    }
+
+    while (selected.length < count) {
+      const idx = Math.floor(Math.random() * remaining.length);
+      selected.push(remaining.splice(idx, 1)[0]);
+    }
+  }
+
+  return selected;
+};
+
 export const createCompetition = async (req, res) => {
   try {
     const files = req.files || {};
@@ -684,6 +745,63 @@ export const updateCompetition = async (req, res) => {
     }
 
     const updateData = validationResult.data.body;
+
+    const totalTicketsForInstantWins =
+      updateData.total_tickets !== undefined
+        ? updateData.total_tickets
+        : currentCompetition.total_tickets;
+    const instantWinCapacity = ensureInstantWinCapacity(
+      updateData.instant_wins,
+      totalTicketsForInstantWins
+    );
+
+    if (!instantWinCapacity.valid) {
+      if (files) {
+        Object.values(files).forEach(fileArray => {
+          fileArray.forEach(file => {
+            deleteUploadedFiles(file.path);
+          });
+        });
+      }
+
+      return res.status(400).json({
+        success: false,
+        message: 'Instant win validation failed',
+        errors: [
+          {
+            path: 'body.instant_wins',
+            message: instantWinCapacity.message
+          }
+        ]
+      });
+    }
+
+    if (
+      updateData.total_tickets !== undefined &&
+      (!Array.isArray(updateData.instant_wins) || updateData.instant_wins.length === 0)
+    ) {
+      const existingInstantWins = currentCompetition.instant_wins_count || 0;
+      if (updateData.total_tickets < existingInstantWins) {
+        if (files) {
+          Object.values(files).forEach(fileArray => {
+            fileArray.forEach(file => {
+              deleteUploadedFiles(file.path);
+            });
+          });
+        }
+
+        return res.status(400).json({
+          success: false,
+          message: 'Instant win validation failed',
+          errors: [
+            {
+              path: 'body.total_tickets',
+              message: `Total tickets cannot be less than existing instant wins (${existingInstantWins})`
+            }
+          ]
+        });
+      }
+    }
     const updated = await Competition.update(id, updateData);
 
     if (!updated) {
