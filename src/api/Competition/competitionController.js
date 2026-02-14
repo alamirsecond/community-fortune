@@ -377,8 +377,15 @@ export const createCompetition = async (req, res) => {
     }
 
     // Attach uploaded achievement images: align by index, or reuse a single upload for all
-    if (Array.isArray(competitionData.achievements) && files.achievement_images?.length) {
-      const achievementImages = files.achievement_images.map(f => getFileUrl(f.path));
+    const achievementFiles =
+      files.achievement_images?.length
+        ? files.achievement_images
+        : (Array.isArray(competitionData.instant_wins) && competitionData.instant_wins.length > 0)
+          ? []
+          : (files.instant_win_images || []);
+
+    if (Array.isArray(competitionData.achievements) && achievementFiles.length) {
+      const achievementImages = achievementFiles.map(f => getFileUrl(f.path));
 
       competitionData.achievements = competitionData.achievements.map((achievement, index) => ({
         ...achievement,
@@ -636,11 +643,18 @@ export const updateCompetition = async (req, res) => {
     }
 
     // Attach uploaded achievement images by index order (if provided)
-    if (Array.isArray(competitionData.achievements) && files.achievement_images?.length) {
+    const updateAchievementFiles =
+      files.achievement_images?.length
+        ? files.achievement_images
+        : (Array.isArray(competitionData.instant_wins) && competitionData.instant_wins.length > 0)
+          ? []
+          : (files.instant_win_images || []);
+
+    if (Array.isArray(competitionData.achievements) && updateAchievementFiles.length) {
       competitionData.achievements = competitionData.achievements.map((achievement, index) => ({
         ...achievement,
-        image_url: files.achievement_images[index]
-          ? getFileUrl(files.achievement_images[index].path)
+        image_url: updateAchievementFiles[index]
+          ? getFileUrl(updateAchievementFiles[index].path)
           : achievement.image_url
       }));
     }
