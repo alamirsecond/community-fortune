@@ -19,22 +19,42 @@ spinWheelRouter.get("/wheels/active", async (req, res) => {
     const [wheels] = await connection.query(
       `
       SELECT 
-        BIN_TO_UUID(id) as id,
-        wheel_name,
-        wheel_type,
-        wheel_description,
-        min_tier,
-        spins_per_user_period,
-        max_spins_per_period,
-        cooldown_hours,
-        background_image_url,
-        animation_speed_ms,
-        is_active
-      FROM spin_wheels 
-      WHERE is_active = TRUE 
-        AND (min_tier IS NULL OR min_tier <= ? OR ? = 'TIER_3')
+        BIN_TO_UUID(sw.id) as id,
+        sw.wheel_name,
+        sw.wheel_type,
+        sw.wheel_description,
+        sw.min_tier,
+        sw.spins_per_user_period,
+        sw.max_spins_per_period,
+        sw.cooldown_hours,
+        sw.background_image_url,
+        sw.animation_speed_ms,
+        sw.is_active,
+        (
+          SELECT JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'id', BIN_TO_UUID(sws.id),
+              'position', sws.position,
+              'color_hex', sws.color_hex,
+              'prize_name', sws.prize_name,
+              'prize_type', sws.prize_type,
+              'prize_value', sws.prize_value,
+              'probability', sws.probability,
+              'image_url', sws.image_url,
+              'text_color', sws.text_color,
+              'stock', sws.stock,
+              'current_stock', sws.current_stock
+            )
+          )
+          FROM spin_wheel_segments sws
+          WHERE sws.wheel_id = sw.id
+          ORDER BY sws.position
+        ) as segments
+      FROM spin_wheels sw
+      WHERE sw.is_active = TRUE 
+        AND (sw.min_tier IS NULL OR sw.min_tier <= ? OR ? = 'TIER_3')
       ORDER BY 
-        CASE wheel_type
+        CASE sw.wheel_type
           WHEN 'DAILY' THEN 1
           WHEN 'VIP' THEN 2
           WHEN 'SUBSCRIBER_ONLY' THEN 3
@@ -45,9 +65,23 @@ spinWheelRouter.get("/wheels/active", async (req, res) => {
       [tier, tier]
     );
 
+    const wheelsWithSegments = wheels.map((wheel) => {
+      let segments = [];
+      try {
+        segments = JSON.parse(wheel.segments || "[]");
+      } catch (parseError) {
+        console.error("Error parsing wheel segments:", parseError);
+      }
+
+      return {
+        ...wheel,
+        segments,
+      };
+    });
+
     connection.release();
 
-    res.json({ wheels });
+    res.json({ wheels: wheelsWithSegments });
   } catch (error) {
     console.error("Get active wheels error:", error);
     res.status(500).json({
@@ -134,18 +168,38 @@ spinWheelRouter.get("/spin/eligibility", authenticate, async (req, res) => {
     const [wheels] = await connection.query(
       `
       SELECT 
-        BIN_TO_UUID(id) as id,
-        wheel_name,
-        wheel_type,
-        spins_per_user_period,
-        max_spins_per_period,
-        cooldown_hours,
-        min_tier,
-        is_active
-      FROM spin_wheels 
-      WHERE is_active = TRUE
+        BIN_TO_UUID(sw.id) as id,
+        sw.wheel_name,
+        sw.wheel_type,
+        sw.spins_per_user_period,
+        sw.max_spins_per_period,
+        sw.cooldown_hours,
+        sw.min_tier,
+        sw.is_active,
+        (
+          SELECT JSON_ARRAYAGG(
+            JSON_OBJECT(
+              'id', BIN_TO_UUID(sws.id),
+              'position', sws.position,
+              'color_hex', sws.color_hex,
+              'prize_name', sws.prize_name,
+              'prize_type', sws.prize_type,
+              'prize_value', sws.prize_value,
+              'probability', sws.probability,
+              'image_url', sws.image_url,
+              'text_color', sws.text_color,
+              'stock', sws.stock,
+              'current_stock', sws.current_stock
+            )
+          )
+          FROM spin_wheel_segments sws
+          WHERE sws.wheel_id = sw.id
+          ORDER BY sws.position
+        ) as segments
+      FROM spin_wheels sw
+      WHERE sw.is_active = TRUE
       ORDER BY 
-        CASE wheel_type
+        CASE sw.wheel_type
           WHEN 'DAILY' THEN 1
           WHEN 'VIP' THEN 2
           WHEN 'SUBSCRIBER_ONLY' THEN 3
@@ -158,6 +212,12 @@ spinWheelRouter.get("/spin/eligibility", authenticate, async (req, res) => {
     const eligibilityResults = [];
 
     for (const wheel of wheels) {
+      let segments = [];
+      try {
+        segments = JSON.parse(wheel.segments || "[]");
+      } catch (parseError) {
+        console.error("Error parsing wheel segments:", parseError);
+      }
       // Check user tier if required
       let tierValid = true;
       if (wheel.min_tier) {
@@ -198,6 +258,7 @@ spinWheelRouter.get("/spin/eligibility", authenticate, async (req, res) => {
           reason: `Minimum tier ${wheel.min_tier} required`,
           remaining_spins: 0,
           max_spins: wheel.max_spins_per_period,
+          segments,
         });
         continue;
       }
@@ -266,6 +327,7 @@ spinWheelRouter.get("/spin/eligibility", authenticate, async (req, res) => {
         cooldown_hours: wheel.cooldown_hours,
         next_available: nextAvailable,
         last_spin: lastSpinResult[0]?.last_spin || null,
+        segments,
       });
     }
 
@@ -295,7 +357,7 @@ spinWheelRouter.post(
 
 spinWheelRouter.get(
   "/admin/get_all_wheels",
-  authenticate(["ADMIN","SUPERADMIN"]),
+  authenticate(["ADMIN","SUPERADMIN","USER"]),
   SpinWheelController.listWheels
 );
 
