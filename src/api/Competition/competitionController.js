@@ -1054,6 +1054,121 @@ export const getCompetitions = async (req, res) => {
   }
 };
 
+export const getUserCompetitions = async (req, res) => {
+  try {
+    const rawLimit = req.query.limit;
+    const limitIsAll = typeof rawLimit === 'string' && rawLimit.toUpperCase() === 'ALL';
+    const limit = limitIsAll ? null : (parseInt(rawLimit) || 20);
+    const page = limitIsAll ? 1 : (parseInt(req.query.page) || 1);
+
+    const hasStatusParam = req.query.status !== undefined;
+    const normalizedStatus = hasStatusParam ? String(req.query.status).toUpperCase() : undefined;
+    const statusFilter = hasStatusParam
+      ? (normalizedStatus === 'ALL' ? undefined : normalizedStatus)
+      : undefined;
+
+    const isFreeParam = req.query.is_free;
+    let isFreeFilter;
+    if (isFreeParam === 'true' || isFreeParam === true) {
+      isFreeFilter = true;
+    } else if (isFreeParam === 'false' || isFreeParam === false) {
+      isFreeFilter = false;
+    } else if (req.query.free_only) {
+      isFreeFilter = true;
+    }
+
+    const filters = {
+      status: statusFilter,
+      category: req.query.category,
+      competition_type: req.query.type ? String(req.query.type).toUpperCase() : undefined,
+      is_free: isFreeFilter,
+      min_price: req.query.min_price,
+      max_price: req.query.max_price,
+      search: req.query.search,
+      limit,
+      page,
+      sort_by: req.query.sort_by || 'created_at',
+      sort_order: req.query.sort_order || 'desc',
+      user_id: req.user.id,
+      only_entered_by_user: true
+    };
+
+    if (req.user.role !== 'ADMIN' && req.user.role !== 'SUPERADMIN') {
+      filters.exclude_inaccessible_subscription = true;
+    }
+
+    const { competitions, total, totalPages } = await Competition.findCompetitions(filters);
+
+    const formattedCompetitions = competitions.map(comp => ({
+      id: comp.id,
+      title: comp.title,
+      description: comp.description,
+      featured_image: comp.featured_image,
+      featured_video: comp.featured_video,
+      price: comp.price,
+      total_tickets: comp.total_tickets,
+      sold_tickets: comp.sold_tickets,
+      category: comp.category,
+      type: comp.type,
+      is_free_competition: comp.is_free_competition,
+      competition_type: comp.competition_type,
+      subscription_tier: comp.subscription_tier,
+      wheel_type: comp.wheel_type,
+      game_type: comp.game_type,
+      game_id: comp.game_id,
+      leaderboard_type: comp.leaderboard_type,
+      game_name: comp.game_name,
+      game_code: comp.game_code,
+      points_per_play: comp.points_per_play,
+      progress: {
+        sold: comp.sold_tickets,
+        total: comp.total_tickets,
+        percentage: comp.total_tickets > 0 ? Math.round((comp.sold_tickets / comp.total_tickets) * 100) : 0
+      },
+      countdown: comp.countdown_seconds > 0 ? comp.countdown_seconds : null,
+      status: comp.status,
+      start_date: comp.start_date,
+      end_date: comp.end_date,
+      tags: getCompetitionTags(comp),
+      features: getCompetitionFeatures(comp),
+      has_instant_wins: (comp.instant_wins_count || 0) > 0,
+      instant_wins_summary: (comp.instant_wins_count || 0) > 0 ? {
+        total: comp.instant_wins_count || 0,
+        claimed: comp.instant_wins_claimed_count || 0,
+        remaining: Math.max(0, (comp.instant_wins_count || 0) - (comp.instant_wins_claimed_count || 0))
+      } : null,
+      rules_and_restrictions: comp.rules_and_restrictions || [],
+      eligibility: comp.user_eligibility || null,
+      stats: {
+        entries: comp.total_entries || 0,
+        participants: comp.unique_participants || 0,
+        instant_wins_available: comp.instant_wins_count || 0
+      }
+    }));
+
+    res.json({
+      success: true,
+      data: {
+        competitions: formattedCompetitions,
+        pagination: {
+          total,
+          page: filters.page,
+          total_pages: totalPages,
+          limit: filters.limit
+        },
+        filters
+      }
+    });
+  } catch (error) {
+    console.error('Get user competitions error:', error);
+    res.status(500).json({
+      success: false,
+      message: 'Failed to fetch user competitions',
+      error: process.env.NODE_ENV === 'development' ? error.message : undefined
+    });
+  }
+};
+
 // ==================== COMPETITION PRESET ROUTES ====================
 export const getAllCompetitions = (req, res) => {
   req.query.status = 'ALL';

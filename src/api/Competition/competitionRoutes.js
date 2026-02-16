@@ -38,6 +38,7 @@ import {
   getCompetitionTypes,
   getCompetitionTemplates,
   getCompetitionStatsDashboard,
+  getUserCompetitions,
   deleteCompetition
 } from './competitionController.js';
 import authenticate from '../../../middleware/auth.js';
@@ -62,6 +63,7 @@ router.get('/paid', getPaidCompetitions);
 router.get('/jackpot', getJackpotCompetitions);
 router.get('/types', getCompetitionTypes);
 router.get('/templates', getCompetitionTemplates);
+router.get('/my', authenticate(), getUserCompetitions);
 router.get('/:id', getCompetitionDetails);
 router.get('/:id/stats', getCompetitionStats);
 router.get('/:id/leaderboard', getCompetitionLeaderboard);
