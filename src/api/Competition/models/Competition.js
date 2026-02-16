@@ -323,6 +323,13 @@ static async getCompetitionStatsDashboard() {
       ELSE c.status
     END`;
 
+    const userSelect = filters.user_id
+      ? `,
+        (SELECT COUNT(*) FROM competition_entries ce WHERE ce.competition_id = c.id AND ce.user_id = UUID_TO_BIN(?)) as user_entries,
+        (SELECT MAX(entry_date) FROM competition_entries ce WHERE ce.competition_id = c.id AND ce.user_id = UUID_TO_BIN(?)) as last_entry_date
+      `
+      : '';
+
     let query = `
       SELECT 
         BIN_TO_UUID(c.id) as id,
@@ -340,11 +347,15 @@ static async getCompetitionStatsDashboard() {
         TIMESTAMPDIFF(SECOND, NOW(), c.end_date) as countdown_seconds,
         (SELECT COUNT(*) FROM competition_entries ce WHERE ce.competition_id = c.id) as total_entries,
         (SELECT COUNT(DISTINCT user_id) FROM competition_entries ce WHERE ce.competition_id = c.id) as unique_participants
+        ${userSelect}
       FROM competitions c
       WHERE 1=1
     `;
     
     const params = [];
+    if (filters.user_id) {
+      params.push(filters.user_id, filters.user_id);
+    }
     const hasLimit = Number.isInteger(filters.limit) && filters.limit > 0;
     const offset = hasLimit ? (filters.page - 1) * filters.limit : null;
     
@@ -384,6 +395,15 @@ static async getCompetitionStatsDashboard() {
       const searchTerm = `%${filters.search}%`;
       params.push(searchTerm, searchTerm);
     }
+
+    if (filters.only_entered_by_user && filters.user_id) {
+      query += ` AND EXISTS (
+        SELECT 1 FROM competition_entries ce
+        WHERE ce.competition_id = c.id
+          AND ce.user_id = UUID_TO_BIN(?)
+      )`;
+      params.push(filters.user_id);
+    }
     
     if (filters.user_id) {
       // Exclude subscription competitions user cannot access
@@ -405,19 +425,6 @@ static async getCompetitionStatsDashboard() {
         )`;
         params.push(filters.user_id);
       }
-      
-      // Add user eligibility info
-      query += `
-        LEFT JOIN LATERAL (
-          SELECT 
-            COUNT(*) as user_entries,
-            MAX(entry_date) as last_entry_date
-          FROM competition_entries 
-          WHERE competition_id = c.id 
-          AND user_id = UUID_TO_BIN(?)
-        ) as user_info ON 1=1
-      `;
-      params.push(filters.user_id);
     }
     
     // Get total count for pagination
