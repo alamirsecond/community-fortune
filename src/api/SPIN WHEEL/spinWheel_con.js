@@ -859,6 +859,26 @@ class SpinWheelController {
           sw.created_at,
           COUNT(sws.id) as segment_count,
           (
+            SELECT JSON_ARRAYAGG(
+              JSON_OBJECT(
+                'id', BIN_TO_UUID(sws2.id),
+                'position', sws2.position,
+                'color_hex', sws2.color_hex,
+                'prize_name', sws2.prize_name,
+                'prize_type', sws2.prize_type,
+                'prize_value', sws2.prize_value,
+                'probability', sws2.probability,
+                'image_url', sws2.image_url,
+                'text_color', sws2.text_color,
+                'stock', sws2.stock,
+                'current_stock', sws2.current_stock
+              )
+            )
+            FROM spin_wheel_segments sws2
+            WHERE sws2.wheel_id = sw.id
+            ORDER BY sws2.position
+          ) as segments,
+          (
             SELECT COUNT(*) 
             FROM spin_history sh 
             WHERE sh.wheel_id = sw.id
@@ -883,8 +903,22 @@ class SpinWheelController {
         params
       );
 
+      const wheelsWithSegments = wheels.map((wheel) => {
+        let segments = [];
+        try {
+          segments = JSON.parse(wheel.segments || "[]");
+        } catch (parseError) {
+          console.error("Error parsing wheel segments:", parseError);
+        }
+
+        return {
+          ...wheel,
+          segments,
+        };
+      });
+
       res.json({
-        wheels,
+        wheels: wheelsWithSegments,
         pagination: {
           page: parseInt(page),
           limit: parseInt(limit),
