@@ -1424,6 +1424,10 @@ export const getCompetitionDetails = async (req, res) => {
       console.error('❌ Gallery images error:', galleryError);
     }
 
+    if (galleryImages.length === 0 && Array.isArray(competition.gallery_images)) {
+      galleryImages = competition.gallery_images;
+    }
+
     // Get documents if any
     let documents = [];
     try {

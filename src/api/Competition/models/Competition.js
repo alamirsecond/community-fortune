@@ -12,11 +12,39 @@ class Competition {
       try {
         return JSON.parse(value);
       } catch (error) {
-        return fallback;
+        return value;
       }
     }
 
     return value;
+  }
+
+  static normalizeGalleryImages(value) {
+    if (!value) {
+      return [];
+    }
+
+    if (Array.isArray(value)) {
+      return value;
+    }
+
+    if (typeof value === 'string') {
+      const trimmed = value.trim();
+      if (!trimmed) {
+        return [];
+      }
+
+      if (trimmed.includes(',')) {
+        return trimmed
+          .split(',')
+          .map((entry) => entry.trim())
+          .filter(Boolean);
+      }
+
+      return [trimmed];
+    }
+
+    return [];
   }
   
   static async create(competitionData) {
@@ -307,8 +335,13 @@ static async getCompetitionStatsDashboard() {
       return null;
     }
 
-    competition.gallery_images = this.parseJSONField(competition.gallery_images, []);
+    competition.gallery_images = this.normalizeGalleryImages(
+      this.parseJSONField(competition.gallery_images, [])
+    );
     competition.rules_and_restrictions = this.parseJSONField(competition.rules_and_restrictions, []);
+    if (!Array.isArray(competition.rules_and_restrictions)) {
+      competition.rules_and_restrictions = [];
+    }
 
     return competition;
   }
@@ -443,14 +476,14 @@ static async getCompetitionStatsDashboard() {
     const [rows] = await pool.query(query, params);
 
     rows.forEach(row => {
-      row.gallery_images = this.parseJSONField(row.gallery_images, []);
+      row.gallery_images = this.normalizeGalleryImages(
+        this.parseJSONField(row.gallery_images, [])
+      );
       row.rules_and_restrictions = this.parseJSONField(row.rules_and_restrictions, []);
+      if (!Array.isArray(row.rules_and_restrictions)) {
+        row.rules_and_restrictions = [];
+      }
     });
-
-    for (const row of rows) {
-      row.gallery_images = this.parseJSONField(row.gallery_images, []);
-      row.rules_and_restrictions = this.parseJSONField(row.rules_and_restrictions, []);
-    }
 
     // Add user eligibility to each row
     if (filters.user_id) {
