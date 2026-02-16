@@ -1324,7 +1324,7 @@ class InstantWinController {
       );
       const offset = (page - 1) * limit;
 
-      const where = ["c.category = 'INSTANT_WIN'"];
+      const where = [];
       const params = [];
 
       if (status && status !== "ALL") {
@@ -1689,7 +1689,7 @@ class InstantWinController {
       );
       const monthOnly = String(req.query.month_only || "true") !== "false";
 
-      // Entries over time (tickets for INSTANT_WIN competitions)
+      // Entries over time (tickets for competitions that have instant wins)
       const [dailyEntries] = await connection.query(
         `
         SELECT
@@ -1697,8 +1697,11 @@ class InstantWinController {
         COUNT(*) AS entries
         FROM tickets t
         JOIN competitions c ON t.competition_id = c.id
-        WHERE c.category = 'INSTANT_WIN'
-        AND t.is_instant_win = TRUE
+        WHERE t.is_instant_win = TRUE
+        AND EXISTS (
+          SELECT 1 FROM instant_wins iw
+          WHERE iw.competition_id = t.competition_id
+        )
         AND t.created_at >= DATE_SUB(CURDATE(), INTERVAL ? DAY)
         GROUP BY day
         ORDER BY day ASC;
@@ -1718,7 +1721,10 @@ class InstantWinController {
           COUNT(t.id) AS entries
         FROM competitions c
         LEFT JOIN tickets t ON t.competition_id = c.id ${dateFilter}
-        WHERE c.category = 'INSTANT_WIN'
+        WHERE EXISTS (
+          SELECT 1 FROM instant_wins iw
+          WHERE iw.competition_id = c.id
+        )
         GROUP BY c.id
         ORDER BY entries DESC
         LIMIT 8
