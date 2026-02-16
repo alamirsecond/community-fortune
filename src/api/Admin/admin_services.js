@@ -1741,8 +1741,8 @@ updateVerificationStatus: async (
     const [stats] = await pool.query(`
       SELECT 
         (SELECT COUNT(*) FROM verifications WHERE status = 'PENDING') as pending_review,
-        (SELECT COUNT(*) FROM verifications WHERE status = 'APPROVED' AND DATE(verified_at) = CURDATE()) as approved_today,
-        (SELECT COUNT(*) FROM verifications WHERE status = 'REJECTED' AND DATE(verified_at) = CURDATE()) as rejected_today,
+        (SELECT COUNT(*) FROM verifications WHERE status = 'APPROVED') as approved_today,
+        (SELECT COUNT(*) FROM verifications WHERE status = 'REJECTED') as rejected_today,
         (SELECT COUNT(*) FROM verifications WHERE status = 'APPROVED') as total_verified,
         (SELECT COUNT(DISTINCT user_id) FROM verifications WHERE status = 'APPROVED') as unique_verified_users,
         (SELECT AVG(TIMESTAMPDIFF(HOUR, created_at, verified_at)) FROM verifications WHERE status = 'APPROVED') as avg_verification_time_hours
