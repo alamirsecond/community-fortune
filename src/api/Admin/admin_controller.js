@@ -847,8 +847,8 @@ getUserStats: async (req, res) => {
       const [stats] = await pool.query(`
         SELECT 
           (SELECT COUNT(*) FROM verifications WHERE status = 'PENDING') as pending_review,
-          (SELECT COUNT(*) FROM verifications WHERE status = 'APPROVED' AND DATE(verified_at) = CURDATE()) as approved_today,
-          (SELECT COUNT(*) FROM verifications WHERE status = 'REJECTED' AND DATE(verified_at) = CURDATE()) as rejected_today,
+          (SELECT COUNT(*) FROM verifications WHERE status = 'APPROVED') as approved_today,
+          (SELECT COUNT(*) FROM verifications WHERE status = 'REJECTED') as rejected_today,
           (SELECT COUNT(*) FROM verifications WHERE status = 'APPROVED') as total_verified
         FROM DUAL
       `);
