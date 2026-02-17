@@ -369,7 +369,7 @@ spinWheelRouter.get(
 
 spinWheelRouter.put(
   "/admin/update_wheels/:wheel_id",
-  authenticate(["ADMIN"]),
+  authenticate(["ADMIN","SUPERADMIN"]),
   spinWheelBackgroundUpload,
   validateUploadedFiles,
   handleUploadError,
