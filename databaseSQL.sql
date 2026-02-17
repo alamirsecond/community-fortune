@@ -207,7 +207,7 @@ CREATE TABLE wallets (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_wallets_user_id (user_id)
 );
-
+ALTER TABLE wallets MODIFY COLUMN type ENUM('CASH', 'CREDIT', 'POINTS', 'SITE_CREDIT') NOT NULL;
 CREATE TABLE wallet_transactions (
     id BINARY(16) PRIMARY KEY,
     wallet_id BINARY(16),
@@ -372,6 +372,7 @@ CREATE TABLE competition_entries (
     competition_id BINARY(16) NOT NULL,
     user_id BINARY(16),
     entry_type ENUM('PAID_TICKET', 'FREE_ENTRY', 'PAID_ENTRY') NOT NULL,
+    purchase_id BINARY(16) NULL,
     skill_question_answered BOOLEAN DEFAULT FALSE,
     skill_question_correct BOOLEAN DEFAULT FALSE,
     postal_entry_received BOOLEAN DEFAULT FALSE,
@@ -394,7 +395,7 @@ CREATE TABLE purchases (
     user_id BINARY(16),
     competition_id BINARY(16),
     status ENUM('PENDING', 'PAID', 'FAILED', 'CANCELLED') DEFAULT 'PENDING',
-    payment_method ENUM('CASH_WALLET', 'CREDIT_WALLET', 'MIXED', 'CASHFLOWS', 'MASTERCARD', 'VISA'),
+    payment_method ENUM('CASH_WALLET', 'CREDIT_WALLET', 'MIXED', 'CASHFLOWS', 'MASTERCARD', 'VISA','WALLET'),
     total_amount DECIMAL(12,2),
     site_credit_used DECIMAL(12,2),
     cash_wallet_used DECIMAL(12,2),
@@ -406,7 +407,9 @@ CREATE TABLE purchases (
     INDEX idx_purchases_user_id (user_id),
     INDEX idx_purchases_status (status)
 );
-
+ALTER TABLE purchases ADD COLUMN ticket_type VARCHAR(20) DEFAULT 'COMPETITION';
+ALTER TABLE purchases ADD COLUMN quantity INT DEFAULT 1;
+ALTER TABLE purchases ADD COLUMN external_payment DECIMAL(12,2) DEFAULT 0;
 -- ===========================================
 -- CREDIT PURCHASES
 -- ===========================================
@@ -469,7 +472,10 @@ CREATE TABLE tickets (
     FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
     INDEX idx_user_competition (user_id, competition_id)
 );
-
+ALTER TABLE tickets
+  ADD COLUMN status VARCHAR(50) DEFAULT 'ACTIVE',
+  ADD COLUMN price_paid DECIMAL(12,2) DEFAULT 0,
+  ADD COLUMN generated_at DATETIME DEFAULT CURRENT_TIMESTAMP;
 -- ===========================================
 -- INSTANT WINS - BINARY(16) UUIDs
 -- ===========================================

@@ -1,6 +1,7 @@
 import systemSettingsCache from "../src/Utils/systemSettingsCache.js";
 
 const maintenanceGuard = async (req, res, next) => {
+  console.log(`[MNT] maintenanceGuard: ${req.method} ${req.originalUrl}`);
   try {
     if (req.headers.authorization) {
       return next();

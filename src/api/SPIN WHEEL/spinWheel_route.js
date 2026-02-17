@@ -95,7 +95,7 @@ spinWheelRouter.get("/wheels/active", async (req, res) => {
 });
 
 // User routes (require authentication)
-spinWheelRouter.post("/spin", authenticate, SpinWheelController.spin);
+spinWheelRouter.post("/spin", authenticate(["USER"]), SpinWheelController.spin);
 
 spinWheelRouter.get(
   "/spin/history",
@@ -104,7 +104,7 @@ spinWheelRouter.get(
 );
 
 // Get user spin statistics
-spinWheelRouter.get("/spin/statistics", authenticate, async (req, res) => {
+spinWheelRouter.get("/spin/statistics", authenticate(), async (req, res) => {
   const connection = await pool.getConnection();
 
   try {
