@@ -50,6 +50,13 @@ Body:
   "name": "Daily Wheel",
   "type": "DAILY",
   "description": "Daily free spins",
+  "rules": [
+    {
+      "title": "Rule 1",
+      "description": "Must be 18+"
+    }
+  ],
+  "ticket_price": 0,
   "min_tier": "FREE",
   "spins_per_user_period": "DAILY",
   "max_spins_per_period": 1,
@@ -71,6 +78,26 @@ Headers: `Authorization: Bearer {{adminToken}}`
 Endpoint: `{{baseUrl}}/api/spinWheel/admin/get_wheels_byId/{{wheelId}}`
 Method: GET
 Headers: `Authorization: Bearer {{adminToken}}`
+Response:
+
+```json
+{
+  "wheel": {
+    "id": "...",
+    "wheel_name": "Daily Wheel",
+    "ticket_price": 10.00,
+    "rules": [{"title": "Rule 1", "description": "..."}]
+    ...
+  },
+  "segments": [...],
+  "statistics": { ... },
+  "user_statistics": {
+      "user_total_spins": 5,
+      "user_last_spin": "2024-03-20T10:00:00Z",
+      "user_total_winnings": 50.00
+  }
+}
+```
 
 ### (Admin) Update wheel
 

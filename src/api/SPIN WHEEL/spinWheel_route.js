@@ -23,6 +23,8 @@ spinWheelRouter.get("/wheels/active", async (req, res) => {
         sw.wheel_name,
         sw.wheel_type,
         sw.wheel_description,
+        sw.rules,
+        sw.ticket_price,
         sw.min_tier,
         sw.spins_per_user_period,
         sw.max_spins_per_period,
@@ -75,6 +77,7 @@ spinWheelRouter.get("/wheels/active", async (req, res) => {
 
       return {
         ...wheel,
+        rules: typeof wheel.rules === 'string' ? JSON.parse(wheel.rules || '[]') : (wheel.rules || []),
         segments,
       };
     });
@@ -92,7 +95,7 @@ spinWheelRouter.get("/wheels/active", async (req, res) => {
 });
 
 // User routes (require authentication)
-spinWheelRouter.post("/spin", authenticate, SpinWheelController.spin);
+spinWheelRouter.post("/spin", authenticate(["USER"]), SpinWheelController.spin);
 
 spinWheelRouter.get(
   "/spin/history",
@@ -101,7 +104,7 @@ spinWheelRouter.get(
 );
 
 // Get user spin statistics
-spinWheelRouter.get("/spin/statistics", authenticate, async (req, res) => {
+spinWheelRouter.get("/spin/statistics", authenticate(), async (req, res) => {
   const connection = await pool.getConnection();
 
   try {
@@ -348,7 +351,7 @@ spinWheelRouter.get("/spin/eligibility", authenticate, async (req, res) => {
 // Admin routes
 spinWheelRouter.post(
   "/admin/create_wheels",
-  authenticate(["ADMIN","SUPERADMIN"]),
+  authenticate(["ADMIN", "SUPERADMIN"]),
   spinWheelBackgroundUpload,
   validateUploadedFiles,
   handleUploadError,
@@ -357,19 +360,19 @@ spinWheelRouter.post(
 
 spinWheelRouter.get(
   "/admin/get_all_wheels",
-  authenticate(["ADMIN","SUPERADMIN","USER"]),
+  authenticate(["ADMIN", "SUPERADMIN", "USER"]),
   SpinWheelController.listWheels
 );
 
 spinWheelRouter.get(
   "/admin/get_wheels_byId/:wheel_id",
-  authenticate(["ADMIN","SUPERADMIN","USER"]),
+  authenticate(["ADMIN", "SUPERADMIN", "USER"]),
   SpinWheelController.getWheel
 );
 
 spinWheelRouter.put(
   "/admin/update_wheels/:wheel_id",
-  authenticate(["ADMIN","SUPERADMIN"]),
+  authenticate(["ADMIN", "SUPERADMIN"]),
   spinWheelBackgroundUpload,
   validateUploadedFiles,
   handleUploadError,
@@ -378,14 +381,14 @@ spinWheelRouter.put(
 
 spinWheelRouter.post(
   "/admin/wheels/add_segments",
-  authenticate(["ADMIN","SUPERADMIN"]),
+  authenticate(["ADMIN", "SUPERADMIN"]),
   SpinWheelController.addSegments
 );
 
 // Admin analytics
 spinWheelRouter.get(
   "/admin/wheels/:wheel_id/analytics",
-  authenticate(["ADMIN","SUPERADMIN"]),
+  authenticate(["ADMIN", "SUPERADMIN"]),
   async (req, res) => {
     const connection = await pool.getConnection();
 
@@ -501,9 +504,9 @@ spinWheelRouter.get(
         unique_users:
           analytics.length > 0
             ? analytics.reduce(
-                (max, a) => Math.max(max, a.daily_unique_users),
-                0
-              )
+              (max, a) => Math.max(max, a.daily_unique_users),
+              0
+            )
             : 0,
         total_prize_value: analytics.reduce(
           (sum, a) => sum + (a.total_prize_value || 0),
@@ -512,9 +515,9 @@ spinWheelRouter.get(
         win_rate:
           totalSpins > 0
             ? (
-                (analytics.reduce((sum, a) => sum + a.wins, 0) / totalSpins) *
-                100
-              ).toFixed(2)
+              (analytics.reduce((sum, a) => sum + a.wins, 0) / totalSpins) *
+              100
+            ).toFixed(2)
             : "0.00",
       };
 
@@ -541,7 +544,7 @@ spinWheelRouter.get(
 // Admin: Export spin history
 spinWheelRouter.get(
   "/admin/wheels/:wheel_id/export",
-  authenticate(["ADMIN","SUPERADMIN"]),
+  authenticate(["ADMIN", "SUPERADMIN"]),
   async (req, res) => {
     const connection = await pool.getConnection();
 
@@ -602,8 +605,7 @@ spinWheelRouter.get(
         const csvData = convertToCSV(formattedHistory);
         res.header("Content-Type", "text/csv");
         res.attachment(
-          `wheel_${wheel_id}_history_${
-            new Date().toISOString().split("T")[0]
+          `wheel_${wheel_id}_history_${new Date().toISOString().split("T")[0]
           }.csv`
         );
         res.send(csvData);

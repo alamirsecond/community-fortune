@@ -115,6 +115,12 @@ app.use((req, res, next) => {
   next();
 });
 
+// Top-level request logger
+app.use((req, res, next) => {
+  console.log(`[REQ] ${req.method} ${req.originalUrl} at ${new Date().toISOString()}`);
+  next();
+});
+
 // Body parsing
 app.use(
   express.json({

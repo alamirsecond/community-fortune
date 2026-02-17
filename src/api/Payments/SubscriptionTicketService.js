@@ -520,15 +520,19 @@ class SubscriptionTicketService {
         );
       }
 
-      const [purchase] = await connection.query(
+      // Generate a UUID for the purchase in JS
+      const { v4: uuidv4 } = await import('uuid');
+      const purchaseUuid = uuidv4();
+
+      await connection.query(
         `INSERT INTO purchases 
          (id, user_id, competition_id, ticket_type, quantity, total_amount,
           site_credit_used, cash_wallet_used, external_payment, payment_method,
           gateway_reference, payment_id, status)
-         VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), UUID_TO_BIN(?), 'COMPETITION', ?, ?, 
-                 ?, ?, ?, ?, ?, UUID_TO_BIN(?), 'COMPLETED')`,
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), UUID_TO_BIN(?), 'COMPETITION', ?, ?, 
+                 ?, ?, ?, ?, ?, UUID_TO_BIN(?), 'PAID')`,
         [
-          userId, competition_id, quantity, totalAmount,
+          purchaseUuid, userId, competition_id, quantity, totalAmount,
           walletUsed, 0,
           externalPayment, paymentMethodUsed,
           paymentResult?.reference || null,
@@ -536,7 +540,7 @@ class SubscriptionTicketService {
         ]
       );
 
-      const purchaseId = purchase.insertId;
+      const purchaseId = purchaseUuid;
 
       const tickets = [];
       const ticketNumbers = [];

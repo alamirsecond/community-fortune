@@ -19,6 +19,11 @@ const normalizeWheelBody = (body) => ({
   name: body.name,
   type: body.type,
   description: body.description,
+  rules: body.rules,
+  ticket_price:
+    body.ticket_price !== undefined
+      ? parseFloat(body.ticket_price)
+      : undefined,
   min_tier: body.min_tier,
   spins_per_user_period: body.spins_per_user_period,
   max_spins_per_period: safeParseInt(body.max_spins_per_period),
@@ -30,37 +35,46 @@ const normalizeWheelBody = (body) => ({
 
 class SpinWheelController {
   static async spin(req, res) {
-    const connection = await pool.getConnection();
+    console.log("Spin request received - Body:", req.body);
+    let connection;
+    try {
+      console.log("Attempting to get connection from pool...");
+      connection = await pool.getConnection();
+      console.log("Connection acquired. ID:", connection.threadId);
+    } catch (err) {
+      console.error("Failed to get connection:", err);
+      return res.status(500).json({ error: "Database connection failed" });
+    }
 
     try {
+      console.log("Starting transaction...");
       await connection.beginTransaction();
 
       const validationResult = spinWheelSchemas.spinRequest.safeParse(req.body);
       if (!validationResult.success) {
+        console.log("Validation failed:", validationResult.error.errors);
+        await connection.rollback(); // Ensure rollback on early return
         return res.status(400).json({
           error: "Invalid request data",
           details: validationResult.error.errors,
         });
       }
 
+      console.log("Validation passed. User:", req.user?.id);
       const { wheel_id, competition_id } = validationResult.data;
       const user_id = req.user.id;
-      // const user_id = "66666666-7777-8888-9999-000000000000";
 
+      console.log("Checking eligibility for wheel:", wheel_id);
       const eligibility = await checkSpinEligibility(
         connection,
         user_id,
         wheel_id
       );
-      console.log(
-        "SpinService methods available:",
-        Object.getOwnPropertyNames(SpinService)
-      );
-      console.log(
-        "isLevelSufficient exists:",
-        typeof SpinService.isLevelSufficient
-      );
+      console.log("Eligibility result:", eligibility);
+
       if (!eligibility.allowed) {
+        console.log("User not eligible");
+        await connection.rollback();
         return res.status(403).json({
           error: "Not eligible to spin",
           details: eligibility.reason,
@@ -69,6 +83,7 @@ class SpinWheelController {
       }
 
       // 2. Get wheel with segments using UUID functions
+      console.log("Fetching wheel and segments with FOR UPDATE...");
       const [wheels] = await connection.query(
         `
       SELECT 
@@ -103,6 +118,7 @@ class SpinWheelController {
       `,
         [wheel_id]
       );
+      console.log("Wheel query returned. Found:", wheels?.length);
 
       if (!wheels || wheels.length === 0) {
         await connection.rollback();
@@ -139,9 +155,11 @@ class SpinWheelController {
       }
 
       // 3. Select winning segment with weighted probability
+      console.log("Selecting winning segment...");
       let selectedSegment = await SpinWheelController.selectWinningSegment(
         segments
       );
+      console.log("Selected segment:", selectedSegment?.prize_name);
 
       if (!selectedSegment) {
         await connection.rollback();
@@ -152,12 +170,12 @@ class SpinWheelController {
       }
 
       // 4. Check stock availability for limited prizes
-      // FIXED: Changed comparison from >= to <= or >= based on your logic
       if (
         selectedSegment.stock !== null &&
         selectedSegment.current_stock !== null &&
         selectedSegment.current_stock >= selectedSegment.stock
       ) {
+        console.log("Segment out of stock, looking for alternative...");
         // Out of stock - award alternative prize
         const alternativeSegment =
           await SpinWheelController.getAlternativeSegment(segments);
@@ -169,6 +187,7 @@ class SpinWheelController {
           });
         }
         selectedSegment = alternativeSegment;
+        console.log("Alternative selected:", selectedSegment.prize_name);
       }
 
       // 5. Validate selectedSegment has an id
@@ -181,6 +200,7 @@ class SpinWheelController {
       }
 
       // 6. Record spin history
+      console.log("Recording spin history...");
       const spinHistoryId = crypto.randomUUID();
       await connection.query(
         `
@@ -208,6 +228,7 @@ class SpinWheelController {
 
       // 7. Update stock if limited
       if (selectedSegment.stock !== null && selectedSegment.id) {
+        console.log("Updating stock...");
         await connection.query(
           `
         UPDATE spin_wheel_segments 
@@ -219,9 +240,11 @@ class SpinWheelController {
       }
 
       // 8. Update spin count for user (if needed - handled by eligibility service)
+      console.log("Updating spin count...");
       await updateSpinCount(connection, user_id, wheel_id);
 
       // 9. Award prize
+      console.log("Awarding prize...");
       const prizeAwarded = await SpinWheelController.awardPrize(
         connection,
         user_id,
@@ -229,6 +252,7 @@ class SpinWheelController {
         competition_id
       );
 
+      console.log("Committing transaction...");
       await connection.commit();
 
       // 10. Return result
@@ -250,6 +274,7 @@ class SpinWheelController {
         },
         spin_remaining: (eligibility.remaining_spins || 0) - 1,
       });
+      console.log("Spin successful, response sent.");
     } catch (error) {
       await connection.rollback();
       console.error("Spin error:", error);
@@ -332,7 +357,7 @@ class SpinWheelController {
   static async awardPrize(connection, user_id, segment, competition_id = null) {
     switch (segment.prize_type) {
       case "SITE_CREDIT":
-        await SpinWheelController.addSiteCredit(
+        await addSiteCredit(
           connection,
           user_id,
           parseFloat(segment.prize_value),
@@ -350,7 +375,7 @@ class SpinWheelController {
         return { type: "POINTS", amount: segment.prize_value };
 
       case "FREE_TICKET":
-        const ticketIds = await TicketSystemController.awardUniversalTickets(
+        const ticketIds = await TicketSystemController.awardUniversalTicketsWithTransaction(
           connection,
           user_id,
           "SPIN_WIN",
@@ -487,17 +512,19 @@ class SpinWheelController {
       await connection.query(
         `
         INSERT INTO spin_wheels (
-          id, wheel_name, wheel_type, wheel_description, min_tier,
+          id, wheel_name, wheel_type, wheel_description, rules, ticket_price, min_tier,
           spins_per_user_period, max_spins_per_period,
           cooldown_hours, background_image_url,
           animation_speed_ms, is_active
-        ) VALUES (UUID_TO_BIN(?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (UUID_TO_BIN(?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           wheelId,
           wheelData.name,
           wheelData.type,
           wheelData.description || null,
+          wheelData.rules ? JSON.stringify(wheelData.rules) : null,
+          wheelData.ticket_price || 0,
           wheelData.min_tier || null,
           wheelData.spins_per_user_period,
           wheelData.max_spins_per_period || null,
@@ -634,6 +661,8 @@ class SpinWheelController {
           sw.wheel_name,
           sw.wheel_type,
           sw.wheel_description,
+          sw.rules,
+          sw.ticket_price,
           sw.min_tier,
           sw.spins_per_user_period,
           sw.max_spins_per_period,
@@ -685,7 +714,7 @@ class SpinWheelController {
         console.error("Error parsing segments:", e);
       }
 
-      // Get wheel statistics
+      // Get wheel statistics (global)
       const [stats] = await connection.query(
         `
         SELECT 
@@ -699,12 +728,31 @@ class SpinWheelController {
         [wheel_id]
       );
 
+      // Get specific user statistics if user is authenticated
+      let userStats = null;
+      if (req.user && req.user.id) {
+        const [userSpinData] = await connection.query(
+          `
+          SELECT 
+            COUNT(sh.id) as user_total_spins,
+            MAX(sh.created_at) as user_last_spin,
+            SUM(CASE WHEN sh.prize_type != 'NO_WIN' THEN sh.prize_value ELSE 0 END) as user_total_winnings
+          FROM spin_history sh
+          WHERE sh.wheel_id = UUID_TO_BIN(?) AND sh.user_id = UUID_TO_BIN(?)
+          `,
+          [wheel_id, req.user.id]
+        );
+        userStats = userSpinData[0] || { user_total_spins: 0, user_last_spin: null, user_total_winnings: 0 };
+      }
+
       res.json({
         wheel: {
           id: wheel.id,
           wheel_name: wheel.wheel_name,
           type: wheel.wheel_type,
           description: wheel.wheel_description,
+          rules: typeof wheel.rules === 'string' ? JSON.parse(wheel.rules || '[]') : (wheel.rules || []),
+          ticket_price: wheel.ticket_price,
           min_tier: wheel.min_tier,
           spins_per_user_period: wheel.spins_per_user_period,
           max_spins_per_period: wheel.max_spins_per_period,
@@ -716,6 +764,7 @@ class SpinWheelController {
         },
         segments,
         statistics: stats[0] || {},
+        user_statistics: userStats,
         segment_count: segments.length,
       });
     } catch (error) {
@@ -761,6 +810,8 @@ class SpinWheelController {
         "wheel_name",
         "wheel_type",
         "wheel_description",
+        "rules",
+        "ticket_price",
         "min_tier",
         "spins_per_user_period",
         "max_spins_per_period",
@@ -773,7 +824,11 @@ class SpinWheelController {
       allowedFields.forEach((field) => {
         if (wheelData[field] !== undefined) {
           updates.push(`${field} = ?`);
-          params.push(wheelData[field]);
+          if (field === 'rules' && wheelData[field]) {
+            params.push(JSON.stringify(wheelData[field]));
+          } else {
+            params.push(wheelData[field]);
+          }
         }
       });
 
@@ -851,6 +906,8 @@ class SpinWheelController {
           sw.wheel_name,
           sw.wheel_type,
           sw.wheel_description,
+          sw.rules,
+          sw.ticket_price,
           sw.min_tier,
           sw.spins_per_user_period,
           sw.max_spins_per_period,
@@ -913,6 +970,7 @@ class SpinWheelController {
 
         return {
           ...wheel,
+          rules: typeof wheel.rules === 'string' ? JSON.parse(wheel.rules || '[]') : (wheel.rules || []),
           segments,
         };
       });

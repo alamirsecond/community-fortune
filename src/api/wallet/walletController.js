@@ -11,7 +11,7 @@ const validateTransactionType = (type) => ["CREDIT", "DEBIT"].includes(type);
 // Helper function to determine category from description
 function getCategoryFromDescription(description) {
   const desc = description.toLowerCase();
-  
+
   if (desc.includes('ticket') || desc.includes('competition')) {
     return 'Competition Tickets';
   } else if (desc.includes('withdrawal') || desc.includes('cashout')) {
@@ -45,92 +45,92 @@ const validateUUID = (id) => {
 };
 
 const walletController = {
-    // Redeem points for site credit
-    redeemPoints: async (req, res) => {
-      const connection = await pool.getConnection();
-      try {
-        const userId = req.user.id;
-        const { points } = req.body;
-        // Example: 100 points = £1 site credit
-        const POINTS_PER_CREDIT = 100;
-        if (!validateUUID(userId)) {
-          return res.status(400).json({ success: false, message: "Invalid user ID format" });
-        }
-        if (!Number.isInteger(points) || points <= 0) {
-          return res.status(400).json({ success: false, message: "Points must be a positive integer" });
-        }
-        await connection.beginTransaction();
-        // Get user's points wallet
-        const [pointsWallet] = await connection.query(
-          `SELECT id, balance FROM wallets WHERE user_id = UUID_TO_BIN(?) AND type = 'POINTS' FOR UPDATE`,
-          [userId]
-        );
-        if (pointsWallet.length === 0 || pointsWallet[0].balance < points) {
-          await connection.rollback();
-          return res.status(400).json({ success: false, message: "Insufficient points" });
-        }
-        // Calculate credit amount
-        const creditAmount = Math.floor(points / POINTS_PER_CREDIT);
-        if (creditAmount <= 0) {
-          await connection.rollback();
-          return res.status(400).json({ success: false, message: `You need at least ${POINTS_PER_CREDIT} points to redeem for £1 credit` });
-        }
-        const pointsToDeduct = creditAmount * POINTS_PER_CREDIT;
-        // Deduct points
-        await connection.query(
-          `UPDATE wallets SET balance = balance - ? WHERE id = ?`,
-          [pointsToDeduct, pointsWallet[0].id]
-        );
-        // Credit site credit wallet
-        const [creditWallet] = await connection.query(
-          `SELECT id FROM wallets WHERE user_id = UUID_TO_BIN(?) AND type = 'CREDIT' FOR UPDATE`,
-          [userId]
-        );
-        if (creditWallet.length === 0) {
-          await connection.rollback();
-          return res.status(404).json({ success: false, message: "Credit wallet not found" });
-        }
-        await connection.query(
-          `UPDATE wallets SET balance = balance + ? WHERE id = ?`,
-          [creditAmount, creditWallet[0].id]
-        );
-        // Log transactions
-        const txId1 = uuidv4();
-        const txId2 = uuidv4();
-        const refId = uuidv4();
-        await connection.query(
-          `INSERT INTO wallet_transactions (id, wallet_id, amount, type, reference, description) VALUES (UUID_TO_BIN(?), ?, ?, 'DEBIT', UUID_TO_BIN(?), ?)`,
-          [txId1, pointsWallet[0].id, pointsToDeduct, refId, `Redeemed for £${creditAmount} site credit`]
-        );
-        await connection.query(
-          `INSERT INTO wallet_transactions (id, wallet_id, amount, type, reference, description) VALUES (UUID_TO_BIN(?), ?, ?, 'CREDIT', UUID_TO_BIN(?), ?)`,
-          [txId2, creditWallet[0].id, creditAmount, refId, `Points redemption`]
-        );
-        await connection.commit();
-        // Optionally: send email notification (pseudo, replace with actual email logic)
-        // await sendEmail(userId, 'points_redeemed', { amount: creditAmount, points: pointsToDeduct });
-        res.json({ success: true, message: `Redeemed ${pointsToDeduct} points for £${creditAmount} site credit`, data: { creditAmount, pointsDeducted: pointsToDeduct } });
-      } catch (error) {
-        await connection.rollback();
-        handleDatabaseError(error, res, "Failed to redeem points");
-      } finally {
-        connection.release();
+  // Redeem points for site credit
+  redeemPoints: async (req, res) => {
+    const connection = await pool.getConnection();
+    try {
+      const userId = req.user.id;
+      const { points } = req.body;
+      // Example: 100 points = £1 site credit
+      const POINTS_PER_CREDIT = 100;
+      if (!validateUUID(userId)) {
+        return res.status(400).json({ success: false, message: "Invalid user ID format" });
       }
-    },
-  // Get user wallet balances
-getWalletBalances: async (req, res) => {
-  try {
-    const userId = req.user.id;
-
-    if (!validateUUID(userId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid user ID format",
-      });
+      if (!Number.isInteger(points) || points <= 0) {
+        return res.status(400).json({ success: false, message: "Points must be a positive integer" });
+      }
+      await connection.beginTransaction();
+      // Get user's points wallet
+      const [pointsWallet] = await connection.query(
+        `SELECT id, balance FROM wallets WHERE user_id = UUID_TO_BIN(?) AND type = 'POINTS' FOR UPDATE`,
+        [userId]
+      );
+      if (pointsWallet.length === 0 || pointsWallet[0].balance < points) {
+        await connection.rollback();
+        return res.status(400).json({ success: false, message: "Insufficient points" });
+      }
+      // Calculate credit amount
+      const creditAmount = Math.floor(points / POINTS_PER_CREDIT);
+      if (creditAmount <= 0) {
+        await connection.rollback();
+        return res.status(400).json({ success: false, message: `You need at least ${POINTS_PER_CREDIT} points to redeem for £1 credit` });
+      }
+      const pointsToDeduct = creditAmount * POINTS_PER_CREDIT;
+      // Deduct points
+      await connection.query(
+        `UPDATE wallets SET balance = balance - ? WHERE id = ?`,
+        [pointsToDeduct, pointsWallet[0].id]
+      );
+      // Credit site credit wallet
+      const [creditWallet] = await connection.query(
+        `SELECT id FROM wallets WHERE user_id = UUID_TO_BIN(?) AND type = 'CREDIT' FOR UPDATE`,
+        [userId]
+      );
+      if (creditWallet.length === 0) {
+        await connection.rollback();
+        return res.status(404).json({ success: false, message: "Credit wallet not found" });
+      }
+      await connection.query(
+        `UPDATE wallets SET balance = balance + ? WHERE id = ?`,
+        [creditAmount, creditWallet[0].id]
+      );
+      // Log transactions
+      const txId1 = uuidv4();
+      const txId2 = uuidv4();
+      const refId = uuidv4();
+      await connection.query(
+        `INSERT INTO wallet_transactions (id, wallet_id, amount, type, reference, description) VALUES (UUID_TO_BIN(?), ?, ?, 'DEBIT', UUID_TO_BIN(?), ?)`,
+        [txId1, pointsWallet[0].id, pointsToDeduct, refId, `Redeemed for £${creditAmount} site credit`]
+      );
+      await connection.query(
+        `INSERT INTO wallet_transactions (id, wallet_id, amount, type, reference, description) VALUES (UUID_TO_BIN(?), ?, ?, 'CREDIT', UUID_TO_BIN(?), ?)`,
+        [txId2, creditWallet[0].id, creditAmount, refId, `Points redemption`]
+      );
+      await connection.commit();
+      // Optionally: send email notification (pseudo, replace with actual email logic)
+      // await sendEmail(userId, 'points_redeemed', { amount: creditAmount, points: pointsToDeduct });
+      res.json({ success: true, message: `Redeemed ${pointsToDeduct} points for £${creditAmount} site credit`, data: { creditAmount, pointsDeducted: pointsToDeduct } });
+    } catch (error) {
+      await connection.rollback();
+      handleDatabaseError(error, res, "Failed to redeem points");
+    } finally {
+      connection.release();
     }
+  },
+  // Get user wallet balances
+  getWalletBalances: async (req, res) => {
+    try {
+      const userId = req.user.id;
 
-    const [wallets] = await pool.query(
-      `SELECT 
+      if (!validateUUID(userId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid user ID format",
+        });
+      }
+
+      const [wallets] = await pool.query(
+        `SELECT 
         type,
         balance,
         universal_tickets,
@@ -139,30 +139,30 @@ getWalletBalances: async (req, res) => {
         updated_at as updatedAt
        FROM wallets 
        WHERE user_id = UUID_TO_BIN(?) AND type IN ('CASH', 'CREDIT', 'POINTS')`,
-      [userId]
-    );
+        [userId]
+      );
 
-    // Extract specific wallets from the results
-    const cashWallet = wallets.find(wallet => wallet.type === 'CASH');
-    const creditWallet = wallets.find(wallet => wallet.type === 'CREDIT');
-    const pointsWallet = wallets.find(wallet => wallet.type === 'POINTS'); // Added for completeness
-   const totalUniversalTickets = wallets.reduce((sum, wallet) => sum + (wallet.universal_tickets || 0),0);
+      // Extract specific wallets from the results
+      const cashWallet = wallets.find(wallet => wallet.type === 'CASH');
+      const creditWallet = wallets.find(wallet => wallet.type === 'CREDIT');
+      const pointsWallet = wallets.find(wallet => wallet.type === 'POINTS'); // Added for completeness
+      const totalUniversalTickets = wallets.reduce((sum, wallet) => sum + (wallet.universal_tickets || 0), 0);
 
-    // Get wallet statistics
-    const [stats] = await pool.query(
-      `SELECT 
+      // Get wallet statistics
+      const [stats] = await pool.query(
+        `SELECT 
         COUNT(*) as totalTransactions,
         COALESCE(SUM(CASE WHEN wt.type = 'CREDIT' THEN amount END), 0) as totalCredits,
         COALESCE(SUM(CASE WHEN wt.type = 'DEBIT' THEN amount END), 0) as totalDebits
        FROM wallet_transactions wt
        JOIN wallets w ON wt.wallet_id = w.id
        WHERE w.user_id = UUID_TO_BIN(?)`,
-      [userId]
-    );
+        [userId]
+      );
 
-    // Get spending limits if any
-    const [limits] = await pool.query(
-      `SELECT 
+      // Get spending limits if any
+      const [limits] = await pool.query(
+        `SELECT 
         daily_limit as dailyLimit,
         weekly_limit as weeklyLimit,
         monthly_limit as monthlyLimit,
@@ -171,24 +171,24 @@ getWalletBalances: async (req, res) => {
         monthly_spent as monthlySpent
        FROM spending_limits 
        WHERE user_id = UUID_TO_BIN(?)`,
-      [userId]
-    );
+        [userId]
+      );
 
-    res.json({
-      success: true,
-      data: {
-        cashWallet: cashWallet || { type: 'CASH', balance: 0, isFrozen: false },
-        creditWallet: creditWallet || { type: 'CREDIT', balance: 0, isFrozen: false },
-        pointsWallet: pointsWallet || { type: 'POINTS', balance: 0, isFrozen: false }, // Added for completeness
-        statistics: stats[0],
-        universal_tickets:totalUniversalTickets,
-        spendingLimits: limits[0] || null
-      }
-    });
-  } catch (error) {
-    handleDatabaseError(error, res, "Failed to retrieve wallet balances");
-  }
-},
+      res.json({
+        success: true,
+        data: {
+          cashWallet: cashWallet || { type: 'CASH', balance: 0, isFrozen: false },
+          creditWallet: creditWallet || { type: 'CREDIT', balance: 0, isFrozen: false },
+          pointsWallet: pointsWallet || { type: 'POINTS', balance: 0, isFrozen: false }, // Added for completeness
+          statistics: stats[0],
+          universal_tickets: totalUniversalTickets,
+          spendingLimits: limits[0] || null
+        }
+      });
+    } catch (error) {
+      handleDatabaseError(error, res, "Failed to retrieve wallet balances");
+    }
+  },
 
   // Get wallet transaction history
   getWalletTransactions: async (req, res) => {
@@ -418,9 +418,8 @@ getWalletBalances: async (req, res) => {
 
       res.json({
         success: true,
-        message: `Credit wallet ${
-          isFrozen ? "frozen" : "unfrozen"
-        } successfully`,
+        message: `Credit wallet ${isFrozen ? "frozen" : "unfrozen"
+          } successfully`,
         data: updatedWallet[0],
       });
     } catch (error) {
@@ -753,31 +752,31 @@ getWalletBalances: async (req, res) => {
   },
 
   // Get spending history
-getSpendingHistory: async (req, res) => {
-  try {
-    const userId = req.user.id;
-    const { page = 1, limit = 20, startDate, endDate, category } = req.query;
-    const offset = (page - 1) * limit;
+  getSpendingHistory: async (req, res) => {
+    try {
+      const userId = req.user.id;
+      const { page = 1, limit = 20, startDate, endDate, category } = req.query;
+      const offset = (page - 1) * limit;
 
-    if (!validateUUID(userId)) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid user ID format",
-      });
-    }
+      if (!validateUUID(userId)) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid user ID format",
+        });
+      }
 
-    // Validate pagination
-    const pageNum = parseInt(page);
-    const limitNum = parseInt(limit);
+      // Validate pagination
+      const pageNum = parseInt(page);
+      const limitNum = parseInt(limit);
 
-    if (pageNum < 1 || limitNum < 1 || limitNum > 100) {
-      return res.status(400).json({
-        success: false,
-        message: "Invalid pagination parameters",
-      });
-    }
+      if (pageNum < 1 || limitNum < 1 || limitNum > 100) {
+        return res.status(400).json({
+          success: false,
+          message: "Invalid pagination parameters",
+        });
+      }
 
-    let query = `
+      let query = `
       SELECT 
         wt.id,
         wt.created_at as date,
@@ -790,21 +789,21 @@ getSpendingHistory: async (req, res) => {
       JOIN wallets w ON wt.wallet_id = w.id
       WHERE w.user_id = UUID_TO_BIN(?) AND wt.type = 'DEBIT'
     `;
-    const params = [userId];
+      const params = [userId];
 
-    if (startDate) {
-      query += ' AND DATE(wt.created_at) >= ?';
-      params.push(startDate);
-    }
+      if (startDate) {
+        query += ' AND DATE(wt.created_at) >= ?';
+        params.push(startDate);
+      }
 
-    if (endDate) {
-      query += ' AND DATE(wt.created_at) <= ?';
-      params.push(endDate);
-    }
+      if (endDate) {
+        query += ' AND DATE(wt.created_at) <= ?';
+        params.push(endDate);
+      }
 
-    if (category) {
-      // If category filtering is needed, infer it from description
-      query += ` AND (
+      if (category) {
+        // If category filtering is needed, infer it from description
+        query += ` AND (
         CASE 
           WHEN wt.description LIKE '%ticket%' OR wt.description LIKE '%competition%' THEN 'Competition Tickets'
           WHEN wt.description LIKE '%withdrawal%' OR wt.description LIKE '%cashout%' THEN 'Withdrawals'
@@ -813,38 +812,38 @@ getSpendingHistory: async (req, res) => {
           ELSE 'Other Purchases'
         END
       ) = ?`;
-      params.push(category);
-    }
+        params.push(category);
+      }
 
-    query += " ORDER BY wt.created_at DESC LIMIT ? OFFSET ?";
-    params.push(limitNum, offset);
+      query += " ORDER BY wt.created_at DESC LIMIT ? OFFSET ?";
+      params.push(limitNum, offset);
 
-    const [spending] = await pool.query(query, params);
+      const [spending] = await pool.query(query, params);
 
-    // Get total spent
-    let totalQuery = `
+      // Get total spent
+      let totalQuery = `
       SELECT COALESCE(SUM(wt.amount), 0) as totalSpent
       FROM wallet_transactions wt
       JOIN wallets w ON wt.wallet_id = w.id
       WHERE w.user_id = UUID_TO_BIN(?) AND wt.type = 'DEBIT'
     `;
-    const totalParams = [userId];
+      const totalParams = [userId];
 
-    if (startDate) {
-      totalQuery += ' AND DATE(wt.created_at) >= ?';
-      totalParams.push(startDate);
-    }
+      if (startDate) {
+        totalQuery += ' AND DATE(wt.created_at) >= ?';
+        totalParams.push(startDate);
+      }
 
-    if (endDate) {
-      totalQuery += ' AND DATE(wt.created_at) <= ?';
-      totalParams.push(endDate);
-    }
+      if (endDate) {
+        totalQuery += ' AND DATE(wt.created_at) <= ?';
+        totalParams.push(endDate);
+      }
 
-    const [totalResult] = await pool.query(totalQuery, totalParams);
+      const [totalResult] = await pool.query(totalQuery, totalParams);
 
-    // Get spending by category
-    const [categorySpending] = await pool.query(
-      `SELECT 
+      // Get spending by category
+      const [categorySpending] = await pool.query(
+        `SELECT 
         CASE 
           WHEN wt.description LIKE '%ticket%' OR wt.description LIKE '%competition%' THEN 'Competition Tickets'
           WHEN wt.description LIKE '%withdrawal%' OR wt.description LIKE '%cashout%' THEN 'Withdrawals'
@@ -859,12 +858,12 @@ getSpendingHistory: async (req, res) => {
        WHERE w.user_id = UUID_TO_BIN(?) AND wt.type = 'DEBIT'
        GROUP BY category
        ORDER BY amount DESC`,
-      [userId]
-    );
+        [userId]
+      );
 
-    // Get monthly spending trend
-    const [monthlyTrend] = await pool.query(
-      `SELECT 
+      // Get monthly spending trend
+      const [monthlyTrend] = await pool.query(
+        `SELECT 
         DATE_FORMAT(wt.created_at, '%Y-%m') as month,
         SUM(wt.amount) as total
        FROM wallet_transactions wt
@@ -873,58 +872,58 @@ getSpendingHistory: async (req, res) => {
        GROUP BY DATE_FORMAT(wt.created_at, '%Y-%m')
        ORDER BY month DESC
        LIMIT 6`,
-      [userId]
-    );
+        [userId]
+      );
 
-    // Get total count for pagination
-    let countQuery = `
+      // Get total count for pagination
+      let countQuery = `
       SELECT COUNT(*) as total
       FROM wallet_transactions wt
       JOIN wallets w ON wt.wallet_id = w.id
       WHERE w.user_id = UUID_TO_BIN(?) AND wt.type = 'DEBIT'
     `;
-    const countParams = [userId];
+      const countParams = [userId];
 
-    if (startDate) {
-      countQuery += " AND DATE(wt.created_at) >= ?";
-      countParams.push(startDate);
-    }
+      if (startDate) {
+        countQuery += " AND DATE(wt.created_at) >= ?";
+        countParams.push(startDate);
+      }
 
-    if (endDate) {
-      countQuery += " AND DATE(wt.created_at) <= ?";
-      countParams.push(endDate);
-    }
+      if (endDate) {
+        countQuery += " AND DATE(wt.created_at) <= ?";
+        countParams.push(endDate);
+      }
 
-    const [countResult] = await pool.query(countQuery, countParams);
-    const total = countResult[0]?.total || 0;
+      const [countResult] = await pool.query(countQuery, countParams);
+      const total = countResult[0]?.total || 0;
 
-    // Add category to each spending transaction for the response
-    const spendingWithCategories = spending.map(transaction => ({
-      ...transaction,
-      category: getCategoryFromDescription(transaction.description)
-    }));
+      // Add category to each spending transaction for the response
+      const spendingWithCategories = spending.map(transaction => ({
+        ...transaction,
+        category: getCategoryFromDescription(transaction.description)
+      }));
 
-    res.json({
-      success: true,
-      data: {
-        spending: spendingWithCategories,
-        summary: {
-          totalSpent: totalResult[0].totalSpent,
-          categoryBreakdown: categorySpending,
-          monthlyTrend: monthlyTrend
+      res.json({
+        success: true,
+        data: {
+          spending: spendingWithCategories,
+          summary: {
+            totalSpent: totalResult[0].totalSpent,
+            categoryBreakdown: categorySpending,
+            monthlyTrend: monthlyTrend
+          },
+          pagination: {
+            page: pageNum,
+            limit: limitNum,
+            total,
+            pages: Math.ceil(total / limitNum),
+          },
         },
-        pagination: {
-          page: pageNum,
-          limit: limitNum,
-          total,
-          pages: Math.ceil(total / limitNum),
-        },
-      },
-    });
-  } catch (error) {
-    handleDatabaseError(error, res, "Failed to retrieve spending history");
-  }
-},
+      });
+    } catch (error) {
+      handleDatabaseError(error, res, "Failed to retrieve spending history");
+    }
+  },
 
   // Admin: Get all wallets
   getAllWallets: async (req, res) => {
@@ -1634,6 +1633,20 @@ getSpendingHistory: async (req, res) => {
     },
   },
 };
-export const { addSiteCredit, addPoints, deductFromWallet, getWalletBalance } =
-  walletController;
+
+export const addSiteCredit = walletController.static.addSiteCredit;
+export const deductFromWallet = walletController.static.deductFromWallet;
+export const getWalletBalance = walletController.static.getWalletBalance;
+export const transferBetweenWallets = walletController.static.transferBetweenWallets;
+
+export const addPoints = async (connection, user_id, amount, reference) => {
+  return walletController.static.addSiteCredit(
+    connection,
+    user_id,
+    amount,
+    reference,
+    "POINTS"
+  );
+};
+
 export default walletController;
