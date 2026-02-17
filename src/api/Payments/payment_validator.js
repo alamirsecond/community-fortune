@@ -60,7 +60,7 @@ export const withdrawalValidator = [
     .withMessage('Amount must be between 10 and 50,000'),
   
   body('gateway')
-    .isIn(['PAYPAL', 'BANK_TRANSFER', 'REVOLUT'])
+    .isIn(['PAYPAL', 'BANK_TRANSFER', 'REVOLUT', 'STRIPE'])
     .withMessage('Invalid withdrawal gateway'),
   
   body('payment_method_id')
@@ -90,6 +90,20 @@ export const withdrawalValidator = [
     .if(body('gateway').equals('BANK_TRANSFER'))
     .matches(/^\d{6}$/)
     .withMessage('Valid sort code required (6 digits)'),
+
+  body('account_details')
+    .custom((value, { req }) => {
+      if (String(req.body.gateway || '').toUpperCase() !== 'STRIPE') {
+        return true;
+      }
+
+      const hasStripeTarget = value && (value.stripe_account_id || value.destination || value.bank_account);
+      if (!hasStripeTarget) {
+        throw new Error('For STRIPE withdrawals provide stripe_account_id, destination, or bank_account');
+      }
+
+      return true;
+    }),
 ];
 
 export const refundValidator = [
