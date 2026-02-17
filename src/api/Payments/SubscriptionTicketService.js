@@ -1,58 +1,13 @@
 import pool from "../../../database.js";
-import Stripe from 'stripe';
-import paypal from '@paypal/checkout-server-sdk';
-import axios from 'axios';
+import paymentGatewayService from './PaymentGatewayService.js';
 import secretManager, { SECRET_KEYS } from '../../Utils/secretManager.js';
 
 class SubscriptionTicketService {
   constructor() {
-    this.stripe = null;
-    this.paypalClient = null;
-    this.revolutApi = null;
-    this.initPaymentGateways();
+    // Gateways are managed by PaymentGatewayService
   }
 
-  async initPaymentGateways() {
-    try {
-      const [gateways] = await pool.query(
-        `SELECT * FROM payment_gateway_settings 
-         WHERE gateway IN ('STRIPE', 'PAYPAL', 'REVOLUT') 
-         AND environment = 'LIVE' 
-         AND is_enabled = TRUE`
-      );
-
-      const stripeConfig = gateways.find(g => g.gateway === 'STRIPE');
-      if (stripeConfig && stripeConfig.secret_key) {
-        this.stripe = new Stripe(stripeConfig.secret_key);
-      }
-
-      const paypalConfig = gateways.find(g => g.gateway === 'PAYPAL');
-      if (paypalConfig && paypalConfig.client_id && paypalConfig.client_secret) {
-        const environment = paypalConfig.environment === 'LIVE' 
-          ? new paypal.core.LiveEnvironment(paypalConfig.client_id, paypalConfig.client_secret)
-          : new paypal.core.SandboxEnvironment(paypalConfig.client_id, paypalConfig.client_secret);
-        this.paypalClient = new paypal.core.PayPalHttpClient(environment);
-      }
-
-      const revolutConfig = gateways.find(g => g.gateway === 'REVOLUT');
-      if (revolutConfig) {
-        const revolutApiKey = await secretManager.getSecret(SECRET_KEYS.REVOLUT_API_KEY) || revolutConfig.api_key;
-        if (revolutApiKey) {
-          this.revolutApi = axios.create({
-            baseURL: revolutConfig.environment === 'LIVE'
-              ? 'https://b2b.revolut.com/api/1.0'
-              : 'https://sandbox-b2b.revolut.com/api/1.0',
-            headers: {
-              Authorization: `Bearer ${revolutApiKey}`,
-              'Content-Type': 'application/json'
-            }
-          });
-        }
-      }
-    } catch (error) {
-      console.error('Failed to initialize payment gateways:', error);
-    }
-  }
+  // initPaymentGateways removed - managed by PaymentGatewayService
 
   // ==================== SUBSCRIPTION METHODS ====================
   async processSubscriptionPayment(userId, tierId, paymentMethodId = null) {
@@ -207,40 +162,43 @@ class SubscriptionTicketService {
   }
 
   async processStripeSubscription(userId, tierData, userEmail, paymentMethodId) {
-    if (!this.stripe) throw new Error('Stripe is not configured');
+    await paymentGatewayService.validateGatewayAvailability('STRIPE');
+    const stripe = paymentGatewayService.getStripe();
 
     try {
-      const customer = await this.stripe.customers.create({
+      const customer = await stripe.customers.create({
         email: userEmail,
         metadata: { user_id: userId, tier_id: tierData.id }
       });
 
       let subscription;
-      
+
       if (paymentMethodId) {
-        const paymentMethod = await this.stripe.paymentMethods.retrieve(paymentMethodId);
-        
-        await this.stripe.paymentMethods.attach(paymentMethodId, {
+        const paymentMethod = await stripe.paymentMethods.retrieve(paymentMethodId);
+
+        await stripe.paymentMethods.attach(paymentMethodId, {
           customer: customer.id
         });
 
-        await this.stripe.customers.update(customer.id, {
+        await stripe.customers.update(customer.id, {
           invoice_settings: {
             default_payment_method: paymentMethodId
           }
         });
 
-        subscription = await this.stripe.subscriptions.create({
+        subscription = await stripe.subscriptions.create({
           customer: customer.id,
-          items: [{ price_data: {
-            currency: 'gbp',
-            product_data: {
-              name: tierData.tier_name,
-              description: tierData.description
-            },
-            unit_amount: Math.round(tierData.monthly_price * 100),
-            recurring: { interval: 'month' }
-          }}],
+          items: [{
+            price_data: {
+              currency: 'gbp',
+              product_data: {
+                name: tierData.tier_name,
+                description: tierData.description
+              },
+              unit_amount: Math.round(tierData.monthly_price * 100),
+              recurring: { interval: 'month' }
+            }
+          }],
           payment_settings: {
             payment_method_types: ['card'],
             save_default_payment_method: 'on_subscription'
@@ -249,17 +207,19 @@ class SubscriptionTicketService {
           metadata: { user_id: userId, tier_id: tierData.id }
         });
       } else {
-        subscription = await this.stripe.subscriptions.create({
+        subscription = await stripe.subscriptions.create({
           customer: customer.id,
-          items: [{ price_data: {
-            currency: 'gbp',
-            product_data: {
-              name: tierData.tier_name,
-              description: tierData.description
-            },
-            unit_amount: Math.round(tierData.monthly_price * 100),
-            recurring: { interval: 'month' }
-          }}],
+          items: [{
+            price_data: {
+              currency: 'gbp',
+              product_data: {
+                name: tierData.tier_name,
+                description: tierData.description
+              },
+              unit_amount: Math.round(tierData.monthly_price * 100),
+              recurring: { interval: 'month' }
+            }
+          }],
           payment_behavior: 'default_incomplete',
           payment_settings: {
             payment_method_types: ['card'],
@@ -285,7 +245,8 @@ class SubscriptionTicketService {
   }
 
   async processPayPalSubscription(userId, tierData, userEmail) {
-    if (!this.paypalClient) throw new Error('PayPal is not configured');
+    await paymentGatewayService.validateGatewayAvailability('PAYPAL');
+    const paypalClient = paymentGatewayService.getPayPal();
 
     try {
       const request = new paypal.orders.OrdersCreateRequest();
@@ -308,8 +269,8 @@ class SubscriptionTicketService {
         }
       });
 
-      const order = await this.paypalClient.execute(request);
-      
+      const order = await paypalClient.execute(request);
+
       let checkoutUrl = '';
       for (const link of order.result.links) {
         if (link.rel === "approve") {
@@ -395,7 +356,9 @@ class SubscriptionTicketService {
 
       if (sub.gateway_subscription_id) {
         if (sub.payment_gateway === 'STRIPE') {
-          await this.stripe.subscriptions.update(sub.gateway_subscription_id, {
+          await paymentGatewayService.validateGatewayAvailability('STRIPE');
+          const stripe = paymentGatewayService.getStripe();
+          await stripe.subscriptions.update(sub.gateway_subscription_id, {
             cancel_at_period_end: true
           });
         }
@@ -577,11 +540,11 @@ class SubscriptionTicketService {
 
       const tickets = [];
       const ticketNumbers = [];
-      
+
       for (let i = 0; i < quantity; i++) {
         const ticketNumber = comp.sold_tickets + i + 1;
         ticketNumbers.push(ticketNumber);
-        
+
         const [ticket] = await connection.query(
           `INSERT INTO tickets 
            (id, competition_id, user_id, purchase_id, ticket_number, ticket_type, 
@@ -671,10 +634,10 @@ class SubscriptionTicketService {
   }
 
   async processStripeTicketPayment(amount, description, userEmail) {
-    if (!this.stripe) return { success: false, error: 'Stripe is not configured' };
-
     try {
-      const paymentIntent = await this.stripe.paymentIntents.create({
+      await paymentGatewayService.validateGatewayAvailability('STRIPE');
+      const stripe = paymentGatewayService.getStripe();
+      const paymentIntent = await stripe.paymentIntents.create({
         amount: Math.round(amount * 100),
         currency: 'gbp',
         description: description,
@@ -694,9 +657,9 @@ class SubscriptionTicketService {
   }
 
   async processPayPalTicketPayment(amount, description, userEmail) {
-    if (!this.paypalClient) return { success: false, error: 'PayPal is not configured' };
-
     try {
+      await paymentGatewayService.validateGatewayAvailability('PAYPAL');
+      const paypalClient = paymentGatewayService.getPayPal();
       const request = new paypal.orders.OrdersCreateRequest();
       request.prefer("return=representation");
       request.requestBody({
@@ -717,8 +680,8 @@ class SubscriptionTicketService {
         }
       });
 
-      const order = await this.paypalClient.execute(request);
-      
+      const order = await paypalClient.execute(request);
+
       let checkoutUrl = '';
       for (const link of order.result.links) {
         if (link.rel === "approve") {
@@ -740,10 +703,10 @@ class SubscriptionTicketService {
   }
 
   async processRevolutTicketPayment(amount, description) {
-    if (!this.revolutApi) return { success: false, error: 'Revolut is not configured' };
-
     try {
-      const order = await this.revolutApi.post('/orders', {
+      await paymentGatewayService.validateGatewayAvailability('REVOLUT');
+      const revolutApi = paymentGatewayService.getRevolut();
+      const order = await revolutApi.post('/orders', {
         amount: Math.round(amount * 100),
         currency: 'GBP',
         description,

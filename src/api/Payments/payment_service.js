@@ -1,68 +1,18 @@
 import pool from "../../../database.js";
-import Stripe from 'stripe';
-import paypal from '@paypal/checkout-server-sdk';
-import axios from 'axios';
-import crypto from 'crypto';
+import paymentGatewayService from "./PaymentGatewayService.js";
 import secretManager, { SECRET_KEYS } from '../../Utils/secretManager.js';
 
 class PaymentService {
   constructor() {
-    this.stripe = null;
-    this.paypalClient = null;
-    this.revolutApi = null;
-    this.initGateways();
+    // Gateways managed by PaymentGatewayService
   }
 
   static ALLOWED_GATEWAYS = new Set(['PAYPAL', 'STRIPE', 'REVOLUT']);
 
   // ==================== INITIALIZATION ====================
-async initGateways() {
-  const gateways = await this.getGatewayConfigurations();
+  // ==================== INITIALIZATION ====================
+  // Gateway initialization is now handled by PaymentGatewayService
 
-  // Use SANDBOX for development, LIVE for production
-  const environment = process.env.NODE_ENV === 'production' ? 'LIVE' : 'SANDBOX';
-  
-  const stripeConfig = gateways.find(g => g.gateway === 'STRIPE' && g.environment === environment && g.is_enabled);
-  if (stripeConfig) {
-    const stripeSecret = await secretManager.getSecret(SECRET_KEYS.STRIPE_SECRET_KEY);
-    if (stripeSecret) {
-      this.stripe = new Stripe(stripeSecret);
-      console.log(`Stripe initialized in ${environment} mode`);
-    }
-  }
-
-  const paypalConfig = gateways.find(g => g.gateway === 'PAYPAL' && g.environment === environment && g.is_enabled);
-  if (paypalConfig) {
-    const paypalClientId = await secretManager.getSecret(SECRET_KEYS.PAYPAL_CLIENT_ID);
-    const paypalClientSecret = await secretManager.getSecret(SECRET_KEYS.PAYPAL_CLIENT_SECRET);
-
-    if (paypalClientId && paypalClientSecret) {
-      const paypalEnvironment = paypalConfig.environment === 'LIVE' 
-        ? new paypal.core.LiveEnvironment(paypalClientId, paypalClientSecret)
-        : new paypal.core.SandboxEnvironment(paypalClientId, paypalClientSecret);
-      this.paypalClient = new paypal.core.PayPalHttpClient(paypalEnvironment);
-      console.log(`PayPal initialized in ${environment} mode`);
-    }
-  }
-
-  const revolutConfig = gateways.find(g => g.gateway === 'REVOLUT' && g.environment === environment && g.is_enabled);
-  if (revolutConfig) {
-    const revolutApiKey = await secretManager.getSecret(SECRET_KEYS.REVOLUT_API_KEY);
-    if (revolutApiKey) {
-      this.revolutApi = axios.create({
-        baseURL: revolutConfig.environment === 'LIVE' 
-          ? 'https://b2b.revolut.com/api/1.0' 
-          : 'https://sandbox-b2b.revolut.com/api/1.0',
-        headers: {
-          'Authorization': `Bearer ${revolutApiKey}`,
-          'Content-Type': 'application/json'
-        }
-      });
-      console.log(`Revolut initialized in ${environment} mode`);
-    }
-  }
-
-}
   // ==================== HELPER METHODS ====================
   async getGatewayConfigurations() {
     const connection = await pool.getConnection();
@@ -84,18 +34,9 @@ async initGateways() {
     return normalized;
   }
 
-  ensureGatewayInitialized(gateway) {
-    const normalized = this.ensureGatewayAllowed(gateway);
-    if (normalized === 'STRIPE' && !this.stripe) {
-      throw new Error('Stripe is not configured');
-    }
-    if (normalized === 'PAYPAL' && !this.paypalClient) {
-      throw new Error('PayPal is not configured');
-    }
-    if (normalized === 'REVOLUT' && !this.revolutApi) {
-      throw new Error('Revolut is not configured');
-    }
-    return normalized;
+  async ensureGatewayInitialized(gateway) {
+    await paymentGatewayService.validateGatewayAvailability(gateway);
+    return String(gateway).toUpperCase();
   }
 
   // ==================== PUBLIC ROUTES ====================
@@ -115,7 +56,7 @@ async initGateways() {
           logo_url
          FROM payment_gateway_settings 
          WHERE is_enabled = TRUE 
-         AND environment = 'LIVE'
+         AND environment = 'SANDBOX'
          ORDER BY sort_order`
       );
 
@@ -229,8 +170,12 @@ async initGateways() {
         ]
       );
       const [newMethod] = await connection.query(
-        `SELECT BIN_TO_UUID(id) as id, * FROM user_payment_methods WHERE id = ?`,
-        [result.insertId]
+        `SELECT *, BIN_TO_UUID(id) as id
+         FROM user_payment_methods
+         WHERE user_id = UUID_TO_BIN(?)
+         ORDER BY created_at DESC
+         LIMIT 1`,
+        [userId]
       );
       await connection.commit();
       return newMethod[0];
@@ -246,7 +191,7 @@ async initGateways() {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      
+
       if (updateData.is_default) {
         await connection.query(
           `UPDATE user_payment_methods 
@@ -258,7 +203,7 @@ async initGateways() {
 
       const updateFields = [];
       const updateValues = [];
-      
+
       Object.keys(updateData).forEach(key => {
         if (key === 'metadata') {
           updateFields.push(`${key} = ?`);
@@ -268,9 +213,9 @@ async initGateways() {
           updateValues.push(updateData[key]);
         }
       });
-      
+
       updateValues.push(methodId, userId);
-      
+
       const [result] = await connection.query(
         `UPDATE user_payment_methods 
          SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
@@ -286,7 +231,7 @@ async initGateways() {
         `SELECT BIN_TO_UUID(id) as id, * FROM user_payment_methods WHERE id = UUID_TO_BIN(?)`,
         [methodId]
       );
-      
+
       await connection.commit();
       return updatedMethod[0];
     } catch (error) {
@@ -301,7 +246,7 @@ async initGateways() {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      
+
       const [result] = await connection.query(
         `UPDATE user_payment_methods 
          SET is_active = FALSE, is_default = FALSE, updated_at = CURRENT_TIMESTAMP
@@ -327,7 +272,7 @@ async initGateways() {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      
+
       await connection.query(
         `UPDATE user_payment_methods 
          SET is_default = FALSE 
@@ -363,21 +308,29 @@ async initGateways() {
       await connection.beginTransaction();
 
       const { amount, gateway, wallet_type, currency = 'GBP', payment_method_id, return_url, cancel_url } = depositData;
-      const normalizedGateway = this.ensureGatewayInitialized(gateway);
+      const normalizedGateway = await this.ensureGatewayInitialized(gateway);
 
       if (!payment_method_id) {
         throw new Error('Payment method is required');
       }
 
+      let userPaymentMethod = null;
       if (payment_method_id) {
         const [methods] = await connection.query(
-          `SELECT id FROM user_payment_methods
+          `SELECT gateway, gateway_account_id
+           FROM user_payment_methods
            WHERE id = UUID_TO_BIN(?) AND user_id = UUID_TO_BIN(?) AND is_active = TRUE`,
           [payment_method_id, userId]
         );
 
         if (!methods.length) {
           throw new Error('Payment method not found for user');
+        }
+
+        userPaymentMethod = methods[0];
+
+        if (userPaymentMethod.gateway !== normalizedGateway) {
+          throw new Error('Payment method does not match selected gateway');
         }
       }
 
@@ -387,14 +340,9 @@ async initGateways() {
       );
       if (!user.length) throw new Error('User not found');
 
-      const [gatewayConfig] = await connection.query(
-        `SELECT * FROM payment_gateway_settings 
-         WHERE gateway = ? AND environment = 'SANDBOX' AND is_enabled = TRUE`,
-        [normalizedGateway]
-      );
-      if (!gatewayConfig.length) throw new Error('Payment gateway is not available');
+      const config = paymentGatewayService.getGatewayConfig(normalizedGateway);
+      if (!config) throw new Error('Payment gateway is not available');
 
-      const config = gatewayConfig[0];
       if (amount < config.min_deposit || amount > config.max_deposit) {
         throw new Error(`Amount must be between ${config.min_deposit} and ${config.max_deposit}`);
       }
@@ -412,13 +360,19 @@ async initGateways() {
 
       const requestId = paymentRequest.insertId;
       let paymentResult;
-      
+
       switch (normalizedGateway) {
         case 'PAYPAL':
           paymentResult = await this.createPayPalDeposit(user[0].email, amount, currency, return_url, cancel_url, requestId);
           break;
         case 'STRIPE':
-          paymentResult = await this.createStripeDeposit(user[0].email, amount, currency, requestId, payment_method_id);
+          paymentResult = await this.createStripeDeposit(
+            user[0].email,
+            amount,
+            currency,
+            requestId,
+            userPaymentMethod?.gateway_account_id || null
+          );
           break;
         case 'REVOLUT':
           paymentResult = await this.createRevolutDeposit(amount, currency, requestId);
@@ -526,13 +480,13 @@ async initGateways() {
          LIMIT ? OFFSET ?`,
         [userId, limit, offset]
       );
-      
+
       const [total] = await connection.query(
         `SELECT COUNT(*) as total FROM payment_requests 
          WHERE user_id = UUID_TO_BIN(?) AND type = 'DEPOSIT'`,
         [userId]
       );
-      
+
       return {
         deposits,
         pagination: {
@@ -550,7 +504,7 @@ async initGateways() {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      
+
       const [deposit] = await connection.query(
         `SELECT * FROM payment_requests 
          WHERE id = UUID_TO_BIN(?) 
@@ -559,7 +513,7 @@ async initGateways() {
          AND status = 'PENDING'`,
         [depositId, userId]
       );
-      
+
       if (!deposit.length) throw new Error('Deposit not found or cannot be cancelled');
 
       await connection.query(
@@ -604,11 +558,11 @@ async initGateways() {
          AND status IN ('FAILED', 'CANCELLED')`,
         [depositId, userId]
       );
-      
+
       if (!deposit.length) throw new Error('Deposit not found or cannot be retried');
-      
+
       const depositData = deposit[0];
-      
+
       const retryData = {
         amount: depositData.amount,
         gateway: depositData.gateway,
@@ -616,16 +570,16 @@ async initGateways() {
         currency: depositData.currency,
         payment_method_id: depositData.payment_method_id
       };
-      
+
       const result = await this.createDeposit(userId, retryData);
-      
+
       await connection.query(
         `UPDATE payment_requests 
          SET retry_of = UUID_TO_BIN(?), updated_at = CURRENT_TIMESTAMP
          WHERE id = UUID_TO_BIN(?)`,
         [depositId, result.requestId]
       );
-      
+
       return result;
     } catch (error) {
       throw error;
@@ -641,7 +595,7 @@ async initGateways() {
       await connection.beginTransaction();
 
       const { amount, gateway, account_details, payment_method_id } = withdrawalData;
-      const normalizedGateway = this.ensureGatewayInitialized(gateway);
+      const normalizedGateway = await this.ensureGatewayInitialized(gateway);
 
       if (!payment_method_id) {
         throw new Error('Payment method is required');
@@ -666,10 +620,11 @@ async initGateways() {
       );
       if (!wallet.length || wallet[0].balance < amount) throw new Error('Insufficient funds');
 
+      const environment = process.env.NODE_ENV === 'production' ? 'LIVE' : 'SANDBOX';
       const [gatewayConfig] = await connection.query(
         `SELECT * FROM payment_gateway_settings 
-         WHERE gateway = ? AND environment = 'LIVE' AND is_enabled = TRUE`,
-        [normalizedGateway]
+         WHERE gateway = ? AND environment = ? AND is_enabled = TRUE`,
+        [normalizedGateway, environment]
       );
       if (!gatewayConfig.length) throw new Error('Withdrawal gateway is not available');
 
@@ -805,12 +760,12 @@ async initGateways() {
         [withdrawalId, userId]
       );
       if (!withdrawal.length) throw new Error('Withdrawal not found');
-      
+
       const result = withdrawal[0];
       if (result.account_details) {
         result.account_details = JSON.parse(result.account_details);
       }
-      
+
       return result;
     } finally {
       connection.release();
@@ -834,13 +789,13 @@ async initGateways() {
          LIMIT ? OFFSET ?`,
         [userId, limit, offset]
       );
-      
+
       const [total] = await connection.query(
         `SELECT COUNT(*) as total FROM withdrawals 
          WHERE user_id = UUID_TO_BIN(?)`,
         [userId]
       );
-      
+
       return {
         withdrawals,
         pagination: {
@@ -858,7 +813,7 @@ async initGateways() {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      
+
       const [withdrawal] = await connection.query(
         `SELECT * FROM withdrawals 
          WHERE id = UUID_TO_BIN(?) 
@@ -866,7 +821,7 @@ async initGateways() {
          AND status = 'PENDING'`,
         [withdrawalId, userId]
       );
-      
+
       if (!withdrawal.length) throw new Error('Withdrawal not found or cannot be cancelled');
 
       await connection.query(
@@ -951,7 +906,7 @@ async initGateways() {
           BIN_TO_UUID(t.reference_id) as reference_id
          FROM transactions t
          WHERE t.user_id = UUID_TO_BIN(?)`;
-      
+
       const queryParams = [userId];
       let paramCount = 1;
 
@@ -983,12 +938,12 @@ async initGateways() {
       queryParams.push(limit, offset);
 
       const [transactions] = await connection.query(query, queryParams);
-      
+
       const [total] = await connection.query(
         `SELECT COUNT(*) as total FROM transactions t WHERE t.user_id = UUID_TO_BIN(?)`,
         [userId]
       );
-      
+
       return {
         transactions,
         pagination: {
@@ -1003,12 +958,12 @@ async initGateways() {
   }
 
 
-async getTransactionDetails(transactionId) {
-  const connection = await pool.getConnection();
-  try {
-    // Get transaction with user details and payment info
-    const [transaction] = await connection.query(
-      `SELECT 
+  async getTransactionDetails(transactionId) {
+    const connection = await pool.getConnection();
+    try {
+      // Get transaction with user details and payment info
+      const [transaction] = await connection.query(
+        `SELECT 
         t.*,
         BIN_TO_UUID(t.id) as transaction_id,
         BIN_TO_UUID(t.user_id) as user_uuid,
@@ -1031,29 +986,29 @@ async getTransactionDetails(transactionId) {
        LEFT JOIN payments p ON t.payment_id = p.id
        LEFT JOIN user_payment_methods pm ON p.payment_method_id = pm.id
        WHERE t.id = UUID_TO_BIN(?)`,
-      [transactionId]
-    );
-    
-    if (!transaction.length) {
-      throw new Error('Transaction not found');
-    }
-    
-    const tx = transaction[0];
-    
-    // Get user's total transaction stats
-    const [userStats] = await connection.query(
-      `SELECT 
+        [transactionId]
+      );
+
+      if (!transaction.length) {
+        throw new Error('Transaction not found');
+      }
+
+      const tx = transaction[0];
+
+      // Get user's total transaction stats
+      const [userStats] = await connection.query(
+        `SELECT 
         COUNT(*) as total_transactions,
         SUM(CASE WHEN type = 'deposit' AND status = 'completed' THEN amount ELSE 0 END) as total_deposits,
         SUM(CASE WHEN type = 'withdrawal' AND status = 'completed' THEN amount ELSE 0 END) as total_withdrawals
        FROM transactions 
        WHERE user_id = UUID_TO_BIN(?)`,
-      [tx.user_uuid]
-    );
-    
-    // Get refund history for this transaction
-    const [refunds] = await connection.query(
-      `SELECT 
+        [tx.user_uuid]
+      );
+
+      // Get refund history for this transaction
+      const [refunds] = await connection.query(
+        `SELECT 
         BIN_TO_UUID(r.id) as refund_id,
         r.amount,
         r.currency,
@@ -1065,12 +1020,12 @@ async getTransactionDetails(transactionId) {
        FROM refunds r
        LEFT JOIN users u ON r.admin_id = u.id
        WHERE r.transaction_id = UUID_TO_BIN(?)`,
-      [transactionId]
-    );
-    
-    // Get internal notes for this transaction
-    const [notes] = await connection.query(
-      `SELECT 
+        [transactionId]
+      );
+
+      // Get internal notes for this transaction
+      const [notes] = await connection.query(
+        `SELECT 
         BIN_TO_UUID(id) as note_id,
         content,
         created_at,
@@ -1081,68 +1036,68 @@ async getTransactionDetails(transactionId) {
        JOIN users u ON transaction_notes.admin_id = u.id
        WHERE transaction_id = UUID_TO_BIN(?)
        ORDER BY created_at DESC`,
-      [transactionId]
-    );
-    
-    // Parse payment metadata
-    let paymentMetadata = {};
-    try {
-      if (tx.payment_metadata) {
-        paymentMetadata = JSON.parse(tx.payment_metadata);
+        [transactionId]
+      );
+
+      // Parse payment metadata
+      let paymentMetadata = {};
+      try {
+        if (tx.payment_metadata) {
+          paymentMetadata = JSON.parse(tx.payment_metadata);
+        }
+      } catch (e) {
+        paymentMetadata = {};
       }
-    } catch (e) {
-      paymentMetadata = {};
+
+      // Calculate processing fee if not already stored
+      const processingFee = tx.processing_fee || (tx.amount * 0.029 + 0.30); // Example: 2.9% + £0.30
+      const netAmount = tx.net_amount || (tx.amount - processingFee);
+
+      return {
+        transaction: {
+          id: `TXN-${tx.id.substring(0, 8).toUpperCase()}`,
+          transaction_amount: parseFloat(tx.amount),
+          currency: tx.currency || 'GBP',
+          type: tx.type,
+          status: tx.status,
+          created_at: tx.created_at,
+          completed_at: tx.completed_at,
+          gateway: tx.gateway,
+          gateway_reference: tx.gateway_reference,
+          description: tx.description
+        },
+        user_information: {
+          full_name: `${tx.first_name} ${tx.last_name}`,
+          email_address: tx.user_email,
+          user_id: `USR-${tx.user_uuid.substring(0, 8).toUpperCase()}`,
+          account_status: tx.user_status === 'active' ? 'Active & Verified' : tx.user_status,
+          join_date: tx.user_created_at,
+          total_transactions: userStats[0]?.total_transactions || 0,
+          total_deposits: userStats[0]?.total_deposits || 0,
+          total_withdrawals: userStats[0]?.total_withdrawals || 0
+        },
+        payment_details: {
+          payment_method: tx.payment_method_display || `${tx.card_brand || 'Card'} ending in ${tx.last_four || '****'}`,
+          processing_fee: processingFee,
+          fee_percentage: ((processingFee / tx.amount) * 100).toFixed(1),
+          card_holder: `${tx.first_name} ${tx.last_name}`,
+          net_amount: netAmount,
+          expiry: tx.expiry_month && tx.expiry_year ? `${tx.expiry_month}/${tx.expiry_year}` : null
+        },
+        refund_history: refunds,
+        internal_notes: notes,
+        available_actions: {
+          can_refund: tx.status === 'completed' && ['deposit', 'competition_entry'].includes(tx.type),
+          can_download_receipt: true,
+          can_email_user: true,
+          can_add_note: true,
+          can_view_user: true
+        }
+      };
+    } finally {
+      connection.release();
     }
-    
-    // Calculate processing fee if not already stored
-    const processingFee = tx.processing_fee || (tx.amount * 0.029 + 0.30); // Example: 2.9% + £0.30
-    const netAmount = tx.net_amount || (tx.amount - processingFee);
-    
-    return {
-      transaction: {
-        id: `TXN-${tx.id.substring(0, 8).toUpperCase()}`,
-        transaction_amount: parseFloat(tx.amount),
-        currency: tx.currency || 'GBP',
-        type: tx.type,
-        status: tx.status,
-        created_at: tx.created_at,
-        completed_at: tx.completed_at,
-        gateway: tx.gateway,
-        gateway_reference: tx.gateway_reference,
-        description: tx.description
-      },
-      user_information: {
-        full_name: `${tx.first_name} ${tx.last_name}`,
-        email_address: tx.user_email,
-        user_id: `USR-${tx.user_uuid.substring(0, 8).toUpperCase()}`,
-        account_status: tx.user_status === 'active' ? 'Active & Verified' : tx.user_status,
-        join_date: tx.user_created_at,
-        total_transactions: userStats[0]?.total_transactions || 0,
-        total_deposits: userStats[0]?.total_deposits || 0,
-        total_withdrawals: userStats[0]?.total_withdrawals || 0
-      },
-      payment_details: {
-        payment_method: tx.payment_method_display || `${tx.card_brand || 'Card'} ending in ${tx.last_four || '****'}`,
-        processing_fee: processingFee,
-        fee_percentage: ((processingFee / tx.amount) * 100).toFixed(1),
-        card_holder: `${tx.first_name} ${tx.last_name}`,
-        net_amount: netAmount,
-        expiry: tx.expiry_month && tx.expiry_year ? `${tx.expiry_month}/${tx.expiry_year}` : null
-      },
-      refund_history: refunds,
-      internal_notes: notes,
-      available_actions: {
-        can_refund: tx.status === 'completed' && ['deposit', 'competition_entry'].includes(tx.type),
-        can_download_receipt: true,
-        can_email_user: true,
-        can_add_note: true,
-        can_view_user: true
-      }
-    };
-  } finally {
-    connection.release();
   }
-}
   // ==================== PAYMENT REQUESTS ====================
   async getUserPaymentRequests(userId, limit = 50, offset = 0) {
     const connection = await pool.getConnection();
@@ -1165,12 +1120,12 @@ async getTransactionDetails(transactionId) {
          LIMIT ? OFFSET ?`,
         [userId, limit, offset]
       );
-      
+
       const [total] = await connection.query(
         `SELECT COUNT(*) as total FROM payment_requests pr WHERE pr.user_id = UUID_TO_BIN(?)`,
         [userId]
       );
-      
+
       return {
         requests,
         pagination: {
@@ -1211,14 +1166,14 @@ async getTransactionDetails(transactionId) {
          WHERE pr.id = UUID_TO_BIN(?) AND pr.user_id = UUID_TO_BIN(?)`,
         [requestId, userId]
       );
-      
+
       if (!request.length) throw new Error('Payment request not found');
-      
+
       const result = request[0];
       if (result.gateway_response) {
         result.gateway_response = JSON.parse(result.gateway_response);
       }
-      
+
       return result;
     } finally {
       connection.release();
@@ -1246,44 +1201,44 @@ async getTransactionDetails(transactionId) {
          FROM payment_requests pr
          JOIN users u ON pr.user_id = u.id
          WHERE 1=1`;
-      
+
       const queryParams = [];
-      
+
       if (filters.type) {
         query += ` AND pr.type = ?`;
         queryParams.push(filters.type);
       }
-      
+
       if (filters.status) {
         query += ` AND pr.status = ?`;
         queryParams.push(filters.status);
       }
-      
+
       if (filters.gateway) {
         query += ` AND pr.gateway = ?`;
         queryParams.push(filters.gateway);
       }
-      
+
       if (filters.startDate) {
         query += ` AND pr.created_at >= ?`;
         queryParams.push(filters.startDate);
       }
-      
+
       if (filters.endDate) {
         query += ` AND pr.created_at <= ?`;
         queryParams.push(filters.endDate);
       }
-      
+
       query += ` ORDER BY pr.created_at DESC LIMIT ? OFFSET ?`;
       queryParams.push(limit, offset);
-      
+
       const [requests] = await connection.query(query, queryParams);
-      
+
       const [total] = await connection.query(
         `SELECT COUNT(*) as total FROM payment_requests pr WHERE 1=1`,
         queryParams.slice(0, -2)
       );
-      
+
       return {
         requests,
         pagination: {
@@ -1301,13 +1256,13 @@ async getTransactionDetails(transactionId) {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      
+
       const [request] = await connection.query(
         `SELECT * FROM payment_requests 
          WHERE id = UUID_TO_BIN(?) AND status = 'PENDING' AND requires_admin_approval = TRUE`,
         [requestId]
       );
-      
+
       if (!request.length) throw new Error('Payment request not found or already processed');
 
       await connection.query(
@@ -1337,8 +1292,8 @@ async getTransactionDetails(transactionId) {
         `INSERT INTO admin_activities 
          (id, admin_id, action, module, details)
          VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)`,
-        [adminId, 'APPROVE_PAYMENT_REQUEST', 'PAYMENT', 
-         JSON.stringify({ request_id: requestId, notes })]
+        [adminId, 'APPROVE_PAYMENT_REQUEST', 'PAYMENT',
+          JSON.stringify({ request_id: requestId, notes })]
       );
 
       await connection.commit();
@@ -1355,13 +1310,13 @@ async getTransactionDetails(transactionId) {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      
+
       const [request] = await connection.query(
         `SELECT * FROM payment_requests 
          WHERE id = UUID_TO_BIN(?) AND status = 'PENDING'`,
         [requestId]
       );
-      
+
       if (!request.length) throw new Error('Payment request not found or already processed');
 
       await connection.query(
@@ -1424,8 +1379,8 @@ async getTransactionDetails(transactionId) {
         `INSERT INTO admin_activities 
          (id, admin_id, action, module, details)
          VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)`,
-        [adminId, 'REJECT_PAYMENT_REQUEST', 'PAYMENT', 
-         JSON.stringify({ request_id: requestId, reason })]
+        [adminId, 'REJECT_PAYMENT_REQUEST', 'PAYMENT',
+          JSON.stringify({ request_id: requestId, reason })]
       );
 
       await connection.commit();
@@ -1442,13 +1397,13 @@ async getTransactionDetails(transactionId) {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      
+
       const [request] = await connection.query(
         `SELECT * FROM payment_requests 
          WHERE id = UUID_TO_BIN(?) AND status IN ('PENDING', 'APPROVED')`,
         [requestId]
       );
-      
+
       if (!request.length) throw new Error('Payment request not found or already completed');
 
       await connection.query(
@@ -1522,8 +1477,8 @@ async getTransactionDetails(transactionId) {
         `INSERT INTO admin_activities 
          (id, admin_id, action, module, details)
          VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)`,
-        [adminId, 'COMPLETE_PAYMENT_REQUEST', 'PAYMENT', 
-         JSON.stringify({ request_id: requestId, gateway_reference: gatewayReference })]
+        [adminId, 'COMPLETE_PAYMENT_REQUEST', 'PAYMENT',
+          JSON.stringify({ request_id: requestId, gateway_reference: gatewayReference })]
       );
 
       await connection.commit();
@@ -1557,44 +1512,44 @@ async getTransactionDetails(transactionId) {
          FROM transactions t
          JOIN users u ON t.user_id = u.id
          WHERE 1=1`;
-      
+
       const queryParams = [];
-      
+
       if (filters.type) {
         query += ` AND t.type = ?`;
         queryParams.push(filters.type);
       }
-      
+
       if (filters.status) {
         query += ` AND t.status = ?`;
         queryParams.push(filters.status);
       }
-      
+
       if (filters.gateway) {
         query += ` AND t.gateway = ?`;
         queryParams.push(filters.gateway);
       }
-      
+
       if (filters.startDate) {
         query += ` AND t.created_at >= ?`;
         queryParams.push(filters.startDate);
       }
-      
+
       if (filters.endDate) {
         query += ` AND t.created_at <= ?`;
         queryParams.push(filters.endDate);
       }
-      
+
       query += ` ORDER BY t.created_at DESC LIMIT ? OFFSET ?`;
       queryParams.push(limit, offset);
-      
+
       const [transactions] = await connection.query(query, queryParams);
-      
+
       const [total] = await connection.query(
         `SELECT COUNT(*) as total FROM transactions t WHERE 1=1`,
         queryParams.slice(0, -2)
       );
-      
+
       return {
         transactions,
         pagination: {
@@ -1663,182 +1618,182 @@ async getTransactionDetails(transactionId) {
       connection.release();
     }
   }
-// Add to paymentService.js
-async getTransactionAnalytics(period = 'this_week', startDate = null, endDate = null) {
-  const connection = await pool.getConnection();
-  try {
-    // Calculate date ranges based on period
-    let dateRange = this.calculateDateRange(period, startDate, endDate);
-    
-    // Get total deposits
-    const [deposits] = await connection.query(
-      `SELECT 
+  // Add to paymentService.js
+  async getTransactionAnalytics(period = 'this_week', startDate = null, endDate = null) {
+    const connection = await pool.getConnection();
+    try {
+      // Calculate date ranges based on period
+      let dateRange = this.calculateDateRange(period, startDate, endDate);
+
+      // Get total deposits
+      const [deposits] = await connection.query(
+        `SELECT 
         COALESCE(SUM(amount), 0) as total_amount,
         COUNT(*) as count
        FROM transactions 
        WHERE type = 'deposit' 
          AND status = 'completed'
          AND created_at BETWEEN ? AND ?`,
-      [dateRange.start, dateRange.end]
-    );
-    
-    // Get total withdrawals
-    const [withdrawals] = await connection.query(
-      `SELECT 
+        [dateRange.start, dateRange.end]
+      );
+
+      // Get total withdrawals
+      const [withdrawals] = await connection.query(
+        `SELECT 
         COALESCE(SUM(amount), 0) as total_amount,
         COUNT(*) as count
        FROM transactions 
        WHERE type = 'withdrawal' 
          AND status = 'completed'
          AND created_at BETWEEN ? AND ?`,
-      [dateRange.start, dateRange.end]
-    );
-    
-    // Get competition entries (assuming you have a competition_entries table)
-    const [competitions] = await connection.query(
-      `SELECT 
+        [dateRange.start, dateRange.end]
+      );
+
+      // Get competition entries (assuming you have a competition_entries table)
+      const [competitions] = await connection.query(
+        `SELECT 
         COALESCE(SUM(amount), 0) as total_amount,
         COUNT(*) as count
        FROM transactions 
        WHERE type = 'competition_entry' 
          AND status = 'completed'
          AND created_at BETWEEN ? AND ?`,
-      [dateRange.start, dateRange.end]
-    );
-    
-    // Get pending withdrawals
-    const [pendingWithdrawals] = await connection.query(
-      `SELECT 
+        [dateRange.start, dateRange.end]
+      );
+
+      // Get pending withdrawals
+      const [pendingWithdrawals] = await connection.query(
+        `SELECT 
         COALESCE(SUM(amount), 0) as total_amount,
         COUNT(*) as count
        FROM transactions 
        WHERE type = 'withdrawal' 
          AND status = 'pending'
          AND created_at BETWEEN ? AND ?`,
-      [dateRange.start, dateRange.end]
-    );
-    
-    // Get today's activity
-    const today = new Date();
-    const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-    const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
-    
-    const [todayActivity] = await connection.query(
-      `SELECT 
+        [dateRange.start, dateRange.end]
+      );
+
+      // Get today's activity
+      const today = new Date();
+      const todayStart = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+      const todayEnd = new Date(today.getFullYear(), today.getMonth(), today.getDate() + 1);
+
+      const [todayActivity] = await connection.query(
+        `SELECT 
         COALESCE(SUM(amount), 0) as total_amount,
         COUNT(*) as count
        FROM transactions 
        WHERE status = 'completed'
          AND created_at BETWEEN ? AND ?`,
-      [todayStart, todayEnd]
-    );
-    
-    // Get average transaction value
-    const [avgTransaction] = await connection.query(
-      `SELECT 
+        [todayStart, todayEnd]
+      );
+
+      // Get average transaction value
+      const [avgTransaction] = await connection.query(
+        `SELECT 
         COALESCE(AVG(amount), 0) as avg_amount,
         COUNT(*) as count
        FROM transactions 
        WHERE status = 'completed'
          AND created_at BETWEEN ? AND ?`,
-      [dateRange.start, dateRange.end]
-    );
-    
-    // Calculate net revenue (deposits + competition entries - withdrawals)
-    const netRevenue = deposits[0].total_amount + competitions[0].total_amount - withdrawals[0].total_amount;
-    const profitMargin = deposits[0].total_amount > 0 ? 
-      ((netRevenue / deposits[0].total_amount) * 100).toFixed(1) : 0;
-    
-    return {
-      summary: {
-        total_deposits: {
-          amount: deposits[0].total_amount,
-          count: deposits[0].count,
-          currency: '£',
-          change_percentage: 12, // You'd need to calculate this vs previous period
-          change_label: '+12% this week',
-          trend: 'up'
-        },
-        total_withdrawals: {
-          amount: withdrawals[0].total_amount,
-          count: withdrawals[0].count,
-          currency: '£',
-          change_percentage: -5,
-          change_label: '-5% vs last week',
-          trend: 'down'
-        },
-        competition_entries: {
-          count: competitions[0].count,
-          amount: competitions[0].total_amount,
-          change_percentage: 18,
-          change_label: '+18% vs last week',
-          trend: 'up'
-        },
-        net_revenue: {
-          amount: netRevenue,
-          currency: '£',
-          profit_margin: parseFloat(profitMargin),
-          change_label: `+${profitMargin}% profit margin`,
-          trend: 'up'
-        },
-        today_activity: {
-          amount: todayActivity[0].total_amount,
-          count: todayActivity[0].count,
-          change_percentage: 8.5,
-          change_label: '+8.5% vs yesterday'
-        },
-        pending_withdrawals: {
-          count: pendingWithdrawals[0].count,
-          total_amount: pendingWithdrawals[0].total_amount,
-          label: `£${pendingWithdrawals[0].total_amount.toLocaleString()} in queue`
-        },
-        avg_transaction_value: {
-          amount: avgTransaction[0].avg_amount,
-          count: avgTransaction[0].count,
-          change_percentage: 2.3,
-          change_label: '+2.3% vs last month'
-        }
-      }
-    };
-  } finally {
-    connection.release();
-  }
-}
+        [dateRange.start, dateRange.end]
+      );
 
-calculateDateRange(period, startDate, endDate) {
-  const now = new Date();
-  let start, end = now;
-  
-  switch(period) {
-    case 'today':
-      start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-      break;
-    case 'this_week':
-      const day = now.getDay();
-      const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-      start = new Date(now.setDate(diff));
-      start.setHours(0, 0, 0, 0);
-      break;
-    case 'this_month':
-      start = new Date(now.getFullYear(), now.getMonth(), 1);
-      break;
-    case 'custom':
-      if (startDate && endDate) {
-        start = new Date(startDate);
-        end = new Date(endDate);
-      }
-      break;
-    default:
-      start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+      // Calculate net revenue (deposits + competition entries - withdrawals)
+      const netRevenue = deposits[0].total_amount + competitions[0].total_amount - withdrawals[0].total_amount;
+      const profitMargin = deposits[0].total_amount > 0 ?
+        ((netRevenue / deposits[0].total_amount) * 100).toFixed(1) : 0;
+
+      return {
+        summary: {
+          total_deposits: {
+            amount: deposits[0].total_amount,
+            count: deposits[0].count,
+            currency: '£',
+            change_percentage: 12, // You'd need to calculate this vs previous period
+            change_label: '+12% this week',
+            trend: 'up'
+          },
+          total_withdrawals: {
+            amount: withdrawals[0].total_amount,
+            count: withdrawals[0].count,
+            currency: '£',
+            change_percentage: -5,
+            change_label: '-5% vs last week',
+            trend: 'down'
+          },
+          competition_entries: {
+            count: competitions[0].count,
+            amount: competitions[0].total_amount,
+            change_percentage: 18,
+            change_label: '+18% vs last week',
+            trend: 'up'
+          },
+          net_revenue: {
+            amount: netRevenue,
+            currency: '£',
+            profit_margin: parseFloat(profitMargin),
+            change_label: `+${profitMargin}% profit margin`,
+            trend: 'up'
+          },
+          today_activity: {
+            amount: todayActivity[0].total_amount,
+            count: todayActivity[0].count,
+            change_percentage: 8.5,
+            change_label: '+8.5% vs yesterday'
+          },
+          pending_withdrawals: {
+            count: pendingWithdrawals[0].count,
+            total_amount: pendingWithdrawals[0].total_amount,
+            label: `£${pendingWithdrawals[0].total_amount.toLocaleString()} in queue`
+          },
+          avg_transaction_value: {
+            amount: avgTransaction[0].avg_amount,
+            count: avgTransaction[0].count,
+            change_percentage: 2.3,
+            change_label: '+2.3% vs last month'
+          }
+        }
+      };
+    } finally {
+      connection.release();
+    }
   }
-  
-  return { start, end };
-}
+
+  calculateDateRange(period, startDate, endDate) {
+    const now = new Date();
+    let start, end = now;
+
+    switch (period) {
+      case 'today':
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+        break;
+      case 'this_week':
+        const day = now.getDay();
+        const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+        start = new Date(now.setDate(diff));
+        start.setHours(0, 0, 0, 0);
+        break;
+      case 'this_month':
+        start = new Date(now.getFullYear(), now.getMonth(), 1);
+        break;
+      case 'custom':
+        if (startDate && endDate) {
+          start = new Date(startDate);
+          end = new Date(endDate);
+        }
+        break;
+      default:
+        start = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 7);
+    }
+
+    return { start, end };
+  }
   async refundTransaction(adminId, transactionId, amount, reason) {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      
+
       const [transaction] = await connection.query(
         `SELECT t.*, p.gateway, p.gateway_reference, p.amount as original_amount
          FROM transactions t
@@ -1846,7 +1801,7 @@ calculateDateRange(period, startDate, endDate) {
          WHERE t.id = UUID_TO_BIN(?) AND t.status = 'completed'`,
         [transactionId]
       );
-      
+
       if (!transaction.length) {
         throw new Error('Transaction not found or cannot be refunded');
       }
@@ -1854,7 +1809,7 @@ calculateDateRange(period, startDate, endDate) {
       const tx = transaction[0];
       const refundAmount = amount || tx.amount;
 
-      const normalizedGateway = this.ensureGatewayInitialized(tx.gateway);
+      const normalizedGateway = await this.ensureGatewayInitialized(tx.gateway);
 
       let refundResult;
       switch (normalizedGateway) {
@@ -1927,8 +1882,8 @@ calculateDateRange(period, startDate, endDate) {
         `INSERT INTO admin_activities 
          (id, admin_id, action, module, details)
          VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)`,
-        [adminId, 'PROCESS_REFUND', 'PAYMENT', 
-         JSON.stringify({ transaction_id: transactionId, amount: refundAmount, reason })]
+        [adminId, 'PROCESS_REFUND', 'PAYMENT',
+          JSON.stringify({ transaction_id: transactionId, amount: refundAmount, reason })]
       );
 
       await connection.commit();
@@ -1947,11 +1902,11 @@ calculateDateRange(period, startDate, endDate) {
   }
 
   // ==================== WITHDRAWAL MANAGEMENT ====================
-async getWithdrawalDetails(withdrawalId, userId) {
-  const connection = await pool.getConnection();
+  async getWithdrawalDetails(withdrawalId, userId) {
+    const connection = await pool.getConnection();
 
-  try {
-    let query = `
+    try {
+      let query = `
       SELECT
         BIN_TO_UUID(w.id) AS id,
         w.amount,
@@ -1969,166 +1924,166 @@ async getWithdrawalDetails(withdrawalId, userId) {
       WHERE w.user_id = UUID_TO_BIN(?)
     `;
 
-    const params = [userId];
+      const params = [userId];
 
-    // ✅ Only filter by ID if it's a real UUID
-    if (withdrawalId && withdrawalId !== 'all') {
-      query += ` AND w.id = UUID_TO_BIN(?)`;
-      params.push(withdrawalId);
+      // ✅ Only filter by ID if it's a real UUID
+      if (withdrawalId && withdrawalId !== 'all') {
+        query += ` AND w.id = UUID_TO_BIN(?)`;
+        params.push(withdrawalId);
+      }
+
+      const [rows] = await connection.query(query, params);
+      return withdrawalId === 'all' ? rows : rows[0] || [];
+
+    } finally {
+      connection.release();
     }
-
-    const [rows] = await connection.query(query, params);
-    return withdrawalId === 'all' ? rows : rows[0] || [];
-
-  } finally {
-    connection.release();
   }
-}
 
- async processWithdrawal(adminId, withdrawalId, transactionReference) {
+  async processWithdrawal(adminId, withdrawalId, transactionReference) {
     const connection = await pool.getConnection();
     try {
-        await connection.beginTransaction();
+      await connection.beginTransaction();
 
-        // Get withdrawal details
-        const [withdrawal] = await connection.query(
-            `SELECT w.*, pr.gateway, pr.amount, pr.net_amount, u.email, u.id as user_id
+      // Get withdrawal details
+      const [withdrawal] = await connection.query(
+        `SELECT w.*, pr.gateway, pr.amount, pr.net_amount, u.email, u.id as user_id
              FROM withdrawals w
              JOIN payment_requests pr ON w.payment_request_id = pr.id
              JOIN users u ON w.user_id = u.id
              WHERE w.id = UUID_TO_BIN(?) AND w.status = 'APPROVED'`,
-            [withdrawalId]
-        );
+        [withdrawalId]
+      );
 
-        if (!withdrawal.length) {
-            throw new Error('Withdrawal not found or already processed');
-        }
+      if (!withdrawal.length) {
+        throw new Error('Withdrawal not found or already processed');
+      }
 
-        const withdrawalData = withdrawal[0];
-        
-        // Parse account details
-        let accountDetails = {};
-        try {
-            accountDetails = JSON.parse(withdrawalData.account_details);
-        } catch (e) {
-            accountDetails = { error: 'Invalid account details format' };
-        }
+      const withdrawalData = withdrawal[0];
 
-        // Process via gateway
-        let gatewayResult;
-        const normalizedGateway = this.ensureGatewayInitialized(withdrawalData.gateway);
-        switch (normalizedGateway) {
-            case 'PAYPAL':
-                gatewayResult = await this.processPayPalWithdrawal(
-                    withdrawalData.email,
-                    withdrawalData.net_amount,
-                    'GBP',
-                    accountDetails
-                );
-                break;
-            case 'STRIPE':
-                gatewayResult = await this.processStripeWithdrawal(
-                    withdrawalData.net_amount,
-                    'GBP',
-                    accountDetails
-                );
-                break;
-            case 'REVOLUT':
-                gatewayResult = await this.processRevolutWithdrawal(
-                    withdrawalData.net_amount,
-                    'GBP',
-                    accountDetails
-                );
-                break;
-            case 'BANK_TRANSFER':
-                gatewayResult = await this.processBankTransferWithdrawal(
-                    withdrawalData.net_amount,
-                    'GBP',
-                    accountDetails
-                );
-                break;
-            default:
-                throw new Error('Unsupported withdrawal gateway');
-        }
+      // Parse account details
+      let accountDetails = {};
+      try {
+        accountDetails = JSON.parse(withdrawalData.account_details);
+      } catch (e) {
+        accountDetails = { error: 'Invalid account details format' };
+      }
 
-        if (!gatewayResult.success) {
-            throw new Error(`Gateway error: ${gatewayResult.error}`);
-        }
+      // Process via gateway
+      let gatewayResult;
+      const normalizedGateway = await this.ensureGatewayInitialized(withdrawalData.gateway);
+      switch (normalizedGateway) {
+        case 'PAYPAL':
+          gatewayResult = await this.processPayPalWithdrawal(
+            withdrawalData.email,
+            withdrawalData.net_amount,
+            'GBP',
+            accountDetails
+          );
+          break;
+        case 'STRIPE':
+          gatewayResult = await this.processStripeWithdrawal(
+            withdrawalData.net_amount,
+            'GBP',
+            accountDetails
+          );
+          break;
+        case 'REVOLUT':
+          gatewayResult = await this.processRevolutWithdrawal(
+            withdrawalData.net_amount,
+            'GBP',
+            accountDetails
+          );
+          break;
+        case 'BANK_TRANSFER':
+          gatewayResult = await this.processBankTransferWithdrawal(
+            withdrawalData.net_amount,
+            'GBP',
+            accountDetails
+          );
+          break;
+        default:
+          throw new Error('Unsupported withdrawal gateway');
+      }
 
-        // Update withdrawal status
-        await connection.query(
-            `UPDATE withdrawals 
+      if (!gatewayResult.success) {
+        throw new Error(`Gateway error: ${gatewayResult.error}`);
+      }
+
+      // Update withdrawal status
+      await connection.query(
+        `UPDATE withdrawals 
              SET status = 'PROCESSING', 
                  admin_id = UUID_TO_BIN(?),
                  gateway_reference = ?,
                  processing_data = ?,
                  updated_at = CURRENT_TIMESTAMP
              WHERE id = UUID_TO_BIN(?)`,
-            [
-                adminId, 
-                gatewayResult.reference || transactionReference,
-                JSON.stringify(gatewayResult),
-                withdrawalId
-            ]
-        );
+        [
+          adminId,
+          gatewayResult.reference || transactionReference,
+          JSON.stringify(gatewayResult),
+          withdrawalId
+        ]
+      );
 
-        // Update payment request
-        await connection.query(
-            `UPDATE payment_requests 
+      // Update payment request
+      await connection.query(
+        `UPDATE payment_requests 
              SET status = 'PROCESSING',
                  gateway_payment_id = ?,
                  gateway_response = ?,
                  updated_at = CURRENT_TIMESTAMP
              WHERE withdrawal_id = UUID_TO_BIN(?)`,
-            [
-                gatewayResult.reference || transactionReference,
-                JSON.stringify(gatewayResult.response || {}),
-                withdrawalId
-            ]
-        );
+        [
+          gatewayResult.reference || transactionReference,
+          JSON.stringify(gatewayResult.response || {}),
+          withdrawalId
+        ]
+      );
 
-        // Log admin activity
-        await connection.query(
-            `INSERT INTO admin_activities 
+      // Log admin activity
+      await connection.query(
+        `INSERT INTO admin_activities 
              (id, admin_id, action, module, details)
              VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)`,
-            [adminId, 'PROCESS_WITHDRAWAL', 'PAYMENT', 
-             JSON.stringify({ 
-                 withdrawal_id: withdrawalId, 
-                 amount: withdrawalData.amount,
-                 gateway: withdrawalData.gateway,
-                 reference: gatewayResult.reference 
-             })]
-        );
+        [adminId, 'PROCESS_WITHDRAWAL', 'PAYMENT',
+          JSON.stringify({
+            withdrawal_id: withdrawalId,
+            amount: withdrawalData.amount,
+            gateway: withdrawalData.gateway,
+            reference: gatewayResult.reference
+          })]
+      );
 
-        await connection.commit();
+      await connection.commit();
 
-        return {
-            success: true,
-            withdrawalId: withdrawalId,
-            reference: gatewayResult.reference,
-            status: 'PROCESSING',
-            gatewayResult: gatewayResult
-        };
+      return {
+        success: true,
+        withdrawalId: withdrawalId,
+        reference: gatewayResult.reference,
+        status: 'PROCESSING',
+        gatewayResult: gatewayResult
+      };
     } catch (error) {
-        await connection.rollback();
-        throw error;
+      await connection.rollback();
+      throw error;
     } finally {
-        connection.release();
+      connection.release();
     }
-}
+  }
 
   async rejectWithdrawal(adminId, withdrawalId, reason) {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      
+
       const [withdrawal] = await connection.query(
         `SELECT * FROM withdrawals 
          WHERE id = UUID_TO_BIN(?) AND status = 'PENDING'`,
         [withdrawalId]
       );
-      
+
       if (!withdrawal.length) {
         throw new Error('Withdrawal not found or already processed');
       }
@@ -2197,8 +2152,8 @@ async getWithdrawalDetails(withdrawalId, userId) {
         `INSERT INTO admin_activities 
          (id, admin_id, action, module, details)
          VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?)`,
-        [adminId, 'REJECT_WITHDRAWAL', 'PAYMENT', 
-         JSON.stringify({ withdrawal_id: withdrawalId, reason })]
+        [adminId, 'REJECT_WITHDRAWAL', 'PAYMENT',
+          JSON.stringify({ withdrawal_id: withdrawalId, reason })]
       );
 
       await connection.commit();
@@ -2216,7 +2171,7 @@ async getWithdrawalDetails(withdrawalId, userId) {
     const connection = await pool.getConnection();
     try {
       const reportDate = date || new Date().toISOString().split('T')[0];
-      
+
       const [deposits] = await connection.query(
         `SELECT 
           COUNT(*) as count,
@@ -2230,7 +2185,7 @@ async getWithdrawalDetails(withdrawalId, userId) {
          GROUP BY gateway`,
         [reportDate]
       );
-      
+
       const [withdrawals] = await connection.query(
         `SELECT 
           COUNT(*) as count,
@@ -2243,7 +2198,7 @@ async getWithdrawalDetails(withdrawalId, userId) {
          GROUP BY payment_method`,
         [reportDate]
       );
-      
+
       const [fees] = await connection.query(
         `SELECT 
           SUM(fee_amount) as total_fees,
@@ -2254,14 +2209,14 @@ async getWithdrawalDetails(withdrawalId, userId) {
          GROUP BY gateway`,
         [reportDate]
       );
-      
+
       const [newUsers] = await connection.query(
         `SELECT COUNT(*) as new_users 
          FROM users 
          WHERE DATE(created_at) = ?`,
         [reportDate]
       );
-      
+
       return {
         date: reportDate,
         deposits,
@@ -2280,7 +2235,7 @@ async getWithdrawalDetails(withdrawalId, userId) {
       const currentDate = new Date();
       const reportYear = year || currentDate.getFullYear();
       const reportMonth = month || currentDate.getMonth() + 1;
-      
+
       const [deposits] = await connection.query(
         `SELECT 
           DATE(created_at) as date,
@@ -2296,7 +2251,7 @@ async getWithdrawalDetails(withdrawalId, userId) {
          ORDER BY DATE(created_at)`,
         [reportYear, reportMonth]
       );
-      
+
       const [withdrawals] = await connection.query(
         `SELECT 
           DATE(created_at) as date,
@@ -2311,7 +2266,7 @@ async getWithdrawalDetails(withdrawalId, userId) {
          ORDER BY DATE(created_at)`,
         [reportYear, reportMonth]
       );
-      
+
       const [summary] = await connection.query(
         `SELECT 
           COUNT(DISTINCT user_id) as active_users,
@@ -2324,7 +2279,7 @@ async getWithdrawalDetails(withdrawalId, userId) {
          AND status = 'COMPLETED'`,
         [reportYear, reportMonth]
       );
-      
+
       return {
         year: reportYear,
         month: reportMonth,
@@ -2342,10 +2297,10 @@ async getWithdrawalDetails(withdrawalId, userId) {
     try {
       const thirtyDaysAgo = new Date();
       thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
-      
+
       const reportStartDate = startDate || thirtyDaysAgo.toISOString().split('T')[0];
       const reportEndDate = endDate || new Date().toISOString().split('T')[0];
-      
+
       const [gatewayStats] = await connection.query(
         `SELECT 
           pr.gateway,
@@ -2364,7 +2319,7 @@ async getWithdrawalDetails(withdrawalId, userId) {
          ORDER BY deposit_amount DESC`,
         [`${reportStartDate} 00:00:00`, `${reportEndDate} 23:59:59`]
       );
-      
+
       const [successRates] = await connection.query(
         `SELECT 
           gateway,
@@ -2377,7 +2332,7 @@ async getWithdrawalDetails(withdrawalId, userId) {
          GROUP BY gateway`,
         [`${reportStartDate} 00:00:00`, `${reportEndDate} 23:59:59`]
       );
-      
+
       return {
         period: {
           start_date: reportStartDate,
@@ -2392,40 +2347,40 @@ async getWithdrawalDetails(withdrawalId, userId) {
   }
 
   // ==================== SUPERADMIN ROUTES ====================
-async getGatewayConfigurations() {
-  const connection = await pool.getConnection();
+  async getGatewayConfigurations() {
+    const connection = await pool.getConnection();
 
-  const parseCountries = (value) => {
-    if (!value) return [];
+    const parseCountries = (value) => {
+      if (!value) return [];
 
-    // Already an array (some drivers return JSON as objects)
-    if (Array.isArray(value)) return value;
+      // Already an array (some drivers return JSON as objects)
+      if (Array.isArray(value)) return value;
 
-    if (typeof value === 'string') {
-      const trimmed = value.trim();
+      if (typeof value === 'string') {
+        const trimmed = value.trim();
 
-      // JSON array string
-      if (trimmed.startsWith('[')) {
-        try {
-          return JSON.parse(trimmed);
-        } catch {
-          return [];
+        // JSON array string
+        if (trimmed.startsWith('[')) {
+          try {
+            return JSON.parse(trimmed);
+          } catch {
+            return [];
+          }
         }
+
+        // CSV fallback: "GB,US,CA,AU"
+        return trimmed
+          .split(',')
+          .map(v => v.trim())
+          .filter(Boolean);
       }
 
-      // CSV fallback: "GB,US,CA,AU"
-      return trimmed
-        .split(',')
-        .map(v => v.trim())
-        .filter(Boolean);
-    }
+      return [];
+    };
 
-    return [];
-  };
-
-  try {
-    const [configs] = await connection.query(
-      `SELECT 
+    try {
+      const [configs] = await connection.query(
+        `SELECT 
         BIN_TO_UUID(id) AS id,
         gateway,
         environment,
@@ -2449,29 +2404,29 @@ async getGatewayConfigurations() {
         updated_at
        FROM payment_gateway_settings
        ORDER BY gateway, environment`
-    );
+      );
 
-    return configs.map(config => ({
-      ...config,
-      allowed_countries: parseCountries(config.allowed_countries),
-      restricted_countries: parseCountries(config.restricted_countries)
-    }));
-  } finally {
-    connection.release();
+      return configs.map(config => ({
+        ...config,
+        allowed_countries: parseCountries(config.allowed_countries),
+        restricted_countries: parseCountries(config.restricted_countries)
+      }));
+    } finally {
+      connection.release();
+    }
   }
-}
 
 
   async updateGatewayConfiguration(configData) {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      
+
       const { id, ...updateData } = configData;
-      
+
       const updateFields = [];
       const updateValues = [];
-      
+
       Object.keys(updateData).forEach(key => {
         if (key === 'allowed_countries' || key === 'restricted_countries') {
           updateFields.push(`${key} = ?`);
@@ -2481,27 +2436,27 @@ async getGatewayConfigurations() {
           updateValues.push(updateData[key]);
         }
       });
-      
+
       updateValues.push(id);
-      
+
       const [result] = await connection.query(
         `UPDATE payment_gateway_settings 
          SET ${updateFields.join(', ')}, updated_at = CURRENT_TIMESTAMP
          WHERE id = UUID_TO_BIN(?)`,
         updateValues
       );
-      
+
       if (result.affectedRows === 0) {
         throw new Error('Gateway configuration not found');
       }
-      
+
       await connection.commit();
-      
+
       const [updatedConfig] = await connection.query(
         `SELECT * FROM payment_gateway_settings WHERE id = UUID_TO_BIN(?)`,
         [id]
       );
-      
+
       return updatedConfig[0];
     } catch (error) {
       await connection.rollback();
@@ -2519,14 +2474,14 @@ async getGatewayConfigurations() {
          WHERE gateway = ? AND environment = ?`,
         [gateway, environment]
       );
-      
+
       if (!config.length) {
         throw new Error('Gateway configuration not found');
       }
-      
+
       const gatewayConfig = config[0];
       let testResult;
-      
+
       switch (gateway.toUpperCase()) {
         case 'STRIPE':
           testResult = await this.testStripeConnection(gatewayConfig.secret_key);
@@ -2540,14 +2495,14 @@ async getGatewayConfigurations() {
         default:
           throw new Error('Unsupported gateway for testing');
       }
-      
+
       await connection.query(
         `UPDATE payment_gateway_settings 
          SET last_test_status = ?, last_test_at = CURRENT_TIMESTAMP
          WHERE id = UUID_TO_BIN(?)`,
         [testResult.success ? 'SUCCESS' : 'FAILED', gatewayConfig.id]
       );
-      
+
       return testResult;
     } catch (error) {
       throw error;
@@ -2579,10 +2534,10 @@ async getGatewayConfigurations() {
 
   async testPayPalConnection(clientId, clientSecret, environment) {
     try {
-      const env = environment === 'LIVE' 
+      const env = environment === 'LIVE'
         ? new paypal.core.LiveEnvironment(clientId, clientSecret)
         : new paypal.core.SandboxEnvironment(clientId, clientSecret);
-      
+
       const client = new paypal.core.PayPalHttpClient(env);
       const request = new paypal.orders.OrdersCreateRequest();
       request.requestBody({
@@ -2594,7 +2549,7 @@ async getGatewayConfigurations() {
           }
         }]
       });
-      
+
       await client.execute(request);
       return {
         success: true,
@@ -2611,17 +2566,17 @@ async getGatewayConfigurations() {
 
   async testRevolutConnection(apiKey, environment) {
     try {
-      const baseURL = environment === 'LIVE' 
-        ? 'https://b2b.revolut.com/api/1.0' 
+      const baseURL = environment === 'LIVE'
+        ? 'https://b2b.revolut.com/api/1.0'
         : 'https://sandbox-b2b.revolut.com/api/1.0';
-      
+
       const response = await axios.get(`${baseURL}/accounts`, {
         headers: {
           'Authorization': `Bearer ${apiKey}`,
           'Content-Type': 'application/json'
         }
       });
-      
+
       return {
         success: true,
         message: 'Revolut connection successful',
@@ -2652,7 +2607,7 @@ async getGatewayConfigurations() {
          FROM payment_system_settings
          ORDER BY setting_key`
       );
-      
+
       const formattedSettings = {};
       settings.forEach(setting => {
         formattedSettings[setting.setting_key] = {
@@ -2660,7 +2615,7 @@ async getGatewayConfigurations() {
           setting_value: this.parseSettingValue(setting.setting_value, setting.setting_type)
         };
       });
-      
+
       return formattedSettings;
     } finally {
       connection.release();
@@ -2694,13 +2649,13 @@ async getGatewayConfigurations() {
     const connection = await pool.getConnection();
     try {
       await connection.beginTransaction();
-      
+
       for (const [key, value] of Object.entries(settings)) {
         const [setting] = await connection.query(
           `SELECT setting_type FROM payment_system_settings WHERE setting_key = ?`,
           [key]
         );
-        
+
         if (setting.length) {
           let formattedValue = value;
           if (setting[0].setting_type === 'JSON' || setting[0].setting_type === 'ARRAY') {
@@ -2708,7 +2663,7 @@ async getGatewayConfigurations() {
           } else if (setting[0].setting_type === 'BOOLEAN') {
             formattedValue = value ? 'true' : 'false';
           }
-          
+
           await connection.query(
             `UPDATE payment_system_settings 
              SET setting_value = ?, updated_at = CURRENT_TIMESTAMP
@@ -2717,7 +2672,7 @@ async getGatewayConfigurations() {
           );
         }
       }
-      
+
       await connection.commit();
       return { success: true, message: 'Payment settings updated successfully' };
     } catch (error) {
@@ -2813,9 +2768,8 @@ async getGatewayConfigurations() {
 
   // ==================== PRIVATE METHODS ====================
   async createPayPalDeposit(email, amount, currency, returnUrl, cancelUrl, requestId) {
-    if (!this.paypalClient) {
-      throw new Error('PayPal is not configured');
-    }
+    await paymentGatewayService.validateGatewayAvailability('PAYPAL');
+    const paypalClient = paymentGatewayService.getPayPal();
 
     try {
       const request = new paypal.orders.OrdersCreateRequest();
@@ -2840,8 +2794,8 @@ async getGatewayConfigurations() {
         }
       });
 
-      const order = await this.paypalClient.execute(request);
-      
+      const order = await paypalClient.execute(request);
+
       let checkoutUrl = '';
       for (const link of order.result.links) {
         if (link.rel === "approve") {
@@ -2866,12 +2820,11 @@ async getGatewayConfigurations() {
   }
 
   async createStripeDeposit(email, amount, currency, requestId, paymentMethodId = null) {
-    if (!this.stripe) {
-      throw new Error('Stripe is not configured');
-    }
+    await paymentGatewayService.validateGatewayAvailability('STRIPE');
+    const stripe = paymentGatewayService.getStripe();
 
     try {
-      const customer = await this.stripe.customers.create({
+      const customer = await stripe.customers.create({
         email: email,
         metadata: {
           user_id: requestId,
@@ -2880,9 +2833,9 @@ async getGatewayConfigurations() {
       });
 
       let paymentIntent;
-      
+
       if (paymentMethodId) {
-        paymentIntent = await this.stripe.paymentIntents.create({
+        paymentIntent = await stripe.paymentIntents.create({
           amount: Math.round(amount * 100),
           currency: currency.toLowerCase(),
           customer: customer.id,
@@ -2895,7 +2848,7 @@ async getGatewayConfigurations() {
           }
         });
       } else {
-        paymentIntent = await this.stripe.paymentIntents.create({
+        paymentIntent = await stripe.paymentIntents.create({
           amount: Math.round(amount * 100),
           currency: currency.toLowerCase(),
           customer: customer.id,
@@ -2920,12 +2873,11 @@ async getGatewayConfigurations() {
   }
 
   async createRevolutDeposit(amount, currency, requestId) {
-    if (!this.revolutApi) {
-      throw new Error('Revolut is not configured');
-    }
+    await paymentGatewayService.validateGatewayAvailability('REVOLUT');
+    const revolutApi = paymentGatewayService.getRevolut();
 
     try {
-      const order = await this.revolutApi.post('/orders', {
+      const order = await revolutApi.post('/orders', {
         amount: Math.round(amount * 100),
         currency: currency,
         description: `Deposit to Community Fortune - Request ${requestId}`,
@@ -2946,457 +2898,447 @@ async getGatewayConfigurations() {
     }
   }
 
-async processPayPalWithdrawal(email, amount, currency, accountDetails) {
-    if (!this.paypalClient) {
-        return { success: false, error: 'PayPal is not configured' };
-    }
+  async processPayPalWithdrawal(email, amount, currency, accountDetails) {
+    await paymentGatewayService.validateGatewayAvailability('PAYPAL');
+    const paypalClient = paymentGatewayService.getPayPal();
 
     try {
-        // For PayPal, accountDetails should contain:
-        // - receiver_email (PayPal email)
-        // - receiver_id (Optional: PayPal Payer ID)
-        // - note (Optional: Payment note)
-        
-        if (!accountDetails.receiver_email) {
-            return { success: false, error: 'PayPal email is required' };
-        }
+      // For PayPal, accountDetails should contain:
+      // - receiver_email (PayPal email)
+      // - receiver_id (Optional: PayPal Payer ID)
+      // - note (Optional: Payment note)
 
-        // Check if it's a business or personal account
-        const isBusinessAccount = accountDetails.receiver_email.includes('@business.paypal.com') || 
-                                 accountDetails.receiver_email.endsWith('@paypal.com');
-        
-        if (isBusinessAccount) {
-            // Use PayPal Payouts API for business accounts
-            const request = new paypal.payouts.PayoutsPostRequest();
-            request.requestBody({
-                sender_batch_header: {
-                    sender_batch_id: `WITHDRAWAL_${Date.now()}`,
-                    email_subject: "You have a payout from Community Fortune",
-                    email_message: "You have received a withdrawal payout from Community Fortune."
-                },
-                items: [{
-                    recipient_type: "EMAIL",
-                    amount: {
-                        value: amount.toFixed(2),
-                        currency: currency
-                    },
-                    receiver: accountDetails.receiver_email,
-                    note: accountDetails.note || "Withdrawal from Community Fortune",
-                    sender_item_id: `item_${Date.now()}`
-                }]
-            });
+      if (!accountDetails.receiver_email) {
+        return { success: false, error: 'PayPal email is required' };
+      }
 
-            const payout = await this.paypalClient.execute(request);
-            
-            return {
-                success: true,
-                reference: payout.result.batch_header.payout_batch_id,
-                batch_status: payout.result.batch_header.batch_status,
-                response: payout.result
-            };
-        } else {
-            // For personal accounts, use PayPal Payments API
-            const request = new paypal.payments.PayoutsPostRequest();
-            request.requestBody({
-                sender_batch_header: {
-                    sender_batch_id: `WITHDRAWAL_${Date.now()}`,
-                    email_subject: "You have money!",
-                    email_message: "You have received a withdrawal payout from Community Fortune."
-                },
-                items: [{
-                    recipient_type: "EMAIL",
-                    amount: {
-                        value: amount.toFixed(2),
-                        currency: currency
-                    },
-                    receiver: accountDetails.receiver_email,
-                    note: accountDetails.note || "Withdrawal from Community Fortune",
-                    sender_item_id: `item_${Date.now()}`
-                }]
-            });
+      // Check if it's a business or personal account
+      const isBusinessAccount = accountDetails.receiver_email.includes('@business.paypal.com') ||
+        accountDetails.receiver_email.endsWith('@paypal.com');
 
-            const payout = await this.paypalClient.execute(request);
-            
-            return {
-                success: true,
-                reference: payout.result.batch_header.payout_batch_id,
-                batch_status: payout.result.batch_header.batch_status,
-                response: payout.result
-            };
-        }
-    } catch (error) {
-        console.error('PayPal withdrawal error:', error);
-        return {
-            success: false,
-            error: error.message,
-            details: error.response?.body || error
-        };
-    }
-}
-
-async checkPayPalPayoutStatus(payoutBatchId) {
-    if (!this.paypalClient) {
-        return { success: false, error: 'PayPal is not configured' };
-    }
-
-    try {
-        const request = new paypal.payouts.PayoutsGetRequest(payoutBatchId);
-        const payout = await this.paypalClient.execute(request);
-        
-        return {
-            success: true,
-            status: payout.result.batch_header.batch_status,
-            details: payout.result
-        };
-    } catch (error) {
-        console.error('Check PayPal payout status error:', error);
-        return {
-            success: false,
-            error: error.message
-        };
-    }
-}
-
- async processStripeWithdrawal(amount, currency, accountDetails) {
-    if (!this.stripe) {
-        return { success: false, error: 'Stripe is not configured' };
-    }
-
-    try {
-        // For Stripe, accountDetails should contain:
-        // - stripe_account_id (Connected Stripe account ID for platform payouts)
-        // OR
-        // - destination (bank account ID or card ID for customer payouts)
-        // - method: 'instant', 'standard', or 'ach' (default: 'standard')
-        
-        const method = accountDetails.method || 'standard';
-        const description = accountDetails.description || 'Withdrawal from Community Fortune';
-        
-        let payout;
-        
-        // Check if we're paying to a connected Stripe account (for platform)
-        if (accountDetails.stripe_account_id) {
-            // Payout to connected account (for marketplace/platform)
-            payout = await this.stripe.payouts.create({
-                amount: Math.round(amount * 100),
-                currency: currency.toLowerCase(),
-                method: method,
-                description: description,
-                statement_descriptor: "COMMUNITYFORTUNE",
-            }, {
-                stripeAccount: accountDetails.stripe_account_id
-            });
-        } 
-        // Check if we're paying to a customer's bank account
-        else if (accountDetails.destination) {
-            // Create transfer to customer's connected account
-            payout = await this.stripe.transfers.create({
-                amount: Math.round(amount * 100),
-                currency: currency.toLowerCase(),
-                destination: accountDetails.destination,
-                description: description,
-                metadata: {
-                    type: 'withdrawal',
-                    platform: 'Community Fortune'
-                }
-            });
-        } 
-        // Check if we need to pay to a bank account directly
-        else if (accountDetails.bank_account) {
-            // For direct bank transfers
-            payout = await this.stripe.payouts.create({
-                amount: Math.round(amount * 100),
-                currency: currency.toLowerCase(),
-                method: method,
-                destination: accountDetails.bank_account,
-                description: description,
-                metadata: {
-                    type: 'withdrawal',
-                    user_email: accountDetails.email || '',
-                    platform: 'Community Fortune'
-                }
-            });
-        }
-        // Pay to customer's default payout method
-        else {
-            // Get customer's default payout method
-            payout = await this.stripe.payouts.create({
-                amount: Math.round(amount * 100),
-                currency: currency.toLowerCase(),
-                method: method,
-                description: description,
-                metadata: {
-                    type: 'withdrawal',
-                    platform: 'Community Fortune'
-                }
-            });
-        }
-        
-        return {
-            success: true,
-            reference: payout.id,
-            status: payout.status,
-            arrival_date: payout.arrival_date ? new Date(payout.arrival_date * 1000) : null,
-            method: payout.method,
-            response: payout
-        };
-    } catch (error) {
-        console.error('Stripe withdrawal error:', error);
-        return {
-            success: false,
-            error: error.message,
-            stripe_error: error.raw ? error.raw : error
-        };
-    }
-}
-
-async createStripeConnectAccount(userId, email, country = 'GB') {
-    if (!this.stripe) {
-        return { success: false, error: 'Stripe is not configured' };
-    }
-
-    try {
-        // Create a Stripe Connect account for the user
-        const account = await this.stripe.accounts.create({
-            type: 'express', // 'standard', 'express', or 'custom'
-            country: country,
-            email: email,
-            capabilities: {
-                card_payments: { requested: true },
-                transfers: { requested: true }
+      if (isBusinessAccount) {
+        // Use PayPal Payouts API for business accounts
+        const request = new paypal.payouts.PayoutsPostRequest();
+        request.requestBody({
+          sender_batch_header: {
+            sender_batch_id: `WITHDRAWAL_${Date.now()}`,
+            email_subject: "You have a payout from Community Fortune",
+            email_message: "You have received a withdrawal payout from Community Fortune."
+          },
+          items: [{
+            recipient_type: "EMAIL",
+            amount: {
+              value: amount.toFixed(2),
+              currency: currency
             },
-            metadata: {
-                user_id: userId,
-                platform: 'Community Fortune'
-            }
+            receiver: accountDetails.receiver_email,
+            note: accountDetails.note || "Withdrawal from Community Fortune",
+            sender_item_id: `item_${Date.now()}`
+          }]
         });
-        
-        // Create account link for onboarding
-        const accountLink = await this.stripe.accountLinks.create({
-            account: account.id,
-            refresh_url: `${process.env.FRONTEND_URL}/withdrawal/setup?status=failed`,
-            return_url: `${process.env.FRONTEND_URL}/withdrawal/setup?status=success`,
-            type: 'account_onboarding'
-        });
-        
-        return {
-            success: true,
-            account_id: account.id,
-            onboarding_url: accountLink.url,
-            account: account
-        };
-    } catch (error) {
-        console.error('Create Stripe Connect account error:', error);
-        return {
-            success: false,
-            error: error.message
-        };
-    }
-}
 
-async checkStripePayoutStatus(payoutId) {
-    if (!this.stripe) {
-        return { success: false, error: 'Stripe is not configured' };
-    }
+        const payout = await paypalClient.execute(request);
 
-    try {
-        const payout = await this.stripe.payouts.retrieve(payoutId);
-        
         return {
-            success: true,
-            status: payout.status,
-            amount: payout.amount / 100,
-            currency: payout.currency,
-            arrival_date: payout.arrival_date ? new Date(payout.arrival_date * 1000) : null,
-            method: payout.method,
-            failure_code: payout.failure_code,
-            failure_message: payout.failure_message,
-            details: payout
+          success: true,
+          reference: payout.result.batch_header.payout_batch_id,
+          batch_status: payout.result.batch_header.batch_status,
+          response: payout.result
         };
-    } catch (error) {
-        console.error('Check Stripe payout status error:', error);
-        return {
-            success: false,
-            error: error.message
-        };
-    }
-}
-
-async processRevolutWithdrawal(amount, currency, accountDetails) {
-    if (!this.revolutApi) {
-        return { success: false, error: 'Revolut is not configured' };
-    }
-
-    try {
-        // For Revolut, accountDetails should contain:
-        // - counterparty_id (Revolut counterparty ID)
-        // - account_id (Revolut account ID)
-        // OR
-        // - counterparty: { name, email, phone, profile_type: 'personal'/'business' }
-        // - request_id (Optional: Custom request ID for idempotency)
-        
-        const requestId = accountDetails.request_id || `WITHDRAWAL_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-        
-        let counterpartyId = accountDetails.counterparty_id;
-        
-        // If no counterparty_id provided, check if we need to create one
-        if (!counterpartyId && accountDetails.counterparty) {
-            const counterpartyResult = await this.createRevolutCounterparty(accountDetails.counterparty);
-            if (!counterpartyResult.success) {
-                return counterpartyResult;
-            }
-            counterpartyId = counterpartyResult.counterparty_id;
-        }
-        
-        if (!counterpartyId) {
-            return { success: false, error: 'Counterparty ID is required for Revolut withdrawal' };
-        }
-        
-        // Create payment/payout
-        const payment = await this.revolutApi.post('/pay', {
-            request_id: requestId,
-            account_id: accountDetails.account_id || await this.getDefaultRevolutAccountId(),
-            receiver: {
-                counterparty_id: counterpartyId,
-                account_id: accountDetails.receiver_account_id
+      } else {
+        // For personal accounts, use PayPal Payments API
+        const request = new paypal.payments.PayoutsPostRequest();
+        request.requestBody({
+          sender_batch_header: {
+            sender_batch_id: `WITHDRAWAL_${Date.now()}`,
+            email_subject: "You have money!",
+            email_message: "You have received a withdrawal payout from Community Fortune."
+          },
+          items: [{
+            recipient_type: "EMAIL",
+            amount: {
+              value: amount.toFixed(2),
+              currency: currency
             },
-            amount: Math.round(amount * 100), // Convert to cents/pence
-            currency: currency,
-            reference: accountDetails.reference || `Withdrawal from Community Fortune`,
-            schedule_for: accountDetails.schedule_for || null // For scheduled payments
+            receiver: accountDetails.receiver_email,
+            note: accountDetails.note || "Withdrawal from Community Fortune",
+            sender_item_id: `item_${Date.now()}`
+          }]
         });
-        
-        // Check if payment needs approval
-        if (payment.data.state === 'created' || payment.data.state === 'pending') {
-            // For payments that need approval
-            await this.revolutApi.post(`/pay/${payment.data.id}/approve`);
-        }
-        
+
+        const payout = await paypalClient.execute(request);
+
         return {
-            success: true,
-            reference: payment.data.id,
-            state: payment.data.state,
-            leg_id: payment.data.leg_id,
-            created_at: payment.data.created_at,
-            completed_at: payment.data.completed_at,
-            response: payment.data
+          success: true,
+          reference: payout.result.batch_header.payout_batch_id,
+          batch_status: payout.result.batch_header.batch_status,
+          response: payout.result
         };
+      }
     } catch (error) {
-        console.error('Revolut withdrawal error:', error);
-        return {
-            success: false,
-            error: error.response?.data?.message || error.message,
-            details: error.response?.data || error
-        };
+      console.error('PayPal withdrawal error:', error);
+      return {
+        success: false,
+        error: error.message,
+        details: error.response?.body || error
+      };
     }
-}
-
-async createRevolutCounterparty(counterpartyData) {
-    if (!this.revolutApi) {
-        return { success: false, error: 'Revolut is not configured' };
-    }
-
-    try {
-        // Create a new counterparty
-        const counterparty = await this.revolutApi.post('/counterparty', {
-            company_name: counterpartyData.name,
-            email: counterpartyData.email,
-            phone: counterpartyData.phone,
-            profile_type: counterpartyData.profile_type || 'personal',
-            country: counterpartyData.country || 'GB',
-            state: counterpartyData.state,
-            city: counterpartyData.city,
-            postcode: counterpartyData.postcode,
-            address_line_1: counterpartyData.address_line_1,
-            address_line_2: counterpartyData.address_line_2,
-            individual_name: {
-                first_name: counterpartyData.first_name,
-                last_name: counterpartyData.last_name
-            }
-        });
-        
-        return {
-            success: true,
-            counterparty_id: counterparty.data.id,
-            counterparty: counterparty.data
-        };
-    } catch (error) {
-        console.error('Create Revolut counterparty error:', error);
-        return {
-            success: false,
-            error: error.response?.data?.message || error.message
-        };
-    }
-}
-
-async getRevolutAccounts() {
-    if (!this.revolutApi) {
-        return { success: false, error: 'Revolut is not configured' };
-    }
-
-    try {
-        const accounts = await this.revolutApi.get('/accounts');
-        
-        // Filter for GBP accounts or find default
-        const gbpAccounts = accounts.data.filter(acc => acc.currency === 'GBP');
-        const defaultAccount = gbpAccounts.find(acc => acc.state === 'active') || accounts.data[0];
-        
-        return {
-            success: true,
-            accounts: accounts.data,
-            default_account_id: defaultAccount ? defaultAccount.id : null
-        };
-    } catch (error) {
-        console.error('Get Revolut accounts error:', error);
-        return {
-            success: false,
-            error: error.response?.data?.message || error.message
-        };
-    }
-}
-
-async getDefaultRevolutAccountId() {
-  try {
-    return await secretManager.getSecret(SECRET_KEYS.REVOLUT_DEFAULT_ACCOUNT_ID, {
-      fallbackEnvVar: 'REVOLUT_DEFAULT_ACCOUNT_ID',
-      optional: true
-    });
-  } catch (error) {
-    console.warn('Revolut default account not configured:', error.message);
-    return null;
   }
-}
 
-async checkRevolutPaymentStatus(paymentId) {
-    if (!this.revolutApi) {
-        return { success: false, error: 'Revolut is not configured' };
-    }
+  async checkPayPalPayoutStatus(payoutBatchId) {
+    await paymentGatewayService.validateGatewayAvailability('PAYPAL');
+    const paypalClient = paymentGatewayService.getPayPal();
 
     try {
-        const payment = await this.revolutApi.get(`/transaction/${paymentId}`);
-        
-        return {
-            success: true,
-            state: payment.data.state,
-            amount: payment.data.amount / 100,
-            currency: payment.data.currency,
-            created_at: payment.data.created_at,
-            completed_at: payment.data.completed_at,
-            details: payment.data
-        };
+      const request = new paypal.payouts.PayoutsGetRequest(payoutBatchId);
+      const payout = await paypalClient.execute(request);
+
+      return {
+        success: true,
+        status: payout.result.batch_header.batch_status,
+        details: payout.result
+      };
     } catch (error) {
-        console.error('Check Revolut payment status error:', error);
-        return {
-            success: false,
-            error: error.response?.data?.message || error.message
-        };
+      console.error('Check PayPal payout status error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
     }
-}
+  }
+
+  async processStripeWithdrawal(amount, currency, accountDetails) {
+    await paymentGatewayService.validateGatewayAvailability('STRIPE');
+    const stripe = paymentGatewayService.getStripe();
+
+    try {
+      // For Stripe, accountDetails should contain:
+      // - stripe_account_id (Connected Stripe account ID for platform payouts)
+      // OR
+      // - destination (bank account ID or card ID for customer payouts)
+      // - method: 'instant', 'standard', or 'ach' (default: 'standard')
+
+      const method = accountDetails.method || 'standard';
+      const description = accountDetails.description || 'Withdrawal from Community Fortune';
+
+      let payout;
+
+      // Check if we're paying to a connected Stripe account (for platform)
+      if (accountDetails.stripe_account_id) {
+        // Payout to connected account (for marketplace/platform)
+        payout = await stripe.payouts.create({
+          amount: Math.round(amount * 100),
+          currency: currency.toLowerCase(),
+          method: method,
+          description: description,
+          statement_descriptor: "COMMUNITYFORTUNE",
+        }, {
+          stripeAccount: accountDetails.stripe_account_id
+        });
+      }
+      // Check if we're paying to a customer's bank account
+      else if (accountDetails.destination) {
+        // Create transfer to customer's connected account
+        payout = await stripe.transfers.create({
+          amount: Math.round(amount * 100),
+          currency: currency.toLowerCase(),
+          destination: accountDetails.destination,
+          description: description,
+          metadata: {
+            type: 'withdrawal',
+            platform: 'Community Fortune'
+          }
+        });
+      }
+      // Check if we need to pay to a bank account directly
+      else if (accountDetails.bank_account) {
+        // For direct bank transfers
+        payout = await stripe.payouts.create({
+          amount: Math.round(amount * 100),
+          currency: currency.toLowerCase(),
+          method: method,
+          destination: accountDetails.bank_account,
+          description: description,
+          metadata: {
+            type: 'withdrawal',
+            user_email: accountDetails.email || '',
+            platform: 'Community Fortune'
+          }
+        });
+      }
+      // Pay to customer's default payout method
+      else {
+        // Get customer's default payout method
+        payout = await stripe.payouts.create({
+          amount: Math.round(amount * 100),
+          currency: currency.toLowerCase(),
+          method: method,
+          description: description,
+          metadata: {
+            type: 'withdrawal',
+            platform: 'Community Fortune'
+          }
+        });
+      }
+
+      return {
+        success: true,
+        reference: payout.id,
+        status: payout.status,
+        arrival_date: payout.arrival_date ? new Date(payout.arrival_date * 1000) : null,
+        method: payout.method,
+        response: payout
+      };
+    } catch (error) {
+      console.error('Stripe withdrawal error:', error);
+      return {
+        success: false,
+        error: error.message,
+        stripe_error: error.raw ? error.raw : error
+      };
+    }
+  }
+
+  async createStripeConnectAccount(userId, email, country = 'GB') {
+    await paymentGatewayService.validateGatewayAvailability('STRIPE');
+    const stripe = paymentGatewayService.getStripe();
+
+    try {
+      // Create a Stripe Connect account for the user
+      const account = await stripe.accounts.create({
+        type: 'express', // 'standard', 'express', or 'custom'
+        country: country,
+        email: email,
+        capabilities: {
+          card_payments: { requested: true },
+          transfers: { requested: true }
+        },
+        metadata: {
+          user_id: userId,
+          platform: 'Community Fortune'
+        }
+      });
+
+      // Create account link for onboarding
+      const accountLink = await stripe.accountLinks.create({
+        account: account.id,
+        refresh_url: `${process.env.FRONTEND_URL}/withdrawal/setup?status=failed`,
+        return_url: `${process.env.FRONTEND_URL}/withdrawal/setup?status=success`,
+        type: 'account_onboarding'
+      });
+
+      return {
+        success: true,
+        account_id: account.id,
+        onboarding_url: accountLink.url,
+        account: account
+      };
+    } catch (error) {
+      console.error('Create Stripe Connect account error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async checkStripePayoutStatus(payoutId) {
+    await paymentGatewayService.validateGatewayAvailability('STRIPE');
+    const stripe = paymentGatewayService.getStripe();
+
+    try {
+      const payout = await stripe.payouts.retrieve(payoutId);
+
+      return {
+        success: true,
+        status: payout.status,
+        amount: payout.amount / 100,
+        currency: payout.currency,
+        arrival_date: payout.arrival_date ? new Date(payout.arrival_date * 1000) : null,
+        method: payout.method,
+        failure_code: payout.failure_code,
+        failure_message: payout.failure_message,
+        details: payout
+      };
+    } catch (error) {
+      console.error('Check Stripe payout status error:', error);
+      return {
+        success: false,
+        error: error.message
+      };
+    }
+  }
+
+  async processRevolutWithdrawal(amount, currency, accountDetails) {
+    await paymentGatewayService.validateGatewayAvailability('REVOLUT');
+    const revolutApi = paymentGatewayService.getRevolut();
+
+    try {
+      // For Revolut, accountDetails should contain:
+      // - counterparty_id (Revolut counterparty ID)
+      // - account_id (Revolut account ID)
+      // OR
+      // - counterparty: { name, email, phone, profile_type: 'personal'/'business' }
+      // - request_id (Optional: Custom request ID for idempotency)
+
+      const requestId = accountDetails.request_id || `WITHDRAWAL_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+      let counterpartyId = accountDetails.counterparty_id;
+
+      // If no counterparty_id provided, check if we need to create one
+      if (!counterpartyId && accountDetails.counterparty) {
+        const counterpartyResult = await this.createRevolutCounterparty(accountDetails.counterparty);
+        if (!counterpartyResult.success) {
+          return counterpartyResult;
+        }
+        counterpartyId = counterpartyResult.counterparty_id;
+      }
+
+      if (!counterpartyId) {
+        return { success: false, error: 'Counterparty ID is required for Revolut withdrawal' };
+      }
+
+      // Create payment/payout
+      const payment = await revolutApi.post('/pay', {
+        request_id: requestId,
+        account_id: accountDetails.account_id || await this.getDefaultRevolutAccountId(),
+        receiver: {
+          counterparty_id: counterpartyId,
+          account_id: accountDetails.receiver_account_id
+        },
+        amount: Math.round(amount * 100), // Convert to cents/pence
+        currency: currency,
+        reference: accountDetails.reference || `Withdrawal from Community Fortune`,
+        schedule_for: accountDetails.schedule_for || null // For scheduled payments
+      });
+
+      // Check if payment needs approval
+      if (payment.data.state === 'created' || payment.data.state === 'pending') {
+        // For payments that need approval
+        await revolutApi.post(`/pay/${payment.data.id}/approve`);
+      }
+
+      return {
+        success: true,
+        reference: payment.data.id,
+        state: payment.data.state,
+        leg_id: payment.data.leg_id,
+        created_at: payment.data.created_at,
+        completed_at: payment.data.completed_at,
+        response: payment.data
+      };
+    } catch (error) {
+      console.error('Revolut withdrawal error:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message,
+        details: error.response?.data || error
+      };
+    }
+  }
+
+  async createRevolutCounterparty(counterpartyData) {
+    await paymentGatewayService.validateGatewayAvailability('REVOLUT');
+    const revolutApi = paymentGatewayService.getRevolut();
+
+    try {
+      // Create a new counterparty
+      const counterparty = await revolutApi.post('/counterparty', {
+        company_name: counterpartyData.name,
+        email: counterpartyData.email,
+        phone: counterpartyData.phone,
+        profile_type: counterpartyData.profile_type || 'personal',
+        country: counterpartyData.country || 'GB',
+        state: counterpartyData.state,
+        city: counterpartyData.city,
+        postcode: counterpartyData.postcode,
+        address_line_1: counterpartyData.address_line_1,
+        address_line_2: counterpartyData.address_line_2,
+        individual_name: {
+          first_name: counterpartyData.first_name,
+          last_name: counterpartyData.last_name
+        }
+      });
+
+      return {
+        success: true,
+        counterparty_id: counterparty.data.id,
+        counterparty: counterparty.data
+      };
+    } catch (error) {
+      console.error('Create Revolut counterparty error:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message
+      };
+    }
+  }
+
+  async getRevolutAccounts() {
+    await paymentGatewayService.validateGatewayAvailability('REVOLUT');
+    const revolutApi = paymentGatewayService.getRevolut();
+
+    try {
+      const accounts = await revolutApi.get('/accounts');
+
+      // Filter for GBP accounts or find default
+      const gbpAccounts = accounts.data.filter(acc => acc.currency === 'GBP');
+      const defaultAccount = gbpAccounts.find(acc => acc.state === 'active') || accounts.data[0];
+
+      return {
+        success: true,
+        accounts: accounts.data,
+        default_account_id: defaultAccount ? defaultAccount.id : null
+      };
+    } catch (error) {
+      console.error('Get Revolut accounts error:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message
+      };
+    }
+  }
+
+  async getDefaultRevolutAccountId() {
+    try {
+      return await secretManager.getSecret(SECRET_KEYS.REVOLUT_DEFAULT_ACCOUNT_ID, {
+        fallbackEnvVar: 'REVOLUT_DEFAULT_ACCOUNT_ID',
+        optional: true
+      });
+    } catch (error) {
+      console.warn('Revolut default account not configured:', error.message);
+      return null;
+    }
+  }
+
+  async checkRevolutPaymentStatus(paymentId) {
+    await paymentGatewayService.validateGatewayAvailability('REVOLUT');
+    const revolutApi = paymentGatewayService.getRevolut();
+
+    try {
+      const payment = await revolutApi.get(`/transaction/${paymentId}`);
+
+      return {
+        success: true,
+        state: payment.data.state,
+        amount: payment.data.amount / 100,
+        currency: payment.data.currency,
+        created_at: payment.data.created_at,
+        completed_at: payment.data.completed_at,
+        details: payment.data
+      };
+    } catch (error) {
+      console.error('Check Revolut payment status error:', error);
+      return {
+        success: false,
+        error: error.response?.data?.message || error.message
+      };
+    }
+  }
 
   async refundPayPalPayment(paymentId, amount) {
-    if (!this.paypalClient) {
-      return { success: false, error: 'PayPal is not configured' };
-    }
+    await paymentGatewayService.validateGatewayAvailability('PAYPAL');
+    const paypalClient = paymentGatewayService.getPayPal();
 
     try {
       const request = new paypal.payments.CapturesRefundRequest(paymentId);
@@ -3407,7 +3349,7 @@ async checkRevolutPaymentStatus(paymentId) {
         }
       });
 
-      const refund = await this.paypalClient.execute(request);
+      const refund = await paypalClient.execute(request);
       return {
         success: true,
         refundId: refund.result.id
@@ -3421,12 +3363,11 @@ async checkRevolutPaymentStatus(paymentId) {
   }
 
   async refundStripePayment(paymentId, amount) {
-    if (!this.stripe) {
-      return { success: false, error: 'Stripe is not configured' };
-    }
+    await paymentGatewayService.validateGatewayAvailability('STRIPE');
+    const stripe = paymentGatewayService.getStripe();
 
     try {
-      const refund = await this.stripe.refunds.create({
+      const refund = await stripe.refunds.create({
         payment_intent: paymentId,
         amount: Math.round(amount * 100)
       });
