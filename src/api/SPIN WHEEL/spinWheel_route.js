@@ -363,13 +363,13 @@ spinWheelRouter.get(
 
 spinWheelRouter.get(
   "/admin/get_wheels_byId/:wheel_id",
-  authenticate(["ADMIN","SUPERADMIN"]),
+  authenticate(["ADMIN","SUPERADMIN","USER"]),
   SpinWheelController.getWheel
 );
 
 spinWheelRouter.put(
   "/admin/update_wheels/:wheel_id",
-  authenticate(["ADMIN"]),
+  authenticate(["ADMIN","SUPERADMIN"]),
   spinWheelBackgroundUpload,
   validateUploadedFiles,
   handleUploadError,
