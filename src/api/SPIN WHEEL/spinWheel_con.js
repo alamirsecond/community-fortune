@@ -19,6 +19,11 @@ const normalizeWheelBody = (body) => ({
   name: body.name,
   type: body.type,
   description: body.description,
+  rules: body.rules,
+  ticket_price:
+    body.ticket_price !== undefined
+      ? parseFloat(body.ticket_price)
+      : undefined,
   min_tier: body.min_tier,
   spins_per_user_period: body.spins_per_user_period,
   max_spins_per_period: safeParseInt(body.max_spins_per_period),
@@ -45,7 +50,6 @@ class SpinWheelController {
 
       const { wheel_id, competition_id } = validationResult.data;
       const user_id = req.user.id;
-      // const user_id = "66666666-7777-8888-9999-000000000000";
 
       const eligibility = await checkSpinEligibility(
         connection,
@@ -487,17 +491,19 @@ class SpinWheelController {
       await connection.query(
         `
         INSERT INTO spin_wheels (
-          id, wheel_name, wheel_type, wheel_description, min_tier,
+          id, wheel_name, wheel_type, wheel_description, rules, ticket_price, min_tier,
           spins_per_user_period, max_spins_per_period,
           cooldown_hours, background_image_url,
           animation_speed_ms, is_active
-        ) VALUES (UUID_TO_BIN(?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        ) VALUES (UUID_TO_BIN(?), ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         `,
         [
           wheelId,
           wheelData.name,
           wheelData.type,
           wheelData.description || null,
+          wheelData.rules ? JSON.stringify(wheelData.rules) : null,
+          wheelData.ticket_price || 0,
           wheelData.min_tier || null,
           wheelData.spins_per_user_period,
           wheelData.max_spins_per_period || null,
@@ -634,6 +640,8 @@ class SpinWheelController {
           sw.wheel_name,
           sw.wheel_type,
           sw.wheel_description,
+          sw.rules,
+          sw.ticket_price,
           sw.min_tier,
           sw.spins_per_user_period,
           sw.max_spins_per_period,
@@ -685,7 +693,7 @@ class SpinWheelController {
         console.error("Error parsing segments:", e);
       }
 
-      // Get wheel statistics
+      // Get wheel statistics (global)
       const [stats] = await connection.query(
         `
         SELECT 
@@ -699,12 +707,31 @@ class SpinWheelController {
         [wheel_id]
       );
 
+      // Get specific user statistics if user is authenticated
+      let userStats = null;
+      if (req.user && req.user.id) {
+        const [userSpinData] = await connection.query(
+          `
+          SELECT 
+            COUNT(sh.id) as user_total_spins,
+            MAX(sh.created_at) as user_last_spin,
+            SUM(CASE WHEN sh.prize_type != 'NO_WIN' THEN sh.prize_value ELSE 0 END) as user_total_winnings
+          FROM spin_history sh
+          WHERE sh.wheel_id = UUID_TO_BIN(?) AND sh.user_id = UUID_TO_BIN(?)
+          `,
+          [wheel_id, req.user.id]
+        );
+        userStats = userSpinData[0] || { user_total_spins: 0, user_last_spin: null, user_total_winnings: 0 };
+      }
+
       res.json({
         wheel: {
           id: wheel.id,
           wheel_name: wheel.wheel_name,
           type: wheel.wheel_type,
           description: wheel.wheel_description,
+          rules: typeof wheel.rules === 'string' ? JSON.parse(wheel.rules || '[]') : (wheel.rules || []),
+          ticket_price: wheel.ticket_price,
           min_tier: wheel.min_tier,
           spins_per_user_period: wheel.spins_per_user_period,
           max_spins_per_period: wheel.max_spins_per_period,
@@ -716,6 +743,7 @@ class SpinWheelController {
         },
         segments,
         statistics: stats[0] || {},
+        user_statistics: userStats,
         segment_count: segments.length,
       });
     } catch (error) {
@@ -761,6 +789,8 @@ class SpinWheelController {
         "wheel_name",
         "wheel_type",
         "wheel_description",
+        "rules",
+        "ticket_price",
         "min_tier",
         "spins_per_user_period",
         "max_spins_per_period",
@@ -773,7 +803,11 @@ class SpinWheelController {
       allowedFields.forEach((field) => {
         if (wheelData[field] !== undefined) {
           updates.push(`${field} = ?`);
-          params.push(wheelData[field]);
+          if (field === 'rules' && wheelData[field]) {
+            params.push(JSON.stringify(wheelData[field]));
+          } else {
+            params.push(wheelData[field]);
+          }
         }
       });
 
@@ -851,6 +885,8 @@ class SpinWheelController {
           sw.wheel_name,
           sw.wheel_type,
           sw.wheel_description,
+          sw.rules,
+          sw.ticket_price,
           sw.min_tier,
           sw.spins_per_user_period,
           sw.max_spins_per_period,
@@ -913,6 +949,7 @@ class SpinWheelController {
 
         return {
           ...wheel,
+          rules: typeof wheel.rules === 'string' ? JSON.parse(wheel.rules || '[]') : (wheel.rules || []),
           segments,
         };
       });

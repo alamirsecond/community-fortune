@@ -14,6 +14,11 @@ const spinWheelSchemas = {
     name: z.string().min(3).max(100),
     type: z.string().min(1),
     description: z.string().max(500).optional(),
+    rules: z.array(z.object({
+      title: z.string().min(1, "Rule title is required"),
+      description: z.string().optional()
+    })).optional(),
+    ticket_price: z.number().min(0).default(0),
     min_tier: z.string().min(1).optional(),
     spins_per_user_period: z.string().min(1),
     max_spins_per_period: z.number().int().positive().optional(),
@@ -27,6 +32,11 @@ const spinWheelSchemas = {
     name: z.string().min(3).max(100).optional(),
     type: z.string().min(1).optional(),
     description: z.string().max(500).optional(),
+    rules: z.array(z.object({
+      title: z.string().min(1, "Rule title is required"),
+      description: z.string().optional()
+    })).optional(),
+    ticket_price: z.number().min(0).optional(),
     min_tier: z.string().min(1).optional().nullable(),
     spins_per_user_period: z.string().min(1).optional(),
     max_spins_per_period: z.number().int().positive().optional().nullable(),
