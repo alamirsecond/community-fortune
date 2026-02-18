@@ -8,6 +8,14 @@ const spinWheelSchemas = {
   spinRequest: z.object({
     wheel_id: uuidSchema,
     competition_id: uuidSchema.optional(),
+    purchase_id: uuidSchema.optional()
+  }),
+
+  purchaseWheel: z.object({
+    quantity: z.number().int().min(1).default(1),
+    payment_method: z.enum(['PAYPAL','STRIPE','WALLET']).optional(),
+    payment_method_id: z.string().uuid().optional(),
+    use_wallet: z.boolean().optional().default(false)
   }),
 
   createWheel: z.object({

@@ -1,9 +1,10 @@
 import pool from "../../../database.js";
 import spinWheelSchemas from "./spinWheel_zod.js";
-import { addSiteCredit, addPoints } from "../../api/wallet/walletController.js";
+import { addSiteCredit, addPoints, deductFromWallet } from "../../api/wallet/walletController.js";
 import { checkSpinEligibility, updateSpinCount } from "./spinService.js";
 import SpinService from "./spinService.js";
 import TicketSystemController from "../TICKETS/tickets_con.js";
+import SubscriptionTicketService from '../Payments/SubscriptionTicketService.js';
 import { getSpinWheelFileUrl } from "../../../middleware/upload.js";
 
 const safeParseInt = (val) =>
@@ -202,6 +203,42 @@ class SpinWheelController {
       // 6. Record spin history
       console.log("Recording spin history...");
       const spinHistoryId = crypto.randomUUID();
+
+      // If a purchase_id was provided, validate and consume one unit from it
+      if (validationResult.data.purchase_id) {
+        const [purchaseRows] = await connection.query(
+          `SELECT id, user_id, quantity, status FROM purchases WHERE id = UUID_TO_BIN(?) FOR UPDATE`,
+          [validationResult.data.purchase_id]
+        );
+
+        if (!purchaseRows.length) {
+          await connection.rollback();
+          return res.status(400).json({ error: 'Invalid purchase_id' });
+        }
+
+        const purchase = purchaseRows[0];
+        if (purchase.user_id !== connection.escape(req.user.id).replace(/'/g, '')) {
+          await connection.rollback();
+          return res.status(403).json({ error: 'Purchase does not belong to user' });
+        }
+
+        if (purchase.status !== 'PAID') {
+          await connection.rollback();
+          return res.status(400).json({ error: 'Purchase not paid' });
+        }
+
+        if (!purchase.quantity || purchase.quantity < 1) {
+          await connection.rollback();
+          return res.status(400).json({ error: 'No spins remaining on this purchase' });
+        }
+
+        // consume one unit
+        await connection.query(
+          `UPDATE purchases SET quantity = quantity - 1 WHERE id = UUID_TO_BIN(?)`,
+          [validationResult.data.purchase_id]
+        );
+      }
+
       await connection.query(
         `
       INSERT INTO spin_history (
@@ -773,6 +810,141 @@ class SpinWheelController {
         error: "Failed to fetch wheel details",
         details: error.message,
       });
+    } finally {
+      connection.release();
+    }
+  }
+
+  // Purchase spins for a wheel (wallet or external gateway)
+  static async purchaseWheel(req, res) {
+    const connection = await pool.getConnection();
+    const subsSvc = new SubscriptionTicketService();
+
+    try {
+      const body = { ...req.body, quantity: req.body.quantity || 1 };
+      const validationResult = spinWheelSchemas.purchaseWheel.safeParse(body);
+      if (!validationResult.success) {
+        return res.status(400).json({ error: 'Invalid request', details: validationResult.error.errors });
+      }
+
+      const { quantity, payment_method, payment_method_id, use_wallet } = validationResult.data;
+      const { wheel_id } = req.params;
+      const user_id = req.user.id;
+
+      // Fetch wheel
+      const [wheels] = await connection.query(
+        `SELECT BIN_TO_UUID(id) as id, wheel_name, ticket_price, is_active FROM spin_wheels WHERE id = UUID_TO_BIN(?) AND is_active = TRUE`,
+        [wheel_id]
+      );
+
+      if (!wheels.length) {
+        return res.status(404).json({ error: 'Wheel not found or inactive' });
+      }
+
+      const wheel = wheels[0];
+      const pricePerSpin = parseFloat(wheel.ticket_price || 0);
+      const totalAmount = pricePerSpin * quantity;
+
+      // If price is zero — create a free purchase record and return
+      if (totalAmount === 0) {
+        const purchaseId = crypto.randomUUID();
+        await connection.query(
+          `INSERT INTO purchases (id, user_id, competition_id, status, payment_method, total_amount, quantity)
+           VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), UUID_TO_BIN(?), 'PAID', 'FREE', ?, ?)`,
+          [purchaseId, user_id, wheel_id, totalAmount, quantity]
+        );
+
+        return res.json({ success: true, purchase_id: purchaseId, paid: true, amount: totalAmount });
+      }
+
+      // Wallet-first logic (try to cover with wallet if requested)
+      let walletUsed = 0;
+      let externalPayment = totalAmount;
+
+      if (use_wallet) {
+        // Check wallets
+        const [wallets] = await connection.query(
+          `SELECT type, balance FROM wallets WHERE user_id = UUID_TO_BIN(?) AND (type = 'CASH' OR type = 'CREDIT')`,
+          [user_id]
+        );
+
+        let cashBalance = 0;
+        let creditBalance = 0;
+        wallets.forEach(w => {
+          if (w.type === 'CASH') cashBalance = w.balance;
+          if (w.type === 'CREDIT') creditBalance = w.balance;
+        });
+
+        if (creditBalance > 0) {
+          const use = Math.min(creditBalance, externalPayment);
+          walletUsed += use;
+          externalPayment -= use;
+        }
+        if (externalPayment > 0 && cashBalance > 0) {
+          const use = Math.min(cashBalance, externalPayment);
+          walletUsed += use;
+          externalPayment -= use;
+        }
+      }
+
+      const purchaseId = crypto.randomUUID();
+
+      if (externalPayment <= 0) {
+        // Covered by wallet — deduct synchronously
+        await connection.beginTransaction();
+        try {
+          if (walletUsed > 0) {
+            // Deduct from wallet(s) via helper
+            await subsSvc.deductFromWallet(user_id, walletUsed, purchaseId, `Wheel purchase: ${wheel.wheel_name}`);
+          }
+
+          await connection.query(
+            `INSERT INTO purchases (id, user_id, competition_id, status, payment_method, total_amount, quantity)
+             VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), UUID_TO_BIN(?), 'PAID', 'WALLET', ?, ?)`,
+            [purchaseId, user_id, wheel_id, totalAmount, quantity]
+          );
+
+          await connection.commit();
+
+          return res.json({ success: true, purchase_id: purchaseId, paid: true, amount: totalAmount });
+        } catch (err) {
+          await connection.rollback();
+          throw err;
+        }
+      }
+
+      // External payment required — create PENDING purchase and return gateway info
+      await connection.query(
+        `INSERT INTO purchases (id, user_id, competition_id, status, payment_method, total_amount, quantity)
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), UUID_TO_BIN(?), 'PENDING', ?, ?, ?)`,
+        [purchaseId, user_id, wheel_id, payment_method || 'EXTERNAL', totalAmount, quantity]
+      );
+
+      // Create external payment intent using existing service
+      const userEmail = await (async () => {
+        const [rows] = await connection.query(`SELECT email FROM users WHERE id = UUID_TO_BIN(?)`, [user_id]);
+        return rows[0]?.email || null;
+      })();
+
+      const paymentResult = await subsSvc.processTicketPayment(user_id, externalPayment, payment_method || 'PAYPAL', `Spin wheel purchase (${wheel.wheel_name})`, userEmail);
+
+      if (!paymentResult.success) {
+        return res.status(400).json({ success: false, error: paymentResult.error });
+      }
+
+      // Return payment instructions to client (checkoutUrl or clientSecret)
+      return res.json({
+        success: true,
+        requires_payment: true,
+        purchase_id: purchaseId,
+        amount: totalAmount,
+        external_amount: externalPayment,
+        payment: paymentResult // contains checkoutUrl / clientSecret / reference
+      });
+    } catch (error) {
+      console.error('Purchase wheel error:', error);
+      await connection.rollback().catch(() => {});
+      res.status(400).json({ error: error.message });
     } finally {
       connection.release();
     }

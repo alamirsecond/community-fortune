@@ -97,6 +97,9 @@ spinWheelRouter.get("/wheels/active", async (req, res) => {
 // User routes (require authentication)
 spinWheelRouter.post("/spin", authenticate(["USER"]), SpinWheelController.spin);
 
+// Purchase spins for paid wheels (creates purchase / payment intent)
+spinWheelRouter.post('/wheels/:wheel_id/purchase', authenticate(['USER']), SpinWheelController.purchaseWheel);
+
 spinWheelRouter.get(
   "/spin/history",
   authenticate,
