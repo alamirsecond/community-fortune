@@ -1468,7 +1468,9 @@ export const getCompetitionDetails = async (req, res) => {
         [id]
       );
       participants = rows;
-      totalParticipants = rows.length;
+      // Count unique user_ids
+      const uniqueUserIds = new Set(rows.map(r => r.user_id));
+      totalParticipants = uniqueUserIds.size;
     } catch (err) {
       console.error('❌ Error fetching participants:', err);
     }
