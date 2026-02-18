@@ -1569,30 +1569,7 @@ CREATE TABLE IF NOT EXISTS payment_requests (
     FOREIGN KEY (withdrawal_id) REFERENCES withdrawals(id) ON DELETE SET NULL,
     FOREIGN KEY (payment_method_id) REFERENCES user_payment_methods(id) ON DELETE SET NULL,
     FOREIGN KEY (retry_of) REFERENCES payment_requests(id) ON DELETE SET NULL,
-    INDEX idx_payment_requests_user (user_id),
-    INDEX idx_payment_requests_status (status),
-    INDEX idx_payment_requests_type (type)
-);
-
--- User payment methods table (missing from your schema)
-CREATE TABLE IF NOT EXISTS user_payment_methods (
-    id BINARY(16) PRIMARY KEY DEFAULT (UUID_TO_BIN(UUID())),
-    user_id BINARY(16) NOT NULL,
-    gateway VARCHAR(50) NOT NULL,
-    method_type VARCHAR(50) NOT NULL,
-    gateway_account_id VARCHAR(200),
-    display_name VARCHAR(100),
-    last_four VARCHAR(4),
-    expiry_month INT,
-    expiry_year INT,
-    card_brand VARCHAR(50),
-    bank_name VARCHAR(100),
-    account_name VARCHAR(100),
-    email VARCHAR(255),
-    is_default BOOLEAN DEFAULT FALSE,
-    is_active BOOLEAN DEFAULT TRUE,
-    metadata JSON,
-    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+spi  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP,
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_user_payment_methods_user (user_id),
