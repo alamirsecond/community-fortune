@@ -1449,6 +1449,9 @@ export const getCompetitionDetails = async (req, res) => {
     let participants = [];
     let totalParticipants = 0;
     try {
+      // Dynamically import pool for ESM compatibility
+      const poolModule = await import('../../../database.js');
+      const pool = poolModule.default || poolModule;
       const [rows] = await pool.execute(
         `SELECT 
           BIN_TO_UUID(ce.user_id) as user_id,
