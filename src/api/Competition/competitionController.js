@@ -1445,10 +1445,29 @@ export const getCompetitionDetails = async (req, res) => {
       console.error('❌ Documents error:', docError);
     }
 
+    // Fetch participants for this competition
+    let participants = [];
+    try {
+      const [participantRows] = await require('./models/Competition').default.exportData(id, 'json', ['entries']);
+      if (participantRows && participantRows.entries) {
+        participants = participantRows.entries.map(e => ({
+          user_id: e.user_id,
+          username: e.username,
+          email: e.email,
+          entry_type: e.entry_type,
+          entry_date: e.entry_date,
+          ticket_number: e.ticket_number
+        }));
+      }
+    } catch (err) {
+      console.error('❌ Error fetching participants:', err);
+    }
+
     res.json({
       success: true,
       data: {
         ...competition,
+        price: competition.price, // Ensure price is returned as stored
         gallery_images: galleryImages,
         documents: documents,
         eligibility,
@@ -1464,6 +1483,7 @@ export const getCompetitionDetails = async (req, res) => {
         achievements: achievements,
         leaderboard: leaderboard,
         stats: stats,
+        participants: participants,
         features: {
           has_instant_wins: instantWinsResponse.length > 0,
           has_leaderboard: leaderboard !== null,
