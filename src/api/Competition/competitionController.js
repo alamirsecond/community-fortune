@@ -1445,20 +1445,27 @@ export const getCompetitionDetails = async (req, res) => {
       console.error('❌ Documents error:', docError);
     }
 
-    // Fetch participants for this competition
+    // Fetch participants directly from competition_entries and users
     let participants = [];
+    let totalParticipants = 0;
     try {
-      const [participantRows] = await require('./models/Competition').default.exportData(id, 'json', ['entries']);
-      if (participantRows && participantRows.entries) {
-        participants = participantRows.entries.map(e => ({
-          user_id: e.user_id,
-          username: e.username,
-          email: e.email,
-          entry_type: e.entry_type,
-          entry_date: e.entry_date,
-          ticket_number: e.ticket_number
-        }));
-      }
+      const [rows] = await pool.execute(
+        `SELECT 
+          BIN_TO_UUID(ce.user_id) as user_id,
+          u.username,
+          u.email,
+          ce.entry_type,
+          ce.entry_date,
+          t.ticket_number
+         FROM competition_entries ce
+         JOIN users u ON ce.user_id = u.id
+         LEFT JOIN tickets t ON ce.competition_id = t.competition_id AND ce.user_id = t.user_id
+         WHERE ce.competition_id = UUID_TO_BIN(?)
+         ORDER BY ce.entry_date`,
+        [id]
+      );
+      participants = rows;
+      totalParticipants = rows.length;
     } catch (err) {
       console.error('❌ Error fetching participants:', err);
     }
@@ -1484,6 +1491,7 @@ export const getCompetitionDetails = async (req, res) => {
         leaderboard: leaderboard,
         stats: stats,
         participants: participants,
+        total_participants: totalParticipants,
         features: {
           has_instant_wins: instantWinsResponse.length > 0,
           has_leaderboard: leaderboard !== null,
