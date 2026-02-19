@@ -2835,6 +2835,28 @@ class PaymentService {
       let paymentIntent;
 
       if (paymentMethodId) {
+        // Ensure the PaymentMethod exists in the same Stripe account and attach it to the new customer
+        try {
+          const pm = await stripe.paymentMethods.retrieve(paymentMethodId);
+          if (!pm) {
+            throw new Error('Payment method not found in Stripe account');
+          }
+
+          // Attach to customer if not already attached (allows off_session confirms and future reuse)
+          if (!pm.customer) {
+            await stripe.paymentMethods.attach(paymentMethodId, { customer: customer.id });
+          } else if (pm.customer !== customer.id) {
+            // It's attached to a different Stripe Customer in the same account — warn so ops can investigate
+            console.warn(`PaymentMethod ${paymentMethodId} is attached to Stripe customer ${pm.customer}`);
+          }
+        } catch (err) {
+          // Give a clear message for resource_missing (common cause: wrong Stripe secret / test vs live mismatch)
+          if (err?.raw?.code === 'resource_missing' || /No such PaymentMethod/.test(err.message)) {
+            throw new Error(`${err.message} — verify the stored payment method belongs to the same Stripe account and environment (test vs live).`);
+          }
+          throw err;
+        }
+
         paymentIntent = await stripe.paymentIntents.create({
           amount: Math.round(amount * 100),
           currency: currency.toLowerCase(),

@@ -1293,6 +1293,7 @@ export const getCompetitionDetails = async (req, res) => {
         message: 'Competition not found'
       });
     }
+  //  console.log(competition);
 
     // Check various eligibility criteria
     let eligibility = { can_enter: true, reason: null, requirements: [] };
@@ -1404,7 +1405,7 @@ export const getCompetitionDetails = async (req, res) => {
       }
     }
 
-    // Get competition statistics
+// Get competition statistics
     let stats = {};
     try {
       stats = await Competition.getStats(id);
@@ -1478,7 +1479,7 @@ export const getCompetitionDetails = async (req, res) => {
       success: true,
       data: {
         ...competition,
-        price: competition.price, // Ensure price is returned as stored
+        price: Number(competition.price).toFixed(2), // Ensure price is returned as stored
         gallery_images: galleryImages,
         documents: documents,
         eligibility,

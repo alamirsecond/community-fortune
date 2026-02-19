@@ -782,6 +782,31 @@ class SpinWheelController {
         userStats = userSpinData[0] || { user_total_spins: 0, user_last_spin: null, user_total_winnings: 0 };
       }
 
+      // If this is a paid wheel, include user purchase-based eligibility (paid spins left)
+      let user_eligibility = null;
+      if (parseFloat(wheel.ticket_price || 0) > 0 && req.user && req.user.id) {
+        // Get active (PAID) purchases for this user & wheel — purchases.quantity represents remaining spins
+        const [paidPurchases] = await connection.query(
+          `SELECT BIN_TO_UUID(id) as id, quantity, status, created_at
+           FROM purchases
+           WHERE user_id = UUID_TO_BIN(?) AND competition_id = UUID_TO_BIN(?) AND status = 'PAID'`,
+          [req.user.id, wheel_id]
+        );
+
+        const paid_spins_remaining = (paidPurchases || []).reduce((sum, p) => sum + (p.quantity || 0), 0);
+
+        // Also check period-based eligibility (limits per period) so client can determine if they can use paid spins now
+        const eligibility = await checkSpinEligibility(connection, req.user.id, wheel_id);
+
+        user_eligibility = {
+          is_paid_wheel: true,
+          has_paid_spins: paid_spins_remaining > 0,
+          paid_spins_remaining,
+          paid_purchases: paidPurchases.map((p) => ({ id: p.id, quantity: p.quantity, created_at: p.created_at })),
+          spin_eligibility: eligibility // { allowed, remaining_spins, max_spins, next_available, ... }
+        };
+      }
+
       res.json({
         wheel: {
           id: wheel.id,
@@ -802,6 +827,7 @@ class SpinWheelController {
         segments,
         statistics: stats[0] || {},
         user_statistics: userStats,
+        user_eligibility,
         segment_count: segments.length,
       });
     } catch (error) {
@@ -943,7 +969,7 @@ class SpinWheelController {
       });
     } catch (error) {
       console.error('Purchase wheel error:', error);
-      await connection.rollback().catch(() => {});
+      await connection.rollback().catch(() => { });
       res.status(400).json({ error: error.message });
     } finally {
       connection.release();
