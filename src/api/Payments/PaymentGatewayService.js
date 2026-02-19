@@ -37,6 +37,8 @@ class PaymentGatewayService {
                const stripeSecret = await secretManager.getSecret(SECRET_KEYS.STRIPE_SECRET_KEY);
                if (stripeSecret) {
                   this.stripe = new Stripe(stripeSecret);
+                  const stripeMode = stripeSecret.startsWith('sk_test_') ? 'test' : stripeSecret.startsWith('sk_live_') ? 'live' : 'unknown';
+                  console.log(`Stripe secret loaded (mode: ${stripeMode})`);
                   this.gateways.set('STRIPE', stripeConfig);
                   console.log('Stripe initialized successfully.');
                } else {

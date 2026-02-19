@@ -296,55 +296,69 @@ static async getCompetitionStatsDashboard() {
 
   // ==================== FIND COMPETITION BY ID ====================
   
-  static async findById(competitionId) {
-    const statusCase = `CASE 
-        WHEN status = 'CANCELLED' THEN 'CANCELLED'
-        WHEN start_date IS NOT NULL AND NOW() < start_date THEN 'UPCOMING'
-        WHEN end_date IS NOT NULL AND NOW() > end_date THEN 'COMPLETED'
-        ELSE status
-      END`;
+static async findById(competitionId) {
+  const statusCase = `CASE 
+      WHEN status = 'CANCELLED' THEN 'CANCELLED'
+      WHEN start_date IS NOT NULL AND NOW() < start_date THEN 'UPCOMING'
+      WHEN end_date IS NOT NULL AND NOW() > end_date THEN 'COMPLETED'
+      ELSE status
+    END`;
 
-    const [rows] = await pool.execute(
-      `SELECT 
-        BIN_TO_UUID(id) as id,
-        title, description, featured_image, featured_video,
-        price, total_tickets, sold_tickets, category, type,
-        start_date, end_date, no_end_date, is_free_competition,
-        points_per_pound, ${statusCase} as status, competition_type,
-        skill_question_enabled, skill_question_text, skill_question_answer,
-        free_entry_enabled, free_entry_instructions, postal_address,
-        max_entries_per_user, requires_address,
-        prize_option, ticket_model, threshold_type, threshold_value,
-        subscription_tier, auto_entry_enabled, subscriber_competition_type,
-        wheel_type, spins_per_user,
-        game_id, game_type, leaderboard_type, game_name, game_code, points_per_play,
-        gallery_images,
-        rules_and_restrictions,
-        created_at, updated_at,
-        (SELECT COUNT(*) FROM instant_wins WHERE competition_id = UUID_TO_BIN(?)) as instant_wins_count,
-        (SELECT COUNT(*) FROM instant_wins WHERE competition_id = UUID_TO_BIN(?) AND claimed_by IS NOT NULL) as instant_wins_claimed_count,
-        (SELECT COUNT(*) FROM competition_achievements WHERE competition_id = UUID_TO_BIN(?)) as achievements_count,
-        TIMESTAMPDIFF(SECOND, NOW(), end_date) as countdown_seconds
-       FROM competitions 
-       WHERE id = UUID_TO_BIN(?)`,
-      [competitionId, competitionId, competitionId, competitionId]
-    );
-    
-    const competition = rows[0] || null;
-    if (!competition) {
-      return null;
-    }
+  const [rows] = await pool.execute(
+    `SELECT 
+      BIN_TO_UUID(id) as id,
+      title, description, featured_image, featured_video,
+      price, total_tickets, sold_tickets, category, type,
+      start_date, end_date, no_end_date, is_free_competition,
+      points_per_pound, ${statusCase} as status, competition_type,
+      skill_question_enabled, skill_question_text, skill_question_answer,
+      free_entry_enabled, free_entry_instructions, postal_address,
+      max_entries_per_user, requires_address,
+      prize_option, ticket_model, threshold_type, threshold_value,
+      subscription_tier, auto_entry_enabled, subscriber_competition_type,
+      wheel_type, spins_per_user,
+      game_id, game_type, leaderboard_type, game_name, game_code, points_per_play,
+      gallery_images,
+      rules_and_restrictions,
+      created_at, updated_at,
+      (SELECT COUNT(*) FROM instant_wins WHERE competition_id = UUID_TO_BIN(?)) as instant_wins_count,
+      (SELECT COUNT(*) FROM instant_wins WHERE competition_id = UUID_TO_BIN(?) AND claimed_by IS NOT NULL) as instant_wins_claimed_count,
+      (SELECT COUNT(*) FROM competition_achievements WHERE competition_id = UUID_TO_BIN(?)) as achievements_count,
+      TIMESTAMPDIFF(SECOND, NOW(), end_date) as countdown_seconds
+     FROM competitions 
+     WHERE id = UUID_TO_BIN(?)`,
+    [competitionId, competitionId, competitionId, competitionId]
+  );
 
-    competition.gallery_images = this.normalizeGalleryImages(
-      this.parseJSONField(competition.gallery_images, [])
-    );
-    competition.rules_and_restrictions = this.parseJSONField(competition.rules_and_restrictions, []);
-    if (!Array.isArray(competition.rules_and_restrictions)) {
-      competition.rules_and_restrictions = [];
-    }
-
-    return competition;
+  const competition = rows[0] || null;
+  if (!competition) {
+    return null;
   }
+
+  // ✅ Convert DECIMAL price safely
+  competition.price = competition.price 
+    ? Number(competition.price) 
+    : 0;
+
+  // Optional: ensure 2 decimal format
+  competition.price = Number(competition.price.toFixed(2));
+
+  competition.gallery_images = this.normalizeGalleryImages(
+    this.parseJSONField(competition.gallery_images, [])
+  );
+
+  competition.rules_and_restrictions = this.parseJSONField(
+    competition.rules_and_restrictions,
+    []
+  );
+
+  if (!Array.isArray(competition.rules_and_restrictions)) {
+    competition.rules_and_restrictions = [];
+  }
+
+  return competition;
+}
+
 
   // ==================== FIND COMPETITIONS WITH FILTERS ====================
   
