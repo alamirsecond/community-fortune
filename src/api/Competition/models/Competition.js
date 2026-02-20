@@ -66,6 +66,7 @@ console.log(competitionData);
         'skill_question_answer', 'free_entry_enabled', 'free_entry_instructions',
         'postal_address', 'max_entries_per_user', 'requires_address', 'status',
         'prize_option', 'ticket_model', 'threshold_type', 'threshold_value',
+        'jackpot_amount', 'min_ticket_price',
         'subscription_tier', 'auto_entry_enabled', 'subscriber_competition_type',
         'wheel_type', 'spins_per_user',
         'game_id', 'game_type', 'leaderboard_type', 'game_name', 'game_code', 'points_per_play',
@@ -343,6 +344,14 @@ static async findById(competitionId) {
   // Optional: ensure 2 decimal format
   competition.price = Number(competition.price.toFixed(2));
 
+  // convert jackpot-related fields to numbers
+  if (competition.jackpot_amount !== undefined && competition.jackpot_amount !== null) {
+    competition.jackpot_amount = Number(competition.jackpot_amount);
+  }
+  if (competition.min_ticket_price !== undefined && competition.min_ticket_price !== null) {
+    competition.min_ticket_price = Number(competition.min_ticket_price);
+  }
+
   competition.gallery_images = this.normalizeGalleryImages(
     this.parseJSONField(competition.gallery_images, [])
   );
@@ -384,7 +393,7 @@ static async findById(competitionId) {
         c.price, c.total_tickets, c.sold_tickets, c.category, c.type,
         c.start_date, c.end_date, c.no_end_date, c.is_free_competition,
         ${statusCase} as status, c.competition_type, c.created_at,
-        c.prize_option, c.ticket_model, c.subscription_tier,
+        c.prize_option, c.ticket_model, c.jackpot_amount, c.min_ticket_price, c.subscription_tier,
         c.wheel_type, c.game_type, BIN_TO_UUID(c.game_id) as game_id,
         c.leaderboard_type, c.game_name, c.game_code, c.points_per_play,
         c.gallery_images, c.rules_and_restrictions,

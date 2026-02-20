@@ -29,6 +29,20 @@ export const paymentMethodValidator = [
     .optional()
     .isInt({ min: new Date().getFullYear(), max: new Date().getFullYear() + 20 })
     .withMessage('Invalid expiry year'),
+
+  // when adding a Stripe card method, allow raw card details so the server can
+  // create a PaymentMethod if gateway_account_id is not supplied.
+  body('card')
+    .optional()
+    .custom((value, { req }) => {
+      if (String(req.body.gateway || '').toUpperCase() !== 'STRIPE') return true;
+      if (!value) return true; // not required if gateway_account_id provided
+      const { number, exp_month, exp_year, cvc } = value;
+      if (!number || !exp_month || !exp_year || !cvc) {
+        throw new Error('Stripe card object must include number, exp_month, exp_year and cvc');
+      }
+      return true;
+    }),
 ];
 
 export const depositValidator = [

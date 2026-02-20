@@ -1501,7 +1501,6 @@ export const getCompetitionDetails = async (req, res) => {
         [id]
       );
       participants = rows;
-      // Count unique user_ids
       const uniqueUserIds = new Set(rows.map(r => r.user_id));
       totalParticipants = uniqueUserIds.size;
     } catch (err) {
@@ -1512,7 +1511,7 @@ export const getCompetitionDetails = async (req, res) => {
       success: true,
       data: {
         ...competition,
-        price: Number(competition.price).toFixed(2), // Ensure price is returned as stored
+        price: Number(competition.price).toFixed(2),
         gallery_images: galleryImages,
         documents: documents,
         eligibility,
