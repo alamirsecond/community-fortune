@@ -294,7 +294,12 @@ export const createCompetition = async (req, res) => {
     const bodyData = {
       ...req.body,
       price: req.body.price !== undefined ? parseFloat(req.body.price) : undefined,
-      total_tickets: req.body.total_tickets !== undefined ? parseInt(req.body.total_tickets) : undefined,
+      total_tickets:
+        req.body.total_tickets === null
+          ? null
+          : req.body.total_tickets !== undefined
+          ? parseInt(req.body.total_tickets)
+          : undefined,
       max_entries_per_user: req.body.max_entries_per_user !== undefined ? parseInt(req.body.max_entries_per_user) : undefined,
       points_per_pound: req.body.points_per_pound !== undefined ? parseInt(req.body.points_per_pound) : undefined,
       free_entry_enabled: req.body.free_entry_enabled === 'true' || req.body.free_entry_enabled === true,
@@ -513,7 +518,11 @@ export const createCompetition = async (req, res) => {
     // Category defaults
     switch (validatedData.category) {
       case 'JACKPOT':
-        validatedData.total_tickets = validatedData.total_tickets || 1000000;
+        // Only assign default when no value was provided (undefined).  
+        // null is treated as a deliberate value and will be left alone.
+        if (validatedData.total_tickets === undefined) {
+          validatedData.total_tickets = 1000000;
+        }
         validatedData.price = validatedData.price || 10;
         validatedData.threshold_type = validatedData.threshold_type || 'AUTOMATIC';
         validatedData.threshold_value = validatedData.threshold_value || 1200;
@@ -606,8 +615,32 @@ export const updateCompetition = async (req, res) => {
     }
 
     // Combine body and files
-    const competitionData = {
+    let competitionData = {
       ...req.body
+    };
+
+    // normalize numeric and boolean fields similar to createCompetition
+    competitionData = {
+      ...competitionData,
+      price: competitionData.price !== undefined ? parseFloat(competitionData.price) : undefined,
+      total_tickets:
+        competitionData.total_tickets === null
+          ? null
+          : competitionData.total_tickets !== undefined
+          ? parseInt(competitionData.total_tickets)
+          : undefined,
+      max_entries_per_user: competitionData.max_entries_per_user !== undefined ? parseInt(competitionData.max_entries_per_user) : undefined,
+      points_per_pound: competitionData.points_per_pound !== undefined ? parseInt(competitionData.points_per_pound) : undefined,
+      free_entry_enabled: competitionData.free_entry_enabled === 'true' || competitionData.free_entry_enabled === true,
+      auto_entry_enabled: competitionData.auto_entry_enabled === 'true' || competitionData.auto_entry_enabled === true,
+      skill_question_enabled: competitionData.skill_question_enabled === 'true' || competitionData.skill_question_enabled === true,
+      instant_win_enabled: competitionData.instant_win_enabled === 'true' || competitionData.instant_win_enabled === true,
+      max_instant_wins_per_user: competitionData.max_instant_wins_per_user !== undefined ? parseInt(competitionData.max_instant_wins_per_user) : undefined,
+      is_free_competition: competitionData.is_free_competition === 'true' || competitionData.is_free_competition === true,
+      no_end_date: competitionData.no_end_date === 'true' || competitionData.no_end_date === true,
+      achievements_enabled: competitionData.achievements_enabled === 'true' || competitionData.achievements_enabled === true,
+      start_date: competitionData.start_date ? new Date(competitionData.start_date) : undefined,
+      end_date: competitionData.end_date ? new Date(competitionData.end_date) : undefined,
     };
 
     if (Object.prototype.hasOwnProperty.call(req.body, 'rules_and_restrictions')) {

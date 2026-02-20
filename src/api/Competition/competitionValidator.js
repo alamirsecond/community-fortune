@@ -9,7 +9,14 @@ const baseCompetitionSchema = {
   banner_image: z.string().url("Invalid banner image URL").optional().nullable(),
   gallery_images: z.array(z.string().url("Invalid image URL")).optional().default([]),
   price: z.number().min(0, "Price must be positive"),
-  total_tickets: z.number().int().positive("Total tickets must be positive"),
+  // total_tickets can now be null/undefined to support unlimited or unspecified stock.  
+  // when provided it must still be a positive integer.
+  total_tickets: z
+    .number()
+    .int()
+    .positive("Total tickets must be positive")
+    .optional()
+    .nullable(),
   category: z.enum(['PAID', 'FREE', 'JACKPOT', 'MINI_GAME', 'SUBSCRIPTION', 'VIP', 'INSTANT_WIN', 'ROLLING']),
   type: z.enum(['STANDARD', 'MANUAL_DRAW', 'AUTO_DRAW']),
   start_date: z.date("Invalid start date format"),
