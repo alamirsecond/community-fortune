@@ -594,17 +594,20 @@ class PaymentService {
   }
 
   // ==================== WITHDRAWALS ====================
-  async createWithdrawal(userId, withdrawalData) {
-    const connection = await pool.getConnection();
+  async createWithdrawal(userId, withdrawalData, externalConn = null) {
+    const connection = externalConn || await pool.getConnection();
     try {
-      await connection.beginTransaction();
+      if (!externalConn) {
+        await connection.beginTransaction();
+      }
 
       const { amount, gateway, account_details, payment_method_id } = withdrawalData;
       const normalizedGateway = await this.ensureGatewayInitialized(gateway);
 
-      if (!payment_method_id) {
-        throw new Error('Payment method is required');
-      }
+      // payment_method_id is optional for some withdrawal gateways (like bank transfer with manual details)
+      // if (!payment_method_id) {
+      //   throw new Error('Payment method is required');
+      // }
 
       if (payment_method_id) {
         const [methods] = await connection.query(
@@ -618,9 +621,10 @@ class PaymentService {
         }
       }
 
+      // lock the user's cash wallet row to prevent concurrent deductions
       const [wallet] = await connection.query(
         `SELECT balance FROM wallets 
-         WHERE user_id = UUID_TO_BIN(?) AND type = 'CASH'`,
+         WHERE user_id = UUID_TO_BIN(?) AND type = 'CASH' FOR UPDATE`,
         [userId]
       );
       if (!wallet.length || wallet[0].balance < amount) throw new Error('Insufficient funds');
@@ -639,16 +643,16 @@ class PaymentService {
       }
 
       const [limits] = await connection.query(
-        `SELECT * FROM transaction_limits WHERE user_id = UUID_TO_BIN(?)`,
+        `SELECT * FROM spending_limits WHERE user_id = UUID_TO_BIN(?)`,
         [userId]
       );
       if (limits.length) {
         const limit = limits[0];
-        if (amount > limit.max_single_withdrawal) {
-          throw new Error(`Amount exceeds single withdrawal limit of ${limit.max_single_withdrawal}`);
+        if (limit.single_purchase_limit && amount > limit.single_purchase_limit) {
+          throw new Error(`Amount exceeds single withdrawal limit of ${limit.single_purchase_limit}`);
         }
-        if (amount + limit.daily_withdrawal_used > limit.daily_withdrawal_limit) {
-          throw new Error(`Amount would exceed daily withdrawal limit of ${limit.daily_withdrawal_limit}`);
+        if (limit.daily_limit && amount + limit.daily_spent > limit.daily_limit) {
+          throw new Error(`Amount would exceed daily limit of ${limit.daily_limit}`);
         }
       }
 
@@ -659,12 +663,25 @@ class PaymentService {
       const paymentRequestId = randomUUID();
       const paymentId = randomUUID();
 
-      await connection.query(
-        `INSERT INTO withdrawals 
-         (id, user_id, amount, payment_method, account_details, status)
-         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, ?, 'PENDING')`,
-        [withdrawalId, userId, amount, normalizedGateway, JSON.stringify(account_details)]
-      );
+      // decrement wallet balance with retry if lock timeout occurs
+      const deduct = async () => {
+        try {
+          await connection.query(
+            `INSERT INTO withdrawals 
+             (id, user_id, amount, payment_method, account_details, status)
+             VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, ?, 'PENDING')`,
+            [withdrawalId, userId, amount, normalizedGateway, JSON.stringify(account_details)]
+          );
+        } catch (err) {
+          if (err.code === 'ER_LOCK_WAIT_TIMEOUT') {
+            // simple retry once after short delay
+            await new Promise(r => setTimeout(r, 100));
+            return deduct();
+          }
+          throw err;
+        }
+      };
+      await deduct();
 
       await connection.query(
         `INSERT INTO payment_requests 
@@ -725,7 +742,9 @@ class PaymentService {
         [amount, `WITHDRAWAL_${withdrawalId}`, userId]
       );
 
-      await connection.commit();
+      if (!externalConn) {
+        await connection.commit();
+      }
 
       return {
         withdrawalId: withdrawalId,
@@ -738,10 +757,14 @@ class PaymentService {
         requiresAdminApproval: true
       };
     } catch (error) {
-      await connection.rollback();
+      if (!externalConn) {
+        await connection.rollback();
+      }
       throw error;
     } finally {
-      connection.release();
+      if (!externalConn) {
+        connection.release();
+      }
     }
   }
 

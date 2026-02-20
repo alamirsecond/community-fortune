@@ -19,7 +19,7 @@ const withdrawalController = {
   // Create withdrawal request with comprehensive checks (PDF Section D)
   createWithdrawal: async (req, res) => {
     const connection = await pool.getConnection();
-    
+
     try {
       // Validate request body
       const { error, value } = withdrawalSchemas.createWithdrawalSchema.validate(req.body);
@@ -237,89 +237,29 @@ const withdrawalController = {
         });
       }
 
-      // Generate withdrawalId early so ledger reference uses the same id
-      const withdrawalId = uuidv4();
+      // Delegate core withdrawal creation and ledger entries to the payment module
+      const withdrawalData = {
+        amount,
+        gateway: paymentMethod,
+        account_details: accountDetails,
+        payment_method_id
+      };
 
-      // Deduct amount from cash wallet (reserve funds)
-      await connection.query(
-        `UPDATE wallets SET balance = balance - ?, updated_at = CURRENT_TIMESTAMP 
-         WHERE user_id = UUID_TO_BIN(?) AND type = 'CASH'`,
-        [amount, userId]
-      );
+      const result = await paymentService.createWithdrawal(userId, withdrawalData, connection);
+      const withdrawalId = result.withdrawalId;
 
-      // Record wallet transaction as a HOLD (reserved) using withdrawalId as reference
-      const transactionId = uuidv4();
-      await connection.query(
-        `INSERT INTO wallet_transactions (id, wallet_id, amount, type, reference, description) 
-         SELECT UUID_TO_BIN(?), id, ?, 'HOLD', ?, 'Withdrawal request - pending admin review' 
-         FROM wallets WHERE user_id = UUID_TO_BIN(?) AND type = 'CASH'`,
-        [transactionId, amount, withdrawalId, userId]
-      );
-
-      // Update spending limits (PDF Section D)
-      await connection.query(
-        `INSERT INTO spending_limits (id, user_id, daily_spent, weekly_spent, monthly_spent, updated_at)
-         VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?, CURRENT_TIMESTAMP)
-         ON DUPLICATE KEY UPDATE
-         daily_spent = daily_spent + VALUES(daily_spent),
-         weekly_spent = weekly_spent + VALUES(weekly_spent),
-         monthly_spent = monthly_spent + VALUES(monthly_spent),
-         updated_at = CURRENT_TIMESTAMP`,
-        [userId, amount, amount, amount]
-      );
-
-      // Create withdrawal request (schema-aligned)
-      const paypalEmail = accountDetails?.paypalEmail || null;
-      const bankName = accountDetails?.bankName || null;
-      const accountNumber = accountDetails?.accountNumber ? String(accountDetails.accountNumber) : '';
-      const bankAccountLastFour = accountNumber ? accountNumber.slice(-4) : null;
-
-      // insert withdrawal record; we don't keep payment_method_id on the table
-      await connection.query(
-        `INSERT INTO withdrawals (
-          id,
-          user_id,
-          amount,
-          payment_method,
-          account_details,
-          paypal_email,
-          bank_account_last_four,
-          bank_name,
-          status,
-          requested_at,
-          updated_at,
-          is_payment_method
-        ) VALUES (
-          UUID_TO_BIN(?),
-          UUID_TO_BIN(?),
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          ?,
-          'PENDING',
-          CURRENT_TIMESTAMP,
-          CURRENT_TIMESTAMP,
-          FALSE
-        )`,
-        [
-          withdrawalId,
-          userId,
-          amount,
-          paymentMethod,
-          JSON.stringify(accountDetails),
-          paypalEmail,
-          bankAccountLastFour,
-          bankName
-        ]
-      );
-
-      // Log admin activity (store UUID as plain string – column is VARCHAR)
+      // Log admin activity (id is binary, target_id is varchar)
       await connection.query(
         `INSERT INTO admin_activities (id, admin_id, action, target_id, module) 
-         VALUES (?, UUID_TO_BIN(?), ?, ?, 'withdrawals')`,
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, 'withdrawals')`,
         [uuidv4(), userId, `Created withdrawal request for £${amount}`, withdrawalId]
+      );
+
+      // Also record the action in user_activities so the user has an audit trail
+      await connection.query(
+        `INSERT INTO user_activities (id, user_id, action, target_id, module) 
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, 'withdrawals')`,
+        [uuidv4(), userId, 'Created withdrawal request', withdrawalId]
       );
 
       await connection.commit();
@@ -390,7 +330,7 @@ const withdrawalController = {
   // Verify OTP and confirm withdrawal
   verifyWithdrawalOTP: async (req, res) => {
     const connection = await pool.getConnection();
-    
+
     try {
       // Validate input using Joi schema
       const { error: otpError, value: otpValue } = withdrawalSchemas.otpVerificationSchema.validate(req.body);
@@ -450,11 +390,18 @@ const withdrawalController = {
         [withdrawalId]
       );
 
-      // Log admin activity
+      // Log admin activity after OTP verification
       await connection.query(
         `INSERT INTO admin_activities (id, admin_id, action, target_id, module) 
-         VALUES (?, ?, ?, ?, 'withdrawals')`,
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, 'withdrawals')`,
         [uuidv4(), userId, `Withdrawal OTP verified for £${withdrawal.amount}`, withdrawalId]
+      );
+
+      // also add to user_activities for the initiating user
+      await connection.query(
+        `INSERT INTO user_activities (id, user_id, action, target_id, module) 
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, 'withdrawals')`,
+        [uuidv4(), userId, 'OTP verified for withdrawal', withdrawalId]
       );
 
       await connection.commit();
@@ -576,7 +523,7 @@ const withdrawalController = {
       // Get withdrawal statistics
       const today = new Date().toISOString().split('T')[0];
       const currentMonth = new Date().toISOString().slice(0, 7);
-      
+
       const [stats] = await pool.query(`
         SELECT
           COALESCE(SUM(CASE WHEN DATE(requested_at) = ? AND status IN ('APPROVED','COMPLETED','PENDING','PROCESSING') THEN amount END), 0) as dailyWithdrawn,
@@ -684,16 +631,16 @@ const withdrawalController = {
   },
 
   // Admin: Get all withdrawals with filtering
-getAllWithdrawals: async (req, res) => {
-  try {
-    const { error, value } = withdrawalSchemas.withdrawalQuerySchema.validate(req.query);
-    if (error) return res.status(400).json({ success: false, message: error.details[0].message });
+  getAllWithdrawals: async (req, res) => {
+    try {
+      const { error, value } = withdrawalSchemas.withdrawalQuerySchema.validate(req.query);
+      if (error) return res.status(400).json({ success: false, message: error.details[0].message });
 
-    const { status, page, limit, startDate, endDate, minAmount, maxAmount, paymentMethod, userId, sortBy, sortOrder } = value;
-    const offset = (page - 1) * limit;
+      const { status, page, limit, startDate, endDate, minAmount, maxAmount, paymentMethod, userId, sortBy, sortOrder } = value;
+      const offset = (page - 1) * limit;
 
-    // Base query with JOIN to users table
-    let query = `
+      // Base query with JOIN to users table
+      let query = `
       SELECT
         -- Withdrawal details
         BIN_TO_UUID(w.id) AS id,
@@ -727,62 +674,62 @@ getAllWithdrawals: async (req, res) => {
       WHERE 1=1
     `;
 
-    // Count query
-    let countQuery = `
+      // Count query
+      let countQuery = `
       SELECT COUNT(*) as total 
       FROM withdrawals w
       LEFT JOIN users u ON w.user_id = u.id
       WHERE 1=1
     `;
 
-    const params = [];
-    const countParams = [];
+      const params = [];
+      const countParams = [];
 
-    // Add filters to both queries
-    const addFilter = (condition, param) => {
-      if (condition) {
-        query += ' AND ' + condition;
-        countQuery += ' AND ' + condition;
-        params.push(param);
-        countParams.push(param);
-      }
-    };
+      // Add filters to both queries
+      const addFilter = (condition, param) => {
+        if (condition) {
+          query += ' AND ' + condition;
+          countQuery += ' AND ' + condition;
+          params.push(param);
+          countParams.push(param);
+        }
+      };
 
-    if (status) addFilter('w.status = ?', status);
-    if (startDate) addFilter('w.requested_at >= ?', startDate);
-    if (endDate) addFilter('w.requested_at <= ?', endDate);
-    if (minAmount) addFilter('w.amount >= ?', minAmount);
-    if (maxAmount) addFilter('w.amount <= ?', maxAmount);
-    if (paymentMethod) addFilter('w.payment_method = ?', paymentMethod);
-    if (userId) addFilter('w.user_id = UUID_TO_BIN(?)', userId);
+      if (status) addFilter('w.status = ?', status);
+      if (startDate) addFilter('w.requested_at >= ?', startDate);
+      if (endDate) addFilter('w.requested_at <= ?', endDate);
+      if (minAmount) addFilter('w.amount >= ?', minAmount);
+      if (maxAmount) addFilter('w.amount <= ?', maxAmount);
+      if (paymentMethod) addFilter('w.payment_method = ?', paymentMethod);
+      if (userId) addFilter('w.user_id = UUID_TO_BIN(?)', userId);
 
-    // Sorting and pagination
-    const validSortColumns = ['requested_at', 'updated_at', 'amount', 'status'];
-    const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'requested_at';
-    const order = sortOrder === 'asc' ? 'ASC' : 'DESC';
-    
-    query += ` ORDER BY w.${sortColumn} ${order} LIMIT ? OFFSET ?`;
-    params.push(limit, offset);
+      // Sorting and pagination
+      const validSortColumns = ['requested_at', 'updated_at', 'amount', 'status'];
+      const sortColumn = validSortColumns.includes(sortBy) ? sortBy : 'requested_at';
+      const order = sortOrder === 'asc' ? 'ASC' : 'DESC';
 
-    // Execute both queries
-    const [rows] = await pool.query(query, params);
-    const [countRes] = await pool.query(countQuery, countParams);
+      query += ` ORDER BY w.${sortColumn} ${order} LIMIT ? OFFSET ?`;
+      params.push(limit, offset);
 
-    res.json({ 
-      success: true, 
-      data: { 
-        withdrawals: rows, 
-        total: countRes[0].total, 
-        page, 
-        limit,
-        totalPages: Math.ceil(countRes[0].total / limit)
-      } 
-    });
-  } catch (error) {
-    console.error('Get all withdrawals error:', error);
-    res.status(500).json({ success: false, message: 'Internal server error' });
-  }
-},
+      // Execute both queries
+      const [rows] = await pool.query(query, params);
+      const [countRes] = await pool.query(countQuery, countParams);
+
+      res.json({
+        success: true,
+        data: {
+          withdrawals: rows,
+          total: countRes[0].total,
+          page,
+          limit,
+          totalPages: Math.ceil(countRes[0].total / limit)
+        }
+      });
+    } catch (error) {
+      console.error('Get all withdrawals error:', error);
+      res.status(500).json({ success: false, message: 'Internal server error' });
+    }
+  },
 
   // Admin: Export withdrawals as CSV
   exportWithdrawalsCsv: async (req, res) => {
@@ -983,7 +930,7 @@ getAllWithdrawals: async (req, res) => {
   // Admin: Update withdrawal status with enhanced features
   updateWithdrawalStatus: async (req, res) => {
     const connection = await pool.getConnection();
-    
+
     try {
       const { error: paramsError, value: paramsValue } = withdrawalSchemas.withdrawalIdSchema.validate(req.params);
       if (paramsError) {
@@ -1120,18 +1067,18 @@ getAllWithdrawals: async (req, res) => {
         }
       }
 
-      // Log admin activity
+      // Log admin activity for status update
       await connection.query(
         `INSERT INTO admin_activities (id, admin_id, action, target_id, module, details) 
-         VALUES (?, UUID_TO_BIN(?), ?, ?, 'withdrawals', ?)`,
-        [uuidv4(), adminId, `Updated withdrawal status to ${status}`, id, 
-         JSON.stringify({
-           amount: withdrawal.amount,
-           previousStatus: withdrawal.status,
-           newStatus: status,
-           reason: reason,
-           userId: withdrawal.userId
-         })]
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, 'withdrawals', ?)`,
+        [uuidv4(), adminId, `Updated withdrawal status to ${status}`, id,
+        JSON.stringify({
+          amount: withdrawal.amount,
+          previousStatus: withdrawal.status,
+          newStatus: status,
+          reason: reason,
+          userId: withdrawal.userId
+        })]
       );
 
       // Log KYC action if relevant
@@ -1139,8 +1086,8 @@ getAllWithdrawals: async (req, res) => {
         await connection.query(
           `INSERT INTO kyc_reviews (id, user_id, admin_id, old_status, new_status, review_notes) 
            VALUES (?, ?, ?, ?, ?, ?)`,
-          [uuidv4(), withdrawal.userId, adminId, withdrawal.kycStatus, 'rejected', 
-           `Withdrawal rejected: ${reason}`]
+          [uuidv4(), withdrawal.userId, adminId, withdrawal.kycStatus, 'rejected',
+          `Withdrawal rejected: ${reason}`]
         );
       }
 
@@ -1183,7 +1130,7 @@ getAllWithdrawals: async (req, res) => {
           transaction: {
             amount: withdrawal.amount,
             previousBalance: withdrawal.walletBalance,
-            newBalance: status === 'REJECTED' 
+            newBalance: status === 'REJECTED'
               ? (withdrawal.walletBalance + withdrawal.amount)
               : (withdrawal.walletBalance - withdrawal.amount)
           },
@@ -1446,7 +1393,7 @@ getAllWithdrawals: async (req, res) => {
               count: stats[0].todayWithdrawals,
               amount: stats[0].todayAmount,
               growth: todayGrowth,
-              growthPercentage: stats[0].yesterdayAmount > 0 
+              growthPercentage: stats[0].yesterdayAmount > 0
                 ? ((todayGrowth / stats[0].yesterdayAmount) * 100).toFixed(2)
                 : '0.00'
             },
@@ -1511,7 +1458,7 @@ getAllWithdrawals: async (req, res) => {
   // Enhanced KYC verification with levels (PDF requirement)
   verifyKycStatus: async (req, res) => {
     const connection = await pool.getConnection();
-    
+
     try {
       const { error, value } = withdrawalSchemas.kycVerificationSchema.validate(req.body);
       if (error) {
@@ -1558,15 +1505,15 @@ getAllWithdrawals: async (req, res) => {
       await connection.query(
         `INSERT INTO kyc_reviews (id, user_id, admin_id, old_status, new_status, verification_level, review_notes) 
          VALUES (?, ?, ?, ?, ?, ?, ?)`,
-        [uuidv4(), userId, adminId, oldStatus, kycStatus, verificationLevel || 'basic', 
-         `KYC status updated from ${oldStatus} to ${kycStatus} by admin`]
+        [uuidv4(), userId, adminId, oldStatus, kycStatus, verificationLevel || 'basic',
+        `KYC status updated from ${oldStatus} to ${kycStatus} by admin`]
       );
 
       // If verified, check if user needs age verification (UK requirement)
       if (kycStatus === 'verified') {
-        const userAge = user.date_of_birth ? 
+        const userAge = user.date_of_birth ?
           Math.floor((new Date() - new Date(user.date_of_birth)) / (365.25 * 24 * 60 * 60 * 1000)) : null;
-        
+
         if (userAge && userAge >= 18 && !user.age_verified) {
           await connection.query(
             `UPDATE users SET age_verified = TRUE WHERE id = ?`,
@@ -1580,13 +1527,13 @@ getAllWithdrawals: async (req, res) => {
         `INSERT INTO admin_activities (id, admin_id, action, target_id, module, details) 
          VALUES (?, ?, ?, ?, 'kyc', ?)`,
         [uuidv4(), adminId, `Updated KYC status to ${kycStatus}`, userId,
-         JSON.stringify({
-           oldStatus,
-           newStatus: kycStatus,
-           verificationLevel,
-           userId,
-           username: user.username
-         })]
+        JSON.stringify({
+          oldStatus,
+          newStatus: kycStatus,
+          verificationLevel,
+          userId,
+          username: user.username
+        })]
       );
 
       await connection.commit();
@@ -1595,7 +1542,7 @@ getAllWithdrawals: async (req, res) => {
       try {
         if (kycStatus === 'verified') {
           await emailSender.sendKycApproval(user.email, user.username, userId);
-          
+
           // Also send subscription perks if user has subscription (PDF Section 5)
           const [subscription] = await pool.query(
             `SELECT st.tier_name FROM user_subscriptions us
@@ -1603,7 +1550,7 @@ getAllWithdrawals: async (req, res) => {
              WHERE us.user_id = ? AND us.status = 'ACTIVE'`,
             [userId]
           );
-          
+
           if (subscription.length > 0) {
             const perks = {
               'Tier 1: Community Supporter': [
@@ -1624,11 +1571,11 @@ getAllWithdrawals: async (req, res) => {
                 { icon: '🏆', title: 'Exclusive Monthly Draw', description: 'Hero Sub Competition' }
               ]
             };
-            
+
             const tierPerks = perks[subscription[0].tier_name] || [];
             await emailSender.sendSubscriptionPerks(user.email, user.username, subscription[0].tier_name, tierPerks);
           }
-          
+
         } else if (kycStatus === 'rejected') {
           await emailSender.sendKycRejection(user.email, user.username, userId);
         }
@@ -1751,9 +1698,9 @@ getAllWithdrawals: async (req, res) => {
           restrictions: {
             canWithdraw: (userLimits[0]?.kyc_status === 'verified' && userLimits[0]?.age_verified && cashBalance >= systemSettings.minimumWithdrawal),
             reason: !userLimits[0]?.kyc_status === 'verified' ? 'KYC verification required' :
-                   !userLimits[0]?.age_verified ? 'Age verification required' :
-                   cashBalance < systemSettings.minimumWithdrawal ? `Minimum withdrawal is £${systemSettings.minimumWithdrawal}` :
-                   'Eligible for withdrawal'
+              !userLimits[0]?.age_verified ? 'Age verification required' :
+                cashBalance < systemSettings.minimumWithdrawal ? `Minimum withdrawal is £${systemSettings.minimumWithdrawal}` :
+                  'Eligible for withdrawal'
           },
           tips: [
             'Withdrawals are processed within 24-72 hours',
@@ -1776,7 +1723,7 @@ getAllWithdrawals: async (req, res) => {
   // Update user spending limits (PDF Section D)
   updateSpendingLimits: async (req, res) => {
     const connection = await pool.getConnection();
-    
+
     try {
       const { dailyLimit, weeklyLimit, monthlyLimit, singlePurchaseLimit } = req.body;
       const userId = req.user.id;
@@ -1829,7 +1776,7 @@ getAllWithdrawals: async (req, res) => {
         `INSERT INTO admin_activities (id, admin_id, action, target_id, module, details) 
          VALUES (?, ?, ?, ?, 'spending_limits', ?)`,
         [uuidv4(), userId, 'Updated spending limits', userId,
-         JSON.stringify(validatedLimits)]
+        JSON.stringify(validatedLimits)]
       );
 
       await connection.commit();

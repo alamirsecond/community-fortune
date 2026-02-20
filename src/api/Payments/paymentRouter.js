@@ -35,7 +35,7 @@ paymentRouter.post("/deposits/:depositId/cancel", idValidator, paymentController
 paymentRouter.post("/deposits/:depositId/retry", idValidator, paymentController.retryDeposit);
 
 paymentRouter.get("/withdrawals", paginationValidator, paymentController.getUserWithdrawals);
-paymentRouter.post("/withdrawals", withdrawalValidator, paymentController.createWithdrawal);
+
 paymentRouter.get("/withdrawals/:withdrawalId", idValidator, paymentController.getWithdrawalDetails);
 paymentRouter.post("/withdrawals/:withdrawalId/cancel", idValidator, paymentController.cancelWithdrawal);
 

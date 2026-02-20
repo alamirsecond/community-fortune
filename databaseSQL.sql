@@ -1257,7 +1257,9 @@ CREATE TABLE withdrawals (
     INDEX idx_withdrawals_status (status),
     INDEX idx_withdrawals_requested_at (requested_at)
 );
-
+ALTER TABLE withdrawals
+  MODIFY payment_method
+    ENUM('REVOLT','STRIPE','BANK_TRANSFER','PAYPAL') NOT NULL;
 -- ===========================================
 -- System alerts
 -- ===========================================
