@@ -261,7 +261,8 @@ CREATE TABLE competitions (
     featured_image VARCHAR(255),
     featured_video VARCHAR(255),
     price DECIMAL(12,2) NOT NULL DEFAULT 0,
-    total_tickets INT NOT NULL,
+    -- total_tickets can be null to support competitions with unspecified stock
+    total_tickets INT,
     sold_tickets INT DEFAULT 0,
     
     -- Updated category enum with all new types
