@@ -207,6 +207,7 @@ CREATE TABLE wallets (
     FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
     INDEX idx_wallets_user_id (user_id)
 );
+
 ALTER TABLE wallets MODIFY COLUMN type ENUM('CASH', 'CREDIT', 'POINTS', 'SITE_CREDIT') NOT NULL;
 CREATE TABLE wallet_transactions (
     id BINARY(16) PRIMARY KEY,
@@ -326,6 +327,7 @@ CREATE TABLE competitions (
     INDEX idx_competitions_prize_option (prize_option),
     INDEX idx_competitions_game_type (game_type)
 );
+
 ALTER TABLE competitions
 MODIFY featured_image VARCHAR(255) NULL,
 MODIFY featured_video VARCHAR(255) NULL;
@@ -473,6 +475,7 @@ CREATE TABLE tickets (
     FOREIGN KEY (competition_id) REFERENCES competitions(id) ON DELETE CASCADE,
     INDEX idx_user_competition (user_id, competition_id)
 );
+
 ALTER TABLE tickets
   ADD COLUMN status VARCHAR(50) DEFAULT 'ACTIVE',
   ADD COLUMN price_paid DECIMAL(12,2) DEFAULT 0,

@@ -1,6 +1,7 @@
 import pool from "../../../database.js";
 import paymentGatewayService from "./PaymentGatewayService.js";
 import secretManager, { SECRET_KEYS } from '../../Utils/secretManager.js';
+import { randomUUID } from 'crypto';
 
 class PaymentService {
   constructor() {
@@ -350,15 +351,19 @@ class PaymentService {
       const feeAmount = (amount * config.processing_fee_percent / 100) + config.fixed_fee;
       const netAmount = amount - feeAmount;
 
-      const [paymentRequest] = await connection.query(
+      // generate our own UUIDs so we can reference them in subsequent queries
+      const paymentRequestId = randomUUID();
+      const paymentId = randomUUID();
+
+      await connection.query(
         `INSERT INTO payment_requests 
          (id, user_id, type, gateway, amount, currency, fee_amount, net_amount, 
           deposit_to_wallet, status, payment_method_id)
-         VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'DEPOSIT', ?, ?, ?, ?, ?, ?, 'PENDING', UUID_TO_BIN(?))`,
-        [userId, normalizedGateway, amount, currency, feeAmount, netAmount, wallet_type, payment_method_id || null]
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), 'DEPOSIT', ?, ?, ?, ?, ?, ?, 'PENDING', UUID_TO_BIN(?))`,
+        [paymentRequestId, userId, normalizedGateway, amount, currency, feeAmount, netAmount, wallet_type, payment_method_id || null]
       );
 
-      const requestId = paymentRequest.insertId;
+      const requestId = paymentRequestId; // keep same naming for later
       let paymentResult;
 
       switch (normalizedGateway) {
@@ -384,23 +389,23 @@ class PaymentService {
       await connection.query(
         `UPDATE payment_requests 
          SET gateway_order_id = ?, gateway_payment_id = ?, gateway_response = ?
-         WHERE id = ?`,
+         WHERE id = UUID_TO_BIN(?)`,
         [paymentResult.orderId || null, paymentResult.paymentId || null, JSON.stringify(paymentResult.gatewayResponse || {}), requestId]
       );
 
-      const [payment] = await connection.query(
+      await connection.query(
         `INSERT INTO payments 
          (id, user_id, type, amount, currency, status, gateway, 
           gateway_reference, reference_id, metadata)
-         VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'DEPOSIT', ?, ?, 'PENDING', ?, ?, UUID_TO_BIN(?), ?)`,
-        [userId, amount, currency, normalizedGateway, paymentResult.paymentId || paymentResult.orderId, requestId, JSON.stringify({
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), 'DEPOSIT', ?, ?, 'PENDING', ?, ?, UUID_TO_BIN(?), ?)`,
+        [paymentId, userId, amount, currency, normalizedGateway, paymentResult.paymentId || paymentResult.orderId, requestId, JSON.stringify({
           wallet_type, return_url, cancel_url, ...paymentResult.gatewayResponse
         })]
       );
 
       await connection.query(
-        `UPDATE payment_requests SET payment_id = ? WHERE id = ?`,
-        [payment.insertId, requestId]
+        `UPDATE payment_requests SET payment_id = UUID_TO_BIN(?) WHERE id = UUID_TO_BIN(?)`,
+        [paymentId, requestId]
       );
 
       await connection.query(
@@ -409,13 +414,13 @@ class PaymentService {
           reference_table, reference_id, payment_id, description)
          VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'deposit', ?, ?, 'pending', ?, 
                  'payment_requests', UUID_TO_BIN(?), UUID_TO_BIN(?), ?)`,
-        [userId, amount, currency, normalizedGateway, requestId, payment.insertId, `Deposit via ${normalizedGateway}`]
+        [userId, amount, currency, normalizedGateway, requestId, paymentId, `Deposit via ${normalizedGateway}`]
       );
 
       await connection.commit();
 
       return {
-        paymentId: payment.insertId,
+        paymentId: paymentId,
         requestId: requestId,
         checkoutUrl: paymentResult.checkoutUrl,
         paymentIntent: paymentResult.paymentIntent,
@@ -650,43 +655,45 @@ class PaymentService {
       const feeAmount = (amount * config.processing_fee_percent / 100) + config.fixed_fee;
       const netAmount = amount - feeAmount;
 
-      const [withdrawal] = await connection.query(
+      const withdrawalId = randomUUID();
+      const paymentRequestId = randomUUID();
+      const paymentId = randomUUID();
+
+      await connection.query(
         `INSERT INTO withdrawals 
          (id, user_id, amount, payment_method, account_details, status)
-         VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?, 'PENDING')`,
-        [userId, amount, normalizedGateway, JSON.stringify(account_details)]
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, ?, 'PENDING')`,
+        [withdrawalId, userId, amount, normalizedGateway, JSON.stringify(account_details)]
       );
 
-      const withdrawalId = withdrawal.insertId;
-
-      const [paymentRequest] = await connection.query(
+      await connection.query(
         `INSERT INTO payment_requests 
          (id, user_id, type, gateway, amount, currency, fee_amount, net_amount,
           withdrawal_id, status, requires_admin_approval)
-         VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'WITHDRAWAL', ?, ?, 'GBP', ?, ?, 
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), 'WITHDRAWAL', ?, ?, 'GBP', ?, ?, 
                  UUID_TO_BIN(?), 'PENDING', TRUE)`,
-        [userId, normalizedGateway, amount, feeAmount, netAmount, withdrawalId]
+        [paymentRequestId, userId, normalizedGateway, amount, feeAmount, netAmount, withdrawalId]
       );
 
-      const requestId = paymentRequest.insertId;
+      const requestId = paymentRequestId;
 
-      const [payment] = await connection.query(
+      await connection.query(
         `INSERT INTO payments 
          (id, user_id, type, amount, currency, status, gateway, reference_id, metadata)
-         VALUES (UUID_TO_UUID(), UUID_TO_BIN(?), 'WITHDRAWAL', ?, 'GBP', 'PENDING', ?, UUID_TO_BIN(?), ?)`,
-        [userId, amount, normalizedGateway, requestId, JSON.stringify({
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), 'WITHDRAWAL', ?, 'GBP', 'PENDING', ?, UUID_TO_BIN(?), ?)`,
+        [paymentId, userId, amount, normalizedGateway, requestId, JSON.stringify({
           account_details, fee_amount: feeAmount, net_amount: netAmount
         })]
       );
 
       await connection.query(
-        `UPDATE withdrawals SET payment_id = ? WHERE id = ?`,
-        [payment.insertId, withdrawalId]
+        `UPDATE withdrawals SET payment_id = UUID_TO_BIN(?) WHERE id = UUID_TO_BIN(?)`,
+        [paymentId, withdrawalId]
       );
 
       await connection.query(
-        `UPDATE payment_requests SET payment_id = ? WHERE id = ?`,
-        [payment.insertId, requestId]
+        `UPDATE payment_requests SET payment_id = UUID_TO_BIN(?) WHERE id = UUID_TO_BIN(?)`,
+        [paymentId, requestId]
       );
 
       await connection.query(
@@ -695,7 +702,7 @@ class PaymentService {
           reference_table, reference_id, payment_id, description)
          VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 'withdrawal', ?, 'GBP', 'pending', ?, 
                  'payment_requests', UUID_TO_BIN(?), UUID_TO_BIN(?), ?)`,
-        [userId, amount, normalizedGateway, requestId, payment.insertId, `Withdrawal via ${normalizedGateway}`]
+        [userId, amount, normalizedGateway, requestId, paymentId, `Withdrawal via ${normalizedGateway}`]
       );
 
       await connection.query(
@@ -723,7 +730,7 @@ class PaymentService {
       return {
         withdrawalId: withdrawalId,
         requestId: requestId,
-        paymentId: payment.insertId,
+        paymentId: paymentId,
         amount: amount,
         feeAmount: feeAmount,
         netAmount: netAmount,
@@ -2842,12 +2849,17 @@ class PaymentService {
             throw new Error('Payment method not found in Stripe account');
           }
 
+          // if PM already belongs to a customer and it's not our freshly-created one,
+          // reuse that customer rather than forcing a mismatch.
+          if (pm.customer && pm.customer !== customer.id) {
+            console.warn(`PaymentMethod ${paymentMethodId} is attached to different customer ${pm.customer}, switching to that customer`);
+            customer.id = pm.customer;
+          }
+
           // Attach to customer if not already attached (allows off_session confirms and future reuse)
-          if (!pm.customer) {
+          if (!pm.customer || pm.customer === customer.id) {
+            // if it wasn't attached, or we just switched ids, attach now
             await stripe.paymentMethods.attach(paymentMethodId, { customer: customer.id });
-          } else if (pm.customer !== customer.id) {
-            // It's attached to a different Stripe Customer in the same account — warn so ops can investigate
-            console.warn(`PaymentMethod ${paymentMethodId} is attached to Stripe customer ${pm.customer}`);
           }
         } catch (err) {
           // Give a clear message for resource_missing (common cause: wrong Stripe secret / test vs live mismatch)

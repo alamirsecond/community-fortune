@@ -102,7 +102,7 @@ difficulty_level: "MEDIUM"  // EASY, MEDIUM, HARD
 
 #  INSTANT_WIN Arrays (JSON String)
 ``` javascript
-// Array of instant win prizes
+
 instant_wins: '[{
   "prize_name": "£50 Amazon Voucher",
   "prize_amount": 50,
@@ -132,7 +132,7 @@ instant_wins: '[{
 # max_instant_wins_per_user: "2"
 #  ACHIEVEMENTS Arrays (JSON String)
 ``` javascript
-// Array of achievements
+
 achievements: '[{
   "title": "First Purchase Bonus",
   "description": "Buy your first ticket",

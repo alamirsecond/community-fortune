@@ -274,6 +274,7 @@ const withdrawalController = {
       const accountNumber = accountDetails?.accountNumber ? String(accountDetails.accountNumber) : '';
       const bankAccountLastFour = accountNumber ? accountNumber.slice(-4) : null;
 
+      // insert withdrawal record; we don't keep payment_method_id on the table
       await connection.query(
         `INSERT INTO withdrawals (
           id,
@@ -287,8 +288,7 @@ const withdrawalController = {
           status,
           requested_at,
           updated_at,
-          is_payment_method,
-          payment_method_id
+          is_payment_method
         ) VALUES (
           UUID_TO_BIN(?),
           UUID_TO_BIN(?),
@@ -301,8 +301,7 @@ const withdrawalController = {
           'PENDING',
           CURRENT_TIMESTAMP,
           CURRENT_TIMESTAMP,
-          FALSE,
-          UUID_TO_BIN(?)
+          FALSE
         )`,
         [
           withdrawalId,
@@ -312,15 +311,14 @@ const withdrawalController = {
           JSON.stringify(accountDetails),
           paypalEmail,
           bankAccountLastFour,
-          bankName,
-          payment_method_id || null
+          bankName
         ]
       );
 
-      // Log admin activity
+      // Log admin activity (store UUID as plain string – column is VARCHAR)
       await connection.query(
         `INSERT INTO admin_activities (id, admin_id, action, target_id, module) 
-         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, UUID_TO_BIN(?), 'withdrawals')`,
+         VALUES (?, UUID_TO_BIN(?), ?, ?, 'withdrawals')`,
         [uuidv4(), userId, `Created withdrawal request for £${amount}`, withdrawalId]
       );
 
@@ -1125,7 +1123,7 @@ getAllWithdrawals: async (req, res) => {
       // Log admin activity
       await connection.query(
         `INSERT INTO admin_activities (id, admin_id, action, target_id, module, details) 
-         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, UUID_TO_BIN(?), 'withdrawals', ?)`,
+         VALUES (?, UUID_TO_BIN(?), ?, ?, 'withdrawals', ?)`,
         [uuidv4(), adminId, `Updated withdrawal status to ${status}`, id, 
          JSON.stringify({
            amount: withdrawal.amount,
