@@ -229,21 +229,7 @@ class PaymentController {
     }
   }
 
-  async createWithdrawal(req, res) {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return res.status(400).json({ success: false, errors: errors.array() });
-      }
-      const userId = req.user.id;
-      const withdrawalData = req.body;
-      const result = await paymentService.createWithdrawal(userId, withdrawalData);
-      res.status(201).json({ success: true, message: 'Withdrawal request submitted successfully', data: result });
-    } catch (error) {
-      console.error('Create withdrawal error:', error);
-      res.status(400).json({ success: false, error: error.message });
-    }
-  }
+
 
   async getWithdrawalDetails(req, res) {
     try {
@@ -427,16 +413,16 @@ class PaymentController {
     req.query.status = 'failed';
     return exportTransactionsCsvHelper(req, res);
   }
-async getTransactionAnalytics(req, res) {
-  try {
-    const { period = 'this_week', startDate, endDate } = req.query;
-    const result = await paymentService.getTransactionAnalytics(period, startDate, endDate);
-    res.status(200).json({ success: true, data: result });
-  } catch (error) {
-    console.error('Get transaction analytics error:', error);
-    res.status(500).json({ success: false, error: error.message });
+  async getTransactionAnalytics(req, res) {
+    try {
+      const { period = 'this_week', startDate, endDate } = req.query;
+      const result = await paymentService.getTransactionAnalytics(period, startDate, endDate);
+      res.status(200).json({ success: true, data: result });
+    } catch (error) {
+      console.error('Get transaction analytics error:', error);
+      res.status(500).json({ success: false, error: error.message });
+    }
   }
-}
   async refundTransaction(req, res) {
     try {
       const adminId = req.user.id;
@@ -605,20 +591,20 @@ async getTransactionAnalytics(req, res) {
   }
 
   // ADDITIONAL METHODS FOR COMPETITION SYSTEM
- async processSubscriptionPayment(req, res) {
+  async processSubscriptionPayment(req, res) {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return res.status(400).json({ success: false, errors: errors.array() });
       }
-      
+
       const userId = req.user.id;
       const { tier_id, payment_method_id } = req.body;
-      
+
       const result = await SubscriptionTicketService.processSubscriptionPayment(
         userId, tier_id, payment_method_id
       );
-      
+
       res.status(200).json({
         success: true,
         message: 'Subscription payment processed successfully',
@@ -635,11 +621,11 @@ async getTransactionAnalytics(req, res) {
       const userId = req.user.id;
       const subscriptionId = req.params.subscriptionId;
       const { reason = '' } = req.body;
-      
+
       const result = await SubscriptionTicketService.cancelSubscription(
         userId, subscriptionId, reason
       );
-      
+
       res.status(200).json({
         success: true,
         message: 'Subscription cancelled successfully',
@@ -657,12 +643,12 @@ async getTransactionAnalytics(req, res) {
       if (!errors.isEmpty()) {
         return res.status(400).json({ success: false, errors: errors.array() });
       }
-      
+
       const userId = req.user.id;
       const purchaseData = req.body;
-      
+
       const result = await SubscriptionTicketService.purchaseTickets(userId, purchaseData);
-      
+
       res.status(200).json({
         success: true,
         message: 'Tickets purchased successfully',
@@ -680,12 +666,12 @@ async getTransactionAnalytics(req, res) {
       if (!errors.isEmpty()) {
         return res.status(400).json({ success: false, errors: errors.array() });
       }
-      
+
       const userId = req.user.id;
       const purchaseData = req.body;
-      
+
       const result = await SubscriptionTicketService.purchaseUniversalTickets(userId, purchaseData);
-      
+
       res.status(200).json({
         success: true,
         message: 'Universal tickets purchased successfully',
@@ -701,7 +687,7 @@ async getTransactionAnalytics(req, res) {
     try {
       const userId = req.user.id;
       const subscriptions = await SubscriptionTicketService.getUserSubscriptions(userId);
-      
+
       res.status(200).json({
         success: true,
         data: subscriptions
@@ -716,9 +702,9 @@ async getTransactionAnalytics(req, res) {
     try {
       const userId = req.user.id;
       const filters = req.query;
-      
+
       const tickets = await SubscriptionTicketService.getUserTickets(userId, filters);
-      
+
       res.status(200).json({
         success: true,
         data: tickets
@@ -732,7 +718,7 @@ async getTransactionAnalytics(req, res) {
   async getSubscriptionTiers(req, res) {
     try {
       const tiers = await SubscriptionTicketService.getSubscriptionTiers();
-      
+
       res.status(200).json({
         success: true,
         data: tiers
