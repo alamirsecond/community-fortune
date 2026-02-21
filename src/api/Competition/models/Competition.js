@@ -496,7 +496,19 @@ static async findById(competitionId) {
       params.push(filters.limit, offset);
     }
     
-    const [rows] = await pool.query(query, params);
+    let rows;
+    try {
+      [rows] = await pool.query(query, params);
+    } catch (err) {
+      // common schema mismatch when new columns aren't present yet
+      if (err.code === 'ER_BAD_FIELD_ERROR' &&
+          (err.sqlMessage && (err.sqlMessage.includes('jackpot_amount') || err.sqlMessage.includes('min_ticket_price')))
+      ) {
+        console.error('Competition.findCompetitions failed due to missing column:', err.sqlMessage);
+        throw new Error('Database schema out of date: please add jackpot_amount and min_ticket_price to competitions table');
+      }
+      throw err;
+    }
 
     rows.forEach(row => {
       row.gallery_images = this.normalizeGalleryImages(
@@ -505,6 +517,14 @@ static async findById(competitionId) {
       row.rules_and_restrictions = this.parseJSONField(row.rules_and_restrictions, []);
       if (!Array.isArray(row.rules_and_restrictions)) {
         row.rules_and_restrictions = [];
+      }
+
+      // ensure numeric types for jackpot and price
+      if (row.jackpot_amount !== undefined && row.jackpot_amount !== null) {
+        row.jackpot_amount = Number(row.jackpot_amount);
+      }
+      if (row.min_ticket_price !== undefined && row.min_ticket_price !== null) {
+        row.min_ticket_price = Number(row.min_ticket_price);
       }
     });
 

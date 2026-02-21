@@ -75,12 +75,17 @@ const authenticate = (roles = []) => {
         });
       }
 
-      // Check role permissions
-      if (roles.length && !roles.includes(currentUser.role)) {
-        return res.status(403).json({
-          success: false,
-          message: "Insufficient permissions",
-        });
+      // Check role permissions (case‑insensitive)
+      if (roles.length) {
+        const userRole = (currentUser.role || '').toString().toUpperCase();
+        const allowed = roles.map(r => r.toString().toUpperCase());
+        if (!allowed.includes(userRole)) {
+          console.warn(`Permission denied: user role='${currentUser.role}' normalized='${userRole}', allowed=[${allowed.join(',')}]; path=${req.path}`);
+          return res.status(403).json({
+            success: false,
+            message: "Insufficient permissions",
+          });
+        }
       }
 
       // ✅ ENHANCEMENT: Handle wallet selection for mixed payments

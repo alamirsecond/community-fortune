@@ -12,6 +12,8 @@ import {
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
 import fs from "fs";
+import https from "https";
+import { cloudinary } from "../../config/cloudinary.js";
 
 // Validate request helper
 const validateRequest = (schema, data) => {
@@ -460,6 +462,67 @@ const humanFileSize = (bytes) => {
   );
   const value = bytes / Math.pow(1024, i);
   return `${value.toFixed(value >= 10 || i === 0 ? 0 : 1)} ${sizes[i]}`;
+};
+
+// Play minigame proxy
+export const playMinigameProxy = (req, res) => {
+  const { id } = req.params;
+  const filePath = req.params[0] || "index.html";
+
+  const cloudName = cloudinary.config().cloud_name;
+  if (!cloudName) {
+    return res.status(500).send("Cloudinary not configured");
+  }
+
+  const cloudinaryUrl = `https://res.cloudinary.com/${cloudName}/raw/upload/games/${id}/${filePath}`;
+
+  https
+    .get(cloudinaryUrl, (cloudinaryRes) => {
+      if (cloudinaryRes.statusCode !== 200) {
+        return res
+          .status(cloudinaryRes.statusCode)
+          .send("Game file not found");
+      }
+
+      const ext = path.extname(filePath).toLowerCase();
+      const mimeTypes = {
+        ".html": "text/html",
+        ".css": "text/css",
+        ".js": "application/javascript",
+        ".json": "application/json",
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".gif": "image/gif",
+        ".svg": "image/svg+xml",
+        ".wav": "audio/wav",
+        ".mp3": "audio/mpeg",
+        ".webp": "image/webp",
+      };
+
+      if (mimeTypes[ext]) {
+        res.setHeader("Content-Type", mimeTypes[ext]);
+      } else {
+        res.setHeader(
+          "Content-Type",
+          cloudinaryRes.headers["content-type"] || "application/octet-stream"
+        );
+      }
+
+      // Cache html barely, cache assets heavily
+      if (ext === ".html") {
+        res.setHeader("Cache-Control", "no-cache");
+      } else {
+        res.setHeader("Cache-Control", "public, max-age=86400");
+      }
+
+      // Pipe directly without Content-Disposition attachment!
+      cloudinaryRes.pipe(res);
+    })
+    .on("error", (err) => {
+      console.error("Game proxy error:", err);
+      res.status(500).send("Error loading game asset");
+    });
 };
 
 // Get game categories

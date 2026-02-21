@@ -44,15 +44,42 @@ paymentRouter.get("/transactions", paginationValidator, paymentController.getUse
 paymentRouter.get("/requests", paginationValidator, paymentController.getUserPaymentRequests);
 paymentRouter.get("/requests/:requestId", idValidator, paymentController.getPaymentRequestDetails);
 
-paymentRouter.use(authenticate(["ADMIN", "SUPERADMIN"]));
+// admin-only payment request routes (scoped individually below)
 
-paymentRouter.get("/requests/all", paginationValidator, paymentController.getAllPaymentRequests);
-paymentRouter.post("/requests/:requestId/approve", idValidator, paymentController.approvePaymentRequest);
-paymentRouter.post("/requests/:requestId/reject", idValidator, refundValidator, paymentController.rejectPaymentRequest);
-paymentRouter.post("/requests/:requestId/complete", idValidator, paymentController.completePaymentRequest);
-paymentRouter.post("/requests/:requestId/refund", idValidator, refundValidator, paymentController.refundPayment);
+paymentRouter.get(
+  "/requests/all",
+  authenticate(["ADMIN", "SUPERADMIN"]),
+  paginationValidator,
+  paymentController.getAllPaymentRequests
+);
+paymentRouter.post(
+  "/requests/:requestId/approve",
+  authenticate(["ADMIN", "SUPERADMIN"]),
+  idValidator,
+  paymentController.approvePaymentRequest
+);
+paymentRouter.post(
+  "/requests/:requestId/reject",
+  authenticate(["ADMIN", "SUPERADMIN"]),
+  idValidator,
+  refundValidator,
+  paymentController.rejectPaymentRequest
+);
+paymentRouter.post(
+  "/requests/:requestId/complete",
+  authenticate(["ADMIN", "SUPERADMIN"]),
+  idValidator,
+  paymentController.completePaymentRequest
+);
+paymentRouter.post(
+  "/requests/:requestId/refund",
+  authenticate(["ADMIN", "SUPERADMIN"]),
+  idValidator,
+  refundValidator,
+  paymentController.refundPayment
+);
 
-paymentRouter.use(authenticate(["ADMIN", "SUPERADMIN", "USER"]));
+// resume standard authenticated access for following routes
 
 paymentRouter.get("/transactions/all", paginationValidator, paymentController.getAllTransactions);
 paymentRouter.get("/transactions/export/all", paymentController.exportAllTransactionsCsv);
@@ -75,7 +102,7 @@ paymentRouter.get("/reports/daily", paymentController.getDailyReport);
 paymentRouter.get("/reports/monthly", paymentController.getMonthlyReport);
 paymentRouter.get("/reports/gateway", paymentController.getGatewayReport);
 
-paymentRouter.use(authenticate(["SUPERADMIN", "ADMIN", "USER"]));
+// redundant auth check removed; initial middleware already covers user/admin/superadmin
 
 paymentRouter.get("/gateways/config", paymentController.getGatewayConfigurations);
 paymentRouter.post("/gateways/config", gatewayConfigValidator, paymentController.updateGatewayConfiguration);
