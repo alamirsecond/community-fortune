@@ -52,7 +52,7 @@ paymentRouter.post("/requests/:requestId/reject", idValidator, refundValidator, 
 paymentRouter.post("/requests/:requestId/complete", idValidator, paymentController.completePaymentRequest);
 paymentRouter.post("/requests/:requestId/refund", idValidator, refundValidator, paymentController.refundPayment);
 
-paymentRouter.use(authenticate(["ADMIN", "SUPERADMIN"]));
+paymentRouter.use(authenticate(["ADMIN", "SUPERADMIN", "USER"]));
 
 paymentRouter.get("/transactions/all", paginationValidator, paymentController.getAllTransactions);
 paymentRouter.get("/transactions/export/all", paymentController.exportAllTransactionsCsv);
@@ -75,7 +75,7 @@ paymentRouter.get("/reports/daily", paymentController.getDailyReport);
 paymentRouter.get("/reports/monthly", paymentController.getMonthlyReport);
 paymentRouter.get("/reports/gateway", paymentController.getGatewayReport);
 
-paymentRouter.use(authenticate(["SUPERADMIN"]));
+paymentRouter.use(authenticate(["SUPERADMIN", "ADMIN", "USER"]));
 
 paymentRouter.get("/gateways/config", paymentController.getGatewayConfigurations);
 paymentRouter.post("/gateways/config", gatewayConfigValidator, paymentController.updateGatewayConfiguration);

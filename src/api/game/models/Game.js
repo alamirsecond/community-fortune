@@ -139,7 +139,7 @@ class Game {
     }
 
     const countQuery = `SELECT COUNT(*) as total ${baseQuery}`;
-    const [countResult] = await pool.execute(countQuery, params);
+    const [countResult] = await pool.query(countQuery, params);
     const total = countResult[0]?.total || 0;
 
     const mainQuery = `
@@ -156,7 +156,7 @@ class Game {
   `;
 
     const mainParams = [...params, limitNum, offset];
-    const [rows] = await pool.execute(mainQuery, mainParams);
+    const [rows] = await pool.query(mainQuery, mainParams);
 
     return {
       games: rows,
