@@ -106,7 +106,10 @@ app.use(trafficMonitor);
 app.use((req, res, next) => {
   res.removeHeader("X-Powered-By");
   res.setHeader("X-Content-Type-Options", "nosniff");
-  res.setHeader("X-Frame-Options", "DENY");
+ res.setHeader(
+    "Content-Security-Policy",
+    "frame-ancestors 'self' http://localhost:5173 https://new-community-fortune.vercel.app/"
+  );
   res.setHeader("X-XSS-Protection", "1; mode=block");
   res.setHeader(
     "Strict-Transport-Security",
