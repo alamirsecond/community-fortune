@@ -181,7 +181,10 @@ Response:
   "user_statistics": {
       "user_total_spins": 5,
       "user_last_spin": "2024-03-20T10:00:00Z",
-      "user_total_winnings": 50.00
+      "user_total_winnings": 50.00,
+      "available_spins": 3,          // spins left in current period (resets after cooldown)
+      "max_spins": 8,                // period limit
+      "next_available": "2024-03-21T10:00:00Z" // when next spin becomes available
   }
 }
 ```
