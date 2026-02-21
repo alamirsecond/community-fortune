@@ -767,6 +767,7 @@ class SpinWheelController {
 
       // Get specific user statistics if user is authenticated
       let userStats = null;
+      let availabilityInfo = null;
       if (req.user && req.user.id) {
         const [userSpinData] = await connection.query(
           `
@@ -780,6 +781,19 @@ class SpinWheelController {
           [wheel_id, req.user.id]
         );
         userStats = userSpinData[0] || { user_total_spins: 0, user_last_spin: null, user_total_winnings: 0 };
+
+        // compute available spins using shared eligibility logic; this respects cooldown
+        try {
+          availabilityInfo = await checkSpinEligibility(connection, req.user.id, wheel_id);
+        } catch (err) {
+          console.error('Error obtaining spin availability info:', err);
+        }
+
+        if (availabilityInfo) {
+          userStats.available_spins = availabilityInfo.remaining_spins;
+          userStats.next_available = availabilityInfo.next_available || null;
+          userStats.max_spins = availabilityInfo.max_spins || null;
+        }
       }
 
       // If this is a paid wheel, include user purchase-based eligibility (paid spins left)
