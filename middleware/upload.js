@@ -388,42 +388,132 @@ export const validateGameStructure = (gameDir) => {
   return true;
 };
 
-export const getGameUrl = (gameId) => `/uploads/games/${gameId}/index.html`;
+export const uploadGameToCloudinary = async (gameDir, gameId) => {
+  const filesToUpload = [];
 
-export const getGameFiles = (gameId) => {
-  const gameDir = path.join(gamesUploadDir, gameId);
-  if (!fs.existsSync(gameDir)) return null;
-
-  const files = [];
-  const scanDir = (dir, baseDir = gameDir) => {
+  const scanDirForUpload = (dir) => {
     const items = fs.readdirSync(dir);
     items.forEach(item => {
       const fullPath = path.join(dir, item);
-      const relativePath = path.relative(baseDir, fullPath);
       const stat = fs.statSync(fullPath);
-      const isDir = stat.isDirectory();
-      files.push({
-        name: item,
-        path: relativePath,
-        type: isDir ? 'directory' : 'file',
-        size: isDir ? 0 : stat.size,
-        extension: isDir ? '' : path.extname(item).toLowerCase(),
-        url: isDir ? null : `/uploads/games/${gameId}/${relativePath}`
-      });
-      if (isDir) scanDir(fullPath, baseDir);
+      if (stat.isDirectory()) {
+        scanDirForUpload(fullPath);
+      } else {
+        if (stat.size > 0) {
+          filesToUpload.push({
+            fullPath: fullPath,
+            relativePath: path.relative(gameDir, fullPath).replace(/\\/g, '/')
+          });
+        } else {
+          console.warn(`Skipping empty file for Cloudinary upload: ${fullPath}`);
+        }
+      }
     });
   };
-  scanDir(gameDir);
-  return files;
+
+  scanDirForUpload(gameDir);
+
+  const batchSize = 20;
+  for (let i = 0; i < filesToUpload.length; i += batchSize) {
+    const batch = filesToUpload.slice(i, i + batchSize);
+    const batchPromises = batch.map(fileInfo => {
+      const publicId = `games/${gameId}/${fileInfo.relativePath}`;
+      return new Promise((resolve) => {
+        cloudinary.uploader.upload(fileInfo.fullPath, {
+          resource_type: 'raw',
+          public_id: publicId,
+          overwrite: true,
+          use_filename: true,
+          unique_filename: false
+        }, (error, result) => {
+          if (error) {
+            console.error(`Failed to upload ${fileInfo.relativePath}:`, error);
+            resolve({ success: false, error: error });
+          } else {
+            resolve({ success: true, result });
+          }
+        });
+      });
+    });
+
+    const results = await Promise.all(batchPromises);
+    const failures = results.filter(r => !r.success);
+    if (failures.length > 0) {
+      throw new Error(`Failed to upload ${failures.length} files to Cloudinary. First error: ${failures[0].error.message || 'Unknown'}`);
+    }
+  }
+
+  return true;
 };
 
-export const deleteGame = (gameId) => {
-  const gameDir = path.join(gamesUploadDir, gameId);
-  if (fs.existsSync(gameDir)) {
-    fs.rmSync(gameDir, { recursive: true, force: true });
-    return true;
+export const getGameUrl = (gameId) => {
+  const cloudName = cloudinary.config().cloud_name;
+  return `https://res.cloudinary.com/${cloudName}/raw/upload/games/${gameId}/index.html`;
+};
+
+export const getGameFiles = async (gameId) => {
+  try {
+    let files = [];
+    let nextCursor = null;
+
+    do {
+      const result = await cloudinary.api.resources({
+        type: 'upload',
+        prefix: `games/${gameId}/`,
+        resource_type: 'raw',
+        max_results: 500,
+        next_cursor: nextCursor
+      });
+
+      if (result.resources) {
+        files = files.concat(result.resources.map(res => {
+          const fileName = res.public_id.split('/').pop();
+          return {
+            name: fileName,
+            path: res.public_id.replace(`games/${gameId}/`, ''),
+            type: 'file',
+            size: res.bytes,
+            extension: path.extname(fileName).toLowerCase(),
+            url: res.secure_url
+          };
+        }));
+      }
+      nextCursor = result.next_cursor;
+    } while (nextCursor);
+
+    return files.length > 0 ? files : null;
+  } catch (error) {
+    if (error && error.http_code === 404) return null; // Not found
+    console.error(`Error fetching game files for ${gameId} from Cloudinary:`, error);
+    return null;
   }
-  return false;
+};
+
+export const deleteGame = async (gameId) => {
+  let success = false;
+  try {
+    // Delete local directory if it exists
+    const gameDir = path.join(gamesUploadDir, gameId);
+    if (fs.existsSync(gameDir)) {
+      fs.rmSync(gameDir, { recursive: true, force: true });
+    }
+
+    // Delete from Cloudinary (raw resources)
+    await cloudinary.api.delete_resources_by_prefix(`games/${gameId}/`, {
+      resource_type: 'raw'
+    });
+
+    try {
+      await cloudinary.api.delete_folder(`games/${gameId}`);
+    } catch (folderErr) {
+      console.warn('Could not delete Cloudinary folder (might be empty or missing):', folderErr.message);
+    }
+
+    success = true;
+  } catch (error) {
+    console.error(`Failed to delete game ${gameId} from Cloudinary:`, error);
+  }
+  return success;
 };
 
 export default {
@@ -440,6 +530,7 @@ export default {
   gameZipUpload,
   unzipGameFile,
   validateGameStructure,
+  uploadGameToCloudinary,
   getGameUrl,
   getGameFiles,
   deleteGame
