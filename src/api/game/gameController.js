@@ -7,6 +7,7 @@ import {
   getGameUrl,
   getGameFiles,
   deleteGame,
+  uploadGameToCloudinary
 } from "../../../middleware/upload.js";
 import { v4 as uuidv4 } from "uuid";
 import path from "path";
@@ -41,8 +42,16 @@ export const uploadGame = async (req, res) => {
     // Validate game structure
     validateGameStructure(extractionResult.gameDir);
 
+    // Upload to Cloudinary
+    await uploadGameToCloudinary(extractionResult.gameDir, gameId);
+
     // Get game URL
     const gameUrl = getGameUrl(gameId);
+
+    // Clean up local extraction directory after successful upload
+    if (fs.existsSync(extractionResult.gameDir)) {
+      fs.rmSync(extractionResult.gameDir, { recursive: true, force: true });
+    }
 
     // Create game record
     const gameData = {
@@ -502,14 +511,23 @@ export const updateGameFiles = async (req, res) => {
 
     const zipPath = req.file.path;
 
-    // Unzip the game (overwrites existing files)
+    // Unzip the game (overwrites existing files locally temporarily)
     const extractionResult = await unzipGameFile(zipPath, id);
 
     // Validate game structure
     validateGameStructure(extractionResult.gameDir);
 
+    // Upload new files to Cloudinary
+    await uploadGameToCloudinary(extractionResult.gameDir, id);
+
+    // Clean up local extraction directory
+    if (fs.existsSync(extractionResult.gameDir)) {
+      fs.rmSync(extractionResult.gameDir, { recursive: true, force: true });
+    }
+
     // Update game record with new version
     const newVersion = game.version ? incrementVersion(game.version) : "1.0.0";
+
 
     await Game.update(id, {
       version: newVersion,
@@ -698,9 +716,8 @@ export const exportAdminGameLeaderboard = async (req, res) => {
     }
 
     const csv = lines.join("\n");
-    const filename = `game_leaderboard_${
-      game.name?.replace(/\s+/g, "_") || "game"
-    }_${period.toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`;
+    const filename = `game_leaderboard_${game.name?.replace(/\s+/g, "_") || "game"
+      }_${period.toLowerCase()}_${new Date().toISOString().slice(0, 10)}.csv`;
 
     res.setHeader("Content-Type", "text/csv; charset=utf-8");
     res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
