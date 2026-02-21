@@ -27,17 +27,17 @@ import authenticate from "../../../middleware/auth.js";
 const router = Router();
 
 //aklilu:Admin leaderboard management
-router.get("/admin/list", authenticate(["admin"]), getAdminGamesList);
+router.get("/admin/list", authenticate(["ADMIN"]), getAdminGamesList);
 
 router.get(
   "/admin/:id/leaderboard",
-  authenticate(["admin"]),
+  authenticate(["ADMIN"]),
   getAdminGameLeaderboard
 );
 
 router.get(
   "/admin/:id/export",
-  authenticate(["admin"]),
+  authenticate(["ADMIN"]),
   exportAdminGameLeaderboard
 );
 
