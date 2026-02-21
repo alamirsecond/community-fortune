@@ -60,47 +60,43 @@ class SpinService {
         }
       }
 
-      // Determine period based on wheel type
-      const period = SpinService.getPeriodForWheelType(wheel.wheel_type); // FIXED: Use SpinService.
+      // Determine period type based on configuration string
+      const period = SpinService.getPeriodForWheelType(wheel.wheel_type);
 
-      // Check user's spin count for the period
+      // Number of spins allowed for a user this period is the numeric column
+      // max_spins_per_period (legacy name; may represent per‑user limit).
+      const userLimit = wheel.max_spins_per_period || 0;
+
+      // Get user's spin count for the period (and record last spin time)
       const spinCount = await SpinService.getUserSpinCountForPeriod(
-        // FIXED: Use SpinService.
         connection,
         user_id,
         wheel_id,
         period,
         wheel.cooldown_hours || 24
       );
+      const lastSpin = await SpinService.getLastSpinTime(connection, user_id, wheel_id);
 
-      // Check if user has spins remaining
-      if (spinCount >= wheel.spins_per_user_period) {
-        // Calculate next available time
-        const lastSpin = await SpinService.getLastSpinTime(
-          // FIXED: Use SpinService.
-          connection,
-          user_id,
-          wheel_id
-        );
-        const nextAvailable = SpinService.calculateNextAvailable(
-          // FIXED: Use SpinService.
-          lastSpin,
-          wheel.cooldown_hours || 24
-        );
+      // If we have exhausted our personal quota, compute next available time
+      if (spinCount >= userLimit) {
+        const nextAvailable = SpinService.calculateNextAvailable(lastSpin, wheel.cooldown_hours || 24);
 
         return {
           allowed: false,
           reason: "No spins remaining for this period",
           next_available: nextAvailable,
           remaining_spins: 0,
-          max_spins: wheel.spins_per_user_period,
+          max_spins: userLimit,
+          period,
+          wheel_type: wheel.wheel_type,
+          spins_used: spinCount,
+          last_spin: lastSpin,
         };
       }
 
-      // Check global spin limit for period
+      // Also enforce a global cap if defined (wheel-wide limit)
       if (wheel.max_spins_per_period) {
         const globalSpinCount = await SpinService.getGlobalSpinCountForPeriod(
-          // FIXED: Use SpinService.
           connection,
           wheel_id,
           period,
@@ -111,21 +107,25 @@ class SpinService {
           return {
             allowed: false,
             reason: "Wheel has reached maximum spins for this period",
-            next_available: SpinService.getNextPeriodStart(period), // FIXED: Use SpinService.
+            next_available: SpinService.getNextPeriodStart(period),
             remaining_spins: 0,
-            max_spins: wheel.max_spins_per_period,
+            max_spins: userLimit,
+            period,
+            wheel_type: wheel.wheel_type,
           };
         }
       }
 
-      const remainingSpins = wheel.spins_per_user_period - spinCount;
+      const remainingSpins = Math.max(0, userLimit - spinCount);
 
       return {
         allowed: true,
         remaining_spins: remainingSpins,
-        max_spins: wheel.spins_per_user_period,
-        period: period,
+        max_spins: userLimit,
+        period,
         wheel_type: wheel.wheel_type,
+        spins_used: spinCount,
+        last_spin: lastSpin,
       };
     } catch (error) {
       console.error("Check spin eligibility error:", error);
