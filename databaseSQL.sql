@@ -292,6 +292,8 @@ CREATE TABLE competitions (
     ticket_model ENUM('MODEL_1', 'MODEL_2', 'CUSTOM') NULL,
     threshold_type ENUM('AUTOMATIC', 'MANUAL') NULL,
     threshold_value INT DEFAULT 1200,
+    jackpot_amount DECIMAL(12,2) NULL,
+    min_ticket_price DECIMAL(10,2) NULL,
     
     -- New Subscription-specific fields
     subscription_tier ENUM('TIER_1', 'TIER_2', 'TIER_3', 'CUSTOM') NULL,
@@ -331,6 +333,11 @@ CREATE TABLE competitions (
 ALTER TABLE competitions
 MODIFY featured_image VARCHAR(255) NULL,
 MODIFY featured_video VARCHAR(255) NULL;
+
+-- ensure jackpot columns exist for older databases
+ALTER TABLE competitions
+  ADD COLUMN IF NOT EXISTS jackpot_amount DECIMAL(12,2) NULL,
+  ADD COLUMN IF NOT EXISTS min_ticket_price DECIMAL(10,2) NULL;
 
 -- ===========================================
 -- COMPETITION TYPE CONFIG TABLE - BINARY(16) UUIDs

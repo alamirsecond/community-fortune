@@ -14,13 +14,14 @@ import {
   getGameFileList,
   getGameCategories,
   updateGameFiles,
+  playMinigameProxy,
 } from "./gameController.js";
 
 import {
   gameZipUpload,
   validateUploadedFiles,
   handleUploadError,
-} from "../../../middleware/upload.js"; 
+} from "../../../middleware/upload.js";
 
 import authenticate from "../../../middleware/auth.js";
 
@@ -47,6 +48,7 @@ router.get("/categories", getGameCategories);
 router.get("/:id", getGameDetails);
 router.get("/:id/leaderboard", getGameLeaderboard);
 router.get("/:id/files", getGameFileList);
+router.get("/:id/play/*path", playMinigameProxy);
 
 //Protected routes (authenticated users)
 router.post("/record", authenticate(), recordGamePlay);
@@ -54,24 +56,24 @@ router.post("/record", authenticate(), recordGamePlay);
 //Admin/creator routes
 router.post(
   "/upload",
-  authenticate(["SUPERADMIN","ADMIN"]),
+  authenticate(["SUPERADMIN", "ADMIN"]),
   gameZipUpload,
   validateUploadedFiles,
   handleUploadError,
   uploadGame
 );
 
-router.put("/:id", authenticate(["SUPERADMIN","ADMIN"]), updateGame);
+router.put("/:id", authenticate(["SUPERADMIN", "ADMIN"]), updateGame);
 
 router.put(
   "/:id/files",
-  authenticate(["SUPERADMIN","ADMIN"]),
+  authenticate(["SUPERADMIN", "ADMIN"]),
   gameZipUpload,
   validateUploadedFiles,
   handleUploadError,
   updateGameFiles
 );
 
-router.delete("/:id", authenticate(["SUPERADMIN","ADMIN"]), deleteGameById);
+router.delete("/:id", authenticate(["SUPERADMIN", "ADMIN"]), deleteGameById);
 
 export default router;

@@ -64,6 +64,8 @@ CREATE TABLE competitions (
     ticket_model VARCHAR(20), -- 'MODEL_10PCT_FREE', 'MODEL_20PCT_FREE', 'CUSTOM'
     threshold_type VARCHAR(20), -- 'AUTOMATIC', 'MANUAL'
     threshold_value INTEGER,
+    jackpot_amount DECIMAL(12,2),
+    min_ticket_price DECIMAL(10,2),
     
     -- Subscription Specific
     allowed_tiers TEXT[], -- Array of allowed tiers
@@ -74,6 +76,11 @@ CREATE TABLE competitions (
     created_at TIMESTAMP DEFAULT NOW(),
     updated_at TIMESTAMP DEFAULT NOW()
 );
+
+-- upgrade helper: ensure jackpot columns exist for legacy installs
+ALTER TABLE competitions
+  ADD COLUMN IF NOT EXISTS jackpot_amount DECIMAL(12,2),
+  ADD COLUMN IF NOT EXISTS min_ticket_price DECIMAL(10,2);
 
 -- TICKETS TABLE (Enhanced with Universal/Competition distinction)
 CREATE TABLE tickets (

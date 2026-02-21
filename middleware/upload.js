@@ -447,8 +447,7 @@ export const uploadGameToCloudinary = async (gameDir, gameId) => {
 };
 
 export const getGameUrl = (gameId) => {
-  const cloudName = cloudinary.config().cloud_name;
-  return `https://res.cloudinary.com/${cloudName}/raw/upload/games/${gameId}/index.html`;
+  return `/api/games/${gameId}/play/index.html`;
 };
 
 export const getGameFiles = async (gameId) => {
