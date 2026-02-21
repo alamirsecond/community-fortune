@@ -269,71 +269,22 @@ spinWheelRouter.get("/spin/eligibility", authenticate, async (req, res) => {
         continue;
       }
 
-      // Determine period based on spins_per_user_period
-      let periodStart;
-      switch (wheel.spins_per_user_period?.toUpperCase()) {
-        case "DAILY":
-          periodStart = "CURDATE()";
-          break;
-        case "WEEKLY":
-          periodStart = "DATE_SUB(CURDATE(), INTERVAL WEEKDAY(CURDATE()) DAY)";
-          break;
-        case "MONTHLY":
-          periodStart = 'DATE_FORMAT(CURDATE(), "%Y-%m-01")';
-          break;
-        default:
-          periodStart = "CURDATE()";
-      }
-
-      // Get user's spin count for the period
-      const [spinCountResult] = await connection.query(
-        `
-        SELECT COUNT(*) as count
-        FROM spin_history
-        WHERE user_id = UUID_TO_BIN(?)
-          AND wheel_id = UUID_TO_BIN(?)
-          AND created_at >= ${periodStart}
-        `,
-        [user_id, wheel.id]
-      );
-
-      const spinCount = spinCountResult[0]?.count || 0;
-      const remainingSpins = Math.max(
-        0,
-        (wheel.max_spins_per_period || 0) - spinCount
-      );
-
-      // Get last spin time
-      const [lastSpinResult] = await connection.query(
-        `
-        SELECT MAX(created_at) as last_spin
-        FROM spin_history
-        WHERE user_id = UUID_TO_BIN(?)
-          AND wheel_id = UUID_TO_BIN(?)
-        `,
-        [user_id, wheel.id]
-      );
-
-      let nextAvailable = null;
-      if (lastSpinResult[0]?.last_spin && wheel.cooldown_hours > 0) {
-        const lastSpin = new Date(lastSpinResult[0].last_spin);
-        nextAvailable = new Date(
-          lastSpin.getTime() + wheel.cooldown_hours * 60 * 60 * 1000
-        );
-      }
+      // reuse service logic for eligibility calculation
+      const eligibility = await checkSpinEligibility(connection, user_id, wheel.id);
 
       eligibilityResults.push({
         wheel_id: wheel.id,
         wheel_name: wheel.wheel_name,
         wheel_type: wheel.wheel_type,
-        is_eligible: remainingSpins > 0,
-        remaining_spins: remainingSpins,
-        max_spins: wheel.max_spins_per_period,
-        spins_used: spinCount,
+        is_eligible: !!eligibility.allowed,
+        remaining_spins: eligibility.remaining_spins,
+        max_spins: eligibility.max_spins,
+        spins_used: eligibility.spins_used || 0,
         cooldown_hours: wheel.cooldown_hours,
-        next_available: nextAvailable,
-        last_spin: lastSpinResult[0]?.last_spin || null,
+        next_available: eligibility.next_available || null,
+        last_spin: eligibility.last_spin || null,
         segments,
+        reason: eligibility.reason || undefined
       });
     }
 
