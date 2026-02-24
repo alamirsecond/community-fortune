@@ -187,7 +187,7 @@ appRouter.use((req, res) => {
 
         // Withdrawal Settings & Limits Management
         "GET /api/withdrawals/settings",
-        "PUT /api/withdrawals/limits",
+        // limit updates are now handled via `/api/wallet/spending-limits`
 
         // Admin Management Endpoints
         "GET /api/withdrawals/all",

@@ -403,7 +403,8 @@ CREATE TABLE competition_entries (
 CREATE TABLE purchases (
     id BINARY(16) PRIMARY KEY,
     user_id BINARY(16),
-    competition_id BINARY(16),
+    competition_id BINARY(16) NULL,
+    spin_wheel_id BINARY(16) NULL,
     status ENUM('PENDING', 'PAID', 'FAILED', 'CANCELLED') DEFAULT 'PENDING',
     payment_method ENUM('CASH_WALLET', 'CREDIT_WALLET', 'MIXED', 'CASHFLOWS', 'MASTERCARD', 'VISA','WALLET'),
     total_amount DECIMAL(12,2),
