@@ -865,7 +865,7 @@ class SpinWheelController {
   // Purchase spins for a wheel (wallet or external gateway)
   static async purchaseWheel(req, res) {
     const connection = await pool.getConnection();
-    const subsSvc = new SubscriptionTicketService();
+    const subsSvc = SubscriptionTicketService;
 
     try {
       const body = { ...req.body, quantity: req.body.quantity || 1 };
@@ -895,9 +895,10 @@ class SpinWheelController {
       // If price is zero — create a free purchase record and return
       if (totalAmount === 0) {
         const purchaseId = crypto.randomUUID();
+        // free spin – treat as wallet payment since nothing was charged
         await connection.query(
-          `INSERT INTO purchases (id, user_id, competition_id, status, payment_method, total_amount, quantity)
-           VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), UUID_TO_BIN(?), 'PAID', 'FREE', ?, ?)`,
+          `INSERT INTO purchases (id, user_id, competition_id, spin_wheel_id, status, payment_method, total_amount, quantity)
+           VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), NULL, UUID_TO_BIN(?), 'PAID', 'WALLET', ?, ?)`,
           [purchaseId, user_id, wheel_id, totalAmount, quantity]
         );
 
@@ -946,8 +947,8 @@ class SpinWheelController {
           }
 
           await connection.query(
-            `INSERT INTO purchases (id, user_id, competition_id, status, payment_method, total_amount, quantity)
-             VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), UUID_TO_BIN(?), 'PAID', 'WALLET', ?, ?)`,
+            `INSERT INTO purchases (id, user_id, competition_id, spin_wheel_id, status, payment_method, total_amount, quantity)
+             VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), NULL, UUID_TO_BIN(?), 'PAID', 'WALLET', ?, ?)`,
             [purchaseId, user_id, wheel_id, totalAmount, quantity]
           );
 
@@ -962,8 +963,8 @@ class SpinWheelController {
 
       // External payment required — create PENDING purchase and return gateway info
       await connection.query(
-        `INSERT INTO purchases (id, user_id, competition_id, status, payment_method, total_amount, quantity)
-         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), UUID_TO_BIN(?), 'PENDING', ?, ?, ?)`,
+        `INSERT INTO purchases (id, user_id, competition_id, spin_wheel_id, status, payment_method, total_amount, quantity)
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), NULL, UUID_TO_BIN(?), 'PENDING', ?, ?, ?)`,
         [purchaseId, user_id, wheel_id, payment_method || 'EXTERNAL', totalAmount, quantity]
       );
 
@@ -973,7 +974,7 @@ class SpinWheelController {
         return rows[0]?.email || null;
       })();
 
-      const paymentResult = await subsSvc.processTicketPayment(user_id, externalPayment, payment_method || 'PAYPAL', `Spin wheel purchase (${wheel.wheel_name})`, userEmail);
+      const paymentResult = await subsSvc.processTicketPayment(user_id, externalPayment, payment_method, `Spin wheel purchase (${wheel.wheel_name})`, userEmail);
 
       if (!paymentResult.success) {
         return res.status(400).json({ success: false, error: paymentResult.error });

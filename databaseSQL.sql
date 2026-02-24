@@ -403,9 +403,10 @@ CREATE TABLE competition_entries (
 CREATE TABLE purchases (
     id BINARY(16) PRIMARY KEY,
     user_id BINARY(16),
-    competition_id BINARY(16),
+    competition_id BINARY(16) NULL,
+    spin_wheel_id BINARY(16) NULL,
     status ENUM('PENDING', 'PAID', 'FAILED', 'CANCELLED') DEFAULT 'PENDING',
-    payment_method ENUM('CASH_WALLET', 'CREDIT_WALLET', 'MIXED', 'CASHFLOWS', 'MASTERCARD', 'VISA','WALLET'),
+    payment_method ENUM('CASH_WALLET', 'CREDIT_WALLET', 'MIXED', 'CASHFLOWS', 'MASTERCARD', 'VISA', 'WALLET', 'STRIPE', 'PAYPAL', 'REVOLT'),
     total_amount DECIMAL(12,2),
     site_credit_used DECIMAL(12,2),
     cash_wallet_used DECIMAL(12,2),
@@ -417,6 +418,10 @@ CREATE TABLE purchases (
     INDEX idx_purchases_user_id (user_id),
     INDEX idx_purchases_status (status)
 );
+
+-- if the table already exists, run the following migration to add the new values:
+-- ALTER TABLE purchases MODIFY payment_method 
+--   ENUM('CASH_WALLET','CREDIT_WALLET','MIXED','CASHFLOWS','MASTERCARD','VISA','WALLET','STRIPE','PAYPAL','REVOLT') NOT NULL;
 ALTER TABLE purchases ADD COLUMN ticket_type VARCHAR(20) DEFAULT 'COMPETITION';
 ALTER TABLE purchases ADD COLUMN quantity INT DEFAULT 1;
 ALTER TABLE purchases ADD COLUMN external_payment DECIMAL(12,2) DEFAULT 0;
