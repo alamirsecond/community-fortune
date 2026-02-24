@@ -22,6 +22,10 @@ limits, the system tracks `daily_spent`, `weekly_spent` and `monthly_spent`.
   2000000, 50000 respectively). Decreases take effect immediately; increases may
   take up to 24 hours.
 
+> **Note:** the older `/api/withdrawals/limits` endpoint has been removed in
+> favour of this consolidated wallet route; the same service logic is used for
+> both tokens.
+
 ### Admin
 - **POST** `/api/wallet/admin/reset-spending`  
   Clears the `daily_spent`, `weekly_spent` and `monthly_spent` counters for a
@@ -31,7 +35,8 @@ limits, the system tracks `daily_spent`, `weekly_spent` and `monthly_spent`.
 - Withdrawal creation (see `withdrawalController.js`) includes spending limit
   checks. If a pending/processed amount would push a user over their daily,
   weekly or monthly limit, the withdrawal is rejected with an error message
-  describing the limit and remaining allowance.
+  describing the limit and remaining allowance.  (This enforcement now uses the
+  same `SpendingLimitsService` as the wallet controllers.)
 - If a withdrawal is rejected or refunded, the spent amounts are rolled back.
 - Limits are stored per-user in `spending_limits` table; a row is automatically
   created when a new user account is added.

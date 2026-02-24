@@ -81,7 +81,6 @@ const withdrawalController = {
       }
 
       const user = users[0];
-log
       // KYC verification required for withdrawals (PDF requirement)
       if (user.kyc_status !== 'verified') {
         await connection.rollback();
@@ -1720,97 +1719,6 @@ log
     }
   },
 
-  // Update user spending limits (PDF Section D)
-  updateSpendingLimits: async (req, res) => {
-    const connection = await pool.getConnection();
-
-    try {
-      const { dailyLimit, weeklyLimit, monthlyLimit, singlePurchaseLimit } = req.body;
-      const userId = req.user.id;
-
-      // Validate limits
-      const maxLimits = {
-        daily: 100000,
-        weekly: 500000,
-        monthly: 2000000,
-        single: 50000
-      };
-
-      const validatedLimits = {
-        daily_limit: Math.min(dailyLimit || 0, maxLimits.daily),
-        weekly_limit: Math.min(weeklyLimit || 0, maxLimits.weekly),
-        monthly_limit: Math.min(monthlyLimit || 0, maxLimits.monthly),
-        single_purchase_limit: Math.min(singlePurchaseLimit || 0, maxLimits.single)
-      };
-
-      await connection.beginTransaction();
-
-      // Update or insert spending limits
-      await connection.query(
-        `INSERT INTO spending_limits (
-          user_id, 
-          daily_limit, 
-          weekly_limit, 
-          monthly_limit, 
-          single_purchase_limit,
-          created_at,
-          updated_at
-        ) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        ON DUPLICATE KEY UPDATE
-          daily_limit = VALUES(daily_limit),
-          weekly_limit = VALUES(weekly_limit),
-          monthly_limit = VALUES(monthly_limit),
-          single_purchase_limit = VALUES(single_purchase_limit),
-          updated_at = CURRENT_TIMESTAMP`,
-        [
-          userId,
-          validatedLimits.daily_limit,
-          validatedLimits.weekly_limit,
-          validatedLimits.monthly_limit,
-          validatedLimits.single_purchase_limit
-        ]
-      );
-
-      // Log the limit change
-      await connection.query(
-        `INSERT INTO admin_activities (id, admin_id, action, target_id, module, details) 
-         VALUES (?, ?, ?, ?, 'spending_limits', ?)`,
-        [uuidv4(), userId, 'Updated spending limits', userId,
-        JSON.stringify(validatedLimits)]
-      );
-
-      await connection.commit();
-
-      res.json({
-        success: true,
-        message: 'Spending limits updated successfully',
-        data: {
-          limits: validatedLimits,
-          effective: {
-            daily: 'Immediately for decreases, 24 hours for increases',
-            weekly: 'Immediately',
-            monthly: 'Immediately'
-          },
-          notes: [
-            'Decreases take effect immediately',
-            'Increases may take up to 24 hours',
-            'You can adjust limits at any time',
-            'Contact support if you need help'
-          ]
-        }
-      });
-
-    } catch (error) {
-      await connection.rollback();
-      console.error('Update spending limits error:', error);
-      res.status(500).json({
-        success: false,
-        message: 'Internal server error'
-      });
-    } finally {
-      connection.release();
-    }
-  },
 
   // Payment webhooks
   handlePayPalWebhook: async (req, res) => {

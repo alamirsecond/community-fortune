@@ -1,31 +1,17 @@
 // src/api/wallet/spendingLimitsController.js
 import pool from '../../../database.js';
+import SpendingLimitsService from '../spendingLimits/spending_limit_con.js';
 
 const spendingLimitsController = {
   // Get user's spending limits
   getSpendingLimits: async (req, res) => {
     try {
       const userId = req.user.id;
+      const connection = await pool.getConnection();
+      const limits = await SpendingLimitsService.getLimits(connection, userId);
+      connection.release();
 
-      const [limits] = await pool.query(
-        `SELECT 
-          daily_limit as dailyLimit,
-          weekly_limit as weeklyLimit,
-          monthly_limit as monthlyLimit,
-          single_purchase_limit as singlePurchaseLimit,
-          daily_spent as dailySpent,
-          weekly_spent as weeklySpent,
-          monthly_spent as monthlySpent,
-          limit_reset_date as limitResetDate,
-          created_at as createdAt,
-          updated_at as updatedAt
-         FROM spending_limits 
-         WHERE user_id = UUID_TO_BIN(?)`,
-        [userId]
-      );
-
-      // If no limits set, return defaults
-      if (limits.length === 0) {
+      if (!limits) {
         return res.json({
           success: true,
           data: {
@@ -41,10 +27,21 @@ const spendingLimitsController = {
         });
       }
 
-      res.json({
-        success: true,
-        data: limits[0]
-      });
+      // map database names to camel case shown to clients
+      const formatted = {
+        dailyLimit: limits.daily_limit,
+        weeklyLimit: limits.weekly_limit,
+        monthlyLimit: limits.monthly_limit,
+        singlePurchaseLimit: limits.single_purchase_limit,
+        dailySpent: limits.daily_spent,
+        weeklySpent: limits.weekly_spent,
+        monthlySpent: limits.monthly_spent,
+        limitResetDate: limits.limit_reset_date,
+        createdAt: limits.created_at,
+        updatedAt: limits.updated_at
+      };
+
+      res.json({ success: true, data: formatted });
 
     } catch (error) {
       console.error('Get spending limits error:', error);
@@ -58,60 +55,25 @@ const spendingLimitsController = {
   // Update spending limits
   updateSpendingLimits: async (req, res) => {
     const connection = await pool.getConnection();
-    
     try {
-      const { dailyLimit, weeklyLimit, monthlyLimit, singlePurchaseLimit } = req.body;
-      const userId = req.user.id;
-
-      // Validate limits
-      if (dailyLimit < 0 || weeklyLimit < 0 || monthlyLimit < 0 || singlePurchaseLimit < 0) {
-        return res.status(400).json({
-          success: false,
-          message: 'Limits cannot be negative'
-        });
-      }
-
       await connection.beginTransaction();
-
-      // Check if limits already exist
-      const [existing] = await connection.query(
-        `SELECT id FROM spending_limits WHERE user_id = UUID_TO_BIN(?)`,
-        [userId]
-      );
-
-      if (existing.length > 0) {
-        // Update existing limits
-        await connection.query(
-          `UPDATE spending_limits 
-           SET daily_limit = ?, weekly_limit = ?, monthly_limit = ?, 
-               single_purchase_limit = ?, updated_at = CURRENT_TIMESTAMP
-           WHERE user_id = UUID_TO_BIN(?)`,
-          [dailyLimit, weeklyLimit, monthlyLimit, singlePurchaseLimit, userId]
-        );
-      } else {
-        // Insert new limits
-        await connection.query(
-          `INSERT INTO spending_limits 
-           (id, user_id, daily_limit, weekly_limit, monthly_limit, single_purchase_limit, limit_reset_date)
-           VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, ?, ?, CURDATE())`,
-          [userId, dailyLimit, weeklyLimit, monthlyLimit, singlePurchaseLimit]
-        );
-      }
-
+      const userId = req.user.id;
+      const validated = await SpendingLimitsService.saveLimits(connection, userId, {
+        daily_limit: req.body.dailyLimit,
+        weekly_limit: req.body.weeklyLimit,
+        monthly_limit: req.body.monthlyLimit,
+        single_purchase_limit: req.body.singlePurchaseLimit
+      });
       await connection.commit();
 
       res.json({
         success: true,
         message: 'Spending limits updated successfully',
         data: {
-          dailyLimit,
-          weeklyLimit,
-          monthlyLimit,
-          singlePurchaseLimit,
+          limits: validated,
           updatedAt: new Date().toISOString()
         }
       });
-
     } catch (error) {
       await connection.rollback();
       console.error('Update spending limits error:', error);

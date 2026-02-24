@@ -16,7 +16,6 @@ router.post('/verify-otp', authenticate(['USER']), apiLimiter, withdrawalControl
 router.get('/my-withdrawals', authenticate(['USER']), apiLimiter, withdrawalController.getUserWithdrawals);
 router.get('/my-withdrawals/:id', authenticate(['USER']), apiLimiter, withdrawalController.getWithdrawalById);
 router.get('/settings', authenticate(['USER']), apiLimiter, withdrawalController.getWithdrawalSettings);
-router.put('/limits', authenticate(['USER']), apiLimiter, withdrawalController.updateSpendingLimits); 
 // Admin routes
 router.get('/all', authenticate(['SUPERADMIN', 'ADMIN']), apiLimiter, withdrawalController.getAllWithdrawals);
 router.get('/export/all', authenticate(['SUPERADMIN', 'ADMIN']), apiLimiter, withdrawalController.exportAllWithdrawalsCsv);
