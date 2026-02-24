@@ -2,6 +2,89 @@ import pool from "../../../database.js";
 import { v4 as uuidv4 } from "uuid";
 
 class SpendingLimitsService {
+  /**
+   * Retrieve the raw limits row for a user. Returns null when none exists.
+   */
+  static async getLimits(connection, user_id) {
+    const [rows] = await connection.query(
+      `SELECT * FROM spending_limits WHERE user_id = UUID_TO_BIN(?)`,
+      [user_id]
+    );
+    return rows[0] || null;
+  }
+
+  /**
+   * Save or update spending limits for a user. Returns the validated limits object.
+   * Enforces the same max caps that were previously spread across multiple
+   * controllers.
+   */
+  static async saveLimits(connection, user_id, {
+    daily_limit = 0,
+    weekly_limit = 0,
+    monthly_limit = 0,
+    single_purchase_limit = 0
+  } = {}) {
+    // validation caps (same as withdrawalController and wallet controller)
+    const maxLimits = {
+      daily: 100000,
+      weekly: 500000,
+      monthly: 2000000,
+      single: 50000
+    };
+
+    const validated = {
+      daily_limit: Math.min(daily_limit || 0, maxLimits.daily),
+      weekly_limit: Math.min(weekly_limit || 0, maxLimits.weekly),
+      monthly_limit: Math.min(monthly_limit || 0, maxLimits.monthly),
+      single_purchase_limit: Math.min(single_purchase_limit || 0, maxLimits.single)
+    };
+
+    const today = new Date().toISOString().split("T")[0];
+
+    const [existing] = await connection.query(
+      `SELECT id FROM spending_limits WHERE user_id = UUID_TO_BIN(?)`,
+      [user_id]
+    );
+
+    if (existing.length > 0) {
+      await connection.query(
+        `UPDATE spending_limits
+           SET daily_limit = ?,
+               weekly_limit = ?,
+               monthly_limit = ?,
+               single_purchase_limit = ?,
+               limit_reset_date = ?,
+               updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = UUID_TO_BIN(?)`,
+        [
+          validated.daily_limit,
+          validated.weekly_limit,
+          validated.monthly_limit,
+          validated.single_purchase_limit,
+          today,
+          user_id
+        ]
+      );
+    } else {
+      await connection.query(
+        `INSERT INTO spending_limits
+           (id, user_id, daily_limit, weekly_limit, monthly_limit, single_purchase_limit, limit_reset_date)
+         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, ?, ?, ?)`,
+        [
+          uuidv4(),
+          user_id,
+          validated.daily_limit,
+          validated.weekly_limit,
+          validated.monthly_limit,
+          validated.single_purchase_limit,
+          today
+        ]
+      );
+    }
+
+    return validated;
+  }
+
   static async checkSpendingLimits(
     connection,
     user_id,
@@ -142,68 +225,21 @@ class SpendingLimitsService {
     );
   }
 
+  // HTTP handler kept for legacy routes; delegates to saveLimits, so
+  // business logic lives in a single place. This is not used anywhere by the
+  // current router set, but exporting it avoids breaking clients if the old
+  // `/api/spending-limits` path were ever mounted again.
   static async setSpendingLimits(req, res) {
     const connection = await pool.getConnection();
-
     try {
       await connection.beginTransaction();
-
       const user_id = req.user.id;
-      const {
-        daily_limit,
-        weekly_limit,
-        monthly_limit,
-        single_purchase_limit,
-      } = req.body;
-
-      const today = new Date().toISOString().split("T")[0];
-
-      const [existing] = await connection.query(
-        `SELECT id FROM spending_limits WHERE user_id = UUID_TO_BIN(?)`,
-        [user_id]
-      );
-
-      if (existing.length > 0) {
-        await connection.query(
-          `UPDATE spending_limits 
-           SET daily_limit = ?, 
-               weekly_limit = ?, 
-               monthly_limit = ?, 
-               single_purchase_limit = ?,
-               limit_reset_date = ?,
-               updated_at = NOW()
-           WHERE user_id = UUID_TO_BIN(?)`,
-          [
-            daily_limit || 0,
-            weekly_limit || 0,
-            monthly_limit || 0,
-            single_purchase_limit || 0,
-            today,
-            user_id,
-          ]
-        );
-      } else {
-        await connection.query(
-          `INSERT INTO spending_limits 
-           (id, user_id, daily_limit, weekly_limit, monthly_limit, single_purchase_limit, limit_reset_date) 
-           VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, ?, ?, ?, ?)`,
-          [
-            uuidv4(),
-            user_id,
-            daily_limit || 0,
-            weekly_limit || 0,
-            monthly_limit || 0,
-            single_purchase_limit || 0,
-            today,
-          ]
-        );
-      }
-
+      const validated = await this.saveLimits(connection, user_id, req.body);
       await connection.commit();
-
       res.json({
         success: true,
         message: "Spending limits updated successfully",
+        data: { limits: validated }
       });
     } catch (error) {
       await connection.rollback();
