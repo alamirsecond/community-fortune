@@ -81,7 +81,7 @@ const withdrawalController = {
       }
 
       const user = users[0];
-
+log
       // KYC verification required for withdrawals (PDF requirement)
       if (user.kyc_status !== 'verified') {
         await connection.rollback();

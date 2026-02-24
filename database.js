@@ -27,6 +27,7 @@ const pool = mysql.createPool({
   connectionLimit: parseInt(process.env.DB_POOL_MAX) || 10,
   queueLimit: parseInt(process.env.DB_POOL_QUEUE) || 0,
   enableKeepAlive: true,
+  decimalNumbers: true,
   keepAliveInitialDelay: 0,
   typeCast: function (field, next) {
     if (field.type === "VAR_STRING" || field.type === "BLOB") {
