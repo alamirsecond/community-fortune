@@ -61,6 +61,8 @@ Responses (examples):
 { "success": true, "purchase_id": "<uuid>", "paid": true, "amount": 10.00 }
 ```
 
+> **Note:** the response now also includes an `eligibility` object reflecting the user's current spin availability (including any paid spins) so the client can update its state without making an extra request.
+
 - External gateway (requires client to complete payment):
 
 ```json
@@ -79,14 +81,13 @@ Responses (examples):
 
 Client flow (recommended):
 1. Call POST /api/spinWheel/wheels/:wheel_id/purchase to create a purchase.
-   - If response `paid: true` → you have a `purchase_id` ready to use.
-   - If response `requires_payment: true` → complete gateway checkout (use returned checkoutUrl or clientSecret).
+   - If response `paid: true` → you have a `purchase_id` ready to use. The payload also contains an `eligibility` object you can use to refresh UI state.
+   - If response `requires_payment: true` → complete gateway checkout (use returned checkoutUrl or clientSecret). After the payment succeeds, you may optionally re-fetch eligibility or use the webhook data.
 2. After payment completes (webhook or client returns success), call POST /api/spinWheel/spin with body:
 
 ```json
 { "wheel_id": "<wheelId>", "purchase_id": "<purchaseId>" }
 ```
-
 3. Server validates purchase (must be PAID), consumes one spin (decrements `quantity`), runs the spin transaction and returns the prize result.
 
 Notes on multi‑spin purchases:

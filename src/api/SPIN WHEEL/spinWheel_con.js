@@ -65,22 +65,64 @@ class SpinWheelController {
       const { wheel_id, competition_id } = validationResult.data;
       const user_id = req.user.id;
 
-      console.log("Checking eligibility for wheel:", wheel_id);
-      const eligibility = await checkSpinEligibility(
-        connection,
-        user_id,
-        wheel_id
-      );
-      console.log("Eligibility result:", eligibility);
+      // If a purchase_id is provided we will verify it and allow the spin regardless of
+      // period-based limits. The purchase will still be consumed later when recording history.
+      let purchaseRow = null;
+      if (validationResult.data.purchase_id) {
+        const [rows] = await connection.query(
+          `SELECT id, user_id, spin_wheel_id, quantity, status FROM purchases WHERE id = UUID_TO_BIN(?) FOR UPDATE`,
+          [validationResult.data.purchase_id]
+        );
+        if (!rows.length) {
+          await connection.rollback();
+          return res.status(400).json({ error: 'Invalid purchase_id' });
+        }
+        purchaseRow = rows[0];
+        // ensure the purchase belongs to the authenticated user
+        if (
+          purchaseRow.user_id !==
+          connection.escape(req.user.id).replace(/'/g, '')
+        ) {
+          await connection.rollback();
+          return res.status(403).json({ error: 'Purchase does not belong to user' });
+        }
+        if (purchaseRow.status !== 'PAID') {
+          await connection.rollback();
+          return res.status(400).json({ error: 'Purchase not paid' });
+        }
+        if (!purchaseRow.quantity || purchaseRow.quantity < 1) {
+          await connection.rollback();
+          return res.status(400).json({ error: 'No spins remaining on this purchase' });
+        }
+        if (purchaseRow.spin_wheel_id) {
+          // compare binary values using connection.escape trick
+          const wheelBin = connection.escape(wheel_id).replace(/'/g, '');
+          if (purchaseRow.spin_wheel_id !== wheelBin) {
+            await connection.rollback();
+            return res.status(400).json({ error: 'Purchase does not apply to this wheel' });
+          }
+        }
+      }
 
-      if (!eligibility.allowed) {
-        console.log("User not eligible");
-        await connection.rollback();
-        return res.status(403).json({
-          error: "Not eligible to spin",
-          details: eligibility.reason,
-          next_available: eligibility.next_available,
-        });
+      // Only check normal eligibility when the user is not using a paid spin
+      if (!purchaseRow) {
+        console.log("Checking eligibility for wheel:", wheel_id);
+        const eligibility = await checkSpinEligibility(
+          connection,
+          user_id,
+          wheel_id
+        );
+        console.log("Eligibility result:", eligibility);
+
+        if (!eligibility.allowed) {
+          console.log("User not eligible");
+          await connection.rollback();
+          return res.status(403).json({
+            error: "Not eligible to spin",
+            details: eligibility.reason,
+            next_available: eligibility.next_available,
+          });
+        }
       }
 
       // 2. Get wheel with segments using UUID functions
@@ -810,21 +852,18 @@ class SpinWheelController {
         const [paidPurchases] = await connection.query(
           `SELECT BIN_TO_UUID(id) as id, quantity, status, created_at
            FROM purchases
-           WHERE user_id = UUID_TO_BIN(?) AND competition_id = UUID_TO_BIN(?) AND status = 'PAID'`,
+           WHERE user_id = UUID_TO_BIN(?) AND spin_wheel_id = UUID_TO_BIN(?) AND status = 'PAID'`,
           [req.user.id, wheel_id]
         );
 
-        const paid_spins_remaining = (paidPurchases || []).reduce((sum, p) => sum + (p.quantity || 0), 0);
-
-        // Also check period-based eligibility (limits per period) so client can determine if they can use paid spins now
+        // Check eligibility which now also returns paid spin info
         const eligibility = await checkSpinEligibility(connection, req.user.id, wheel_id);
 
         user_eligibility = {
           is_paid_wheel: true,
-          has_paid_spins: paid_spins_remaining > 0,
-          paid_spins_remaining,
           paid_purchases: paidPurchases.map((p) => ({ id: p.id, quantity: p.quantity, created_at: p.created_at })),
-          spin_eligibility: eligibility // { allowed, remaining_spins, max_spins, next_available, ... }
+          // merge fields returned by service; it already includes has_paid_spins/paid_spins_remaining
+          ...eligibility,
         };
       }
 
@@ -902,7 +941,10 @@ class SpinWheelController {
           [purchaseId, user_id, wheel_id, totalAmount, quantity]
         );
 
-        return res.json({ success: true, purchase_id: purchaseId, paid: true, amount: totalAmount });
+        // compute eligibility after purchase
+        const eligibility = await checkSpinEligibility(connection, user_id, wheel_id);
+
+        return res.json({ success: true, purchase_id: purchaseId, paid: true, amount: totalAmount, eligibility });
       }
 
       // Wallet-first logic (try to cover with wallet if requested)
@@ -954,7 +996,8 @@ class SpinWheelController {
 
           await connection.commit();
 
-          return res.json({ success: true, purchase_id: purchaseId, paid: true, amount: totalAmount });
+          const eligibility = await checkSpinEligibility(connection, user_id, wheel_id);
+          return res.json({ success: true, purchase_id: purchaseId, paid: true, amount: totalAmount, eligibility });
         } catch (err) {
           await connection.rollback();
           throw err;
@@ -981,14 +1024,18 @@ class SpinWheelController {
       }
 
       // Return payment instructions to client (checkoutUrl or clientSecret)
-      return res.json({
-        success: true,
-        requires_payment: true,
-        purchase_id: purchaseId,
-        amount: totalAmount,
-        external_amount: externalPayment,
-        payment: paymentResult // contains checkoutUrl / clientSecret / reference
-      });
+      {
+        const eligibility = await checkSpinEligibility(connection, user_id, wheel_id);
+        return res.json({
+          success: true,
+          requires_payment: true,
+          purchase_id: purchaseId,
+          amount: totalAmount,
+          external_amount: externalPayment,
+          payment: paymentResult, // contains checkoutUrl / clientSecret / reference
+          eligibility,
+        });
+      }
     } catch (error) {
       console.error('Purchase wheel error:', error);
       await connection.rollback().catch(() => { });
