@@ -177,12 +177,7 @@ spinWheelRouter.get("/spin/eligibility", authenticate, async (req, res) => {
         BIN_TO_UUID(sw.id) as id,
         sw.wheel_name,
         sw.wheel_type,
-        sw.spins_per_user_period,
-        sw.max_spins_per_period,
-        sw.cooldown_hours,
-        sw.min_tier,
-        sw.is_active,
-        (
+        sw.ticket_price,
           SELECT JSON_ARRAYAGG(
             JSON_OBJECT(
               'id', BIN_TO_UUID(sws.id),
@@ -272,10 +267,12 @@ spinWheelRouter.get("/spin/eligibility", authenticate, async (req, res) => {
       // reuse service logic for eligibility calculation
       const eligibility = await checkSpinEligibility(connection, user_id, wheel.id);
 
+      // eligibility.allowed may already be true if paid spins are available
       eligibilityResults.push({
         wheel_id: wheel.id,
         wheel_name: wheel.wheel_name,
         wheel_type: wheel.wheel_type,
+        ticket_price: wheel.ticket_price,
         is_eligible: !!eligibility.allowed,
         remaining_spins: eligibility.remaining_spins,
         max_spins: eligibility.max_spins,
@@ -283,6 +280,8 @@ spinWheelRouter.get("/spin/eligibility", authenticate, async (req, res) => {
         cooldown_hours: wheel.cooldown_hours,
         next_available: eligibility.next_available || null,
         last_spin: eligibility.last_spin || null,
+        has_paid_spins: eligibility.has_paid_spins || false,
+        paid_spins_remaining: eligibility.paid_spins_remaining || 0,
         segments,
         reason: eligibility.reason || undefined
       });

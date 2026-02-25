@@ -17,7 +17,8 @@ class SpinService {
           sw.cooldown_hours,
           sw.min_tier,
           sw.wheel_type,
-          sw.is_active
+          sw.is_active,
+          sw.ticket_price
         FROM spin_wheels sw
         WHERE sw.id = UUID_TO_BIN(?)`,
         [wheel_id]
@@ -39,6 +40,23 @@ class SpinService {
           reason: "Wheel is not active",
         };
       }
+
+      // Determine if the wheel requires paid tickets and if the user has any remaining
+      let paidSpinsRemaining = 0;
+      if (wheel.ticket_price && parseFloat(wheel.ticket_price) > 0) {
+        const [paidRows] = await connection.query(
+          `SELECT quantity FROM purchases
+           WHERE user_id = UUID_TO_BIN(?)
+             AND spin_wheel_id = UUID_TO_BIN(?)
+             AND status = 'PAID'`,
+          [user_id, wheel_id]
+        );
+        paidSpinsRemaining = (paidRows || []).reduce(
+          (sum, r) => sum + (r.quantity || 0),
+          0
+        );
+      }
+
 
       // Check user level if required
       if (wheel.min_tier) {
@@ -81,6 +99,21 @@ class SpinService {
       if (spinCount >= userLimit) {
         const nextAvailable = SpinService.calculateNextAvailable(lastSpin, wheel.cooldown_hours || 24);
 
+        // even if quota is exhausted, paid spins may allow continuation
+        if (paidSpinsRemaining > 0) {
+          return {
+            allowed: true,
+            remaining_spins: 0,
+            max_spins: userLimit,
+            period,
+            wheel_type: wheel.wheel_type,
+            spins_used: spinCount,
+            last_spin: lastSpin,
+            has_paid_spins: true,
+            paid_spins_remaining: paidSpinsRemaining,
+          };
+        }
+
         return {
           allowed: false,
           reason: "No spins remaining for this period",
@@ -104,6 +137,19 @@ class SpinService {
         );
 
         if (globalSpinCount >= wheel.max_spins_per_period) {
+          // global limit reached; paid spins should still allow spin?
+          if (paidSpinsRemaining > 0) {
+            return {
+              allowed: true,
+              remaining_spins: Math.max(0, userLimit - spinCount),
+              max_spins: userLimit,
+              period,
+              wheel_type: wheel.wheel_type,
+              has_paid_spins: true,
+              paid_spins_remaining: paidSpinsRemaining,
+            };
+          }
+
           return {
             allowed: false,
             reason: "Wheel has reached maximum spins for this period",
@@ -118,7 +164,8 @@ class SpinService {
 
       const remainingSpins = Math.max(0, userLimit - spinCount);
 
-      return {
+      // base result
+      const baseResult = {
         allowed: true,
         remaining_spins: remainingSpins,
         max_spins: userLimit,
@@ -127,6 +174,13 @@ class SpinService {
         spins_used: spinCount,
         last_spin: lastSpin,
       };
+
+      if (paidSpinsRemaining > 0) {
+        baseResult.has_paid_spins = true;
+        baseResult.paid_spins_remaining = paidSpinsRemaining;
+      }
+
+      return baseResult;
     } catch (error) {
       console.error("Check spin eligibility error:", error);
       throw error;
