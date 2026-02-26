@@ -20,7 +20,7 @@ const pointsController = {
 
       // Get user points balance
       const [userPoints] = await pool.query(
-        `SELECT total_points, earned_points, redeemed_points 
+        `SELECT total_points, earned_points, redeemed_points, spent_points 
          FROM user_points WHERE user_id = ?`,
         [user_id]
       );
@@ -28,8 +28,8 @@ const pointsController = {
       if (userPoints.length === 0) {
         // Initialize points for new user
         await pool.query(
-          `INSERT INTO user_points(id, user_id, total_points, earned_points, redeemed_points)
-           VALUES (UUID(), ?, 0, 0, 0)`,
+          `INSERT INTO user_points(id, user_id, total_points, earned_points, redeemed_points, spent_points)
+           VALUES (UUID(), ?, 0, 0, 0, 0)`,
           [user_id]
         );
         
@@ -152,12 +152,14 @@ const pointsController = {
       // Calculate site credit (£1 per 1000 points)
       const siteCredit = points / 1000;
 
-      // Update user points
+      // Update user points (also increment spent_points for accounting)
       await connection.query(
         `UPDATE user_points 
-         SET total_points = total_points - ?, redeemed_points = redeemed_points + ?
+         SET total_points = total_points - ?,
+             redeemed_points = redeemed_points + ?,
+             spent_points = spent_points + ?
          WHERE user_id = ?`,
-        [points, points, user_id]
+        [points, points, points, user_id]
       );
 
       // Add site credit to user's wallet
@@ -206,6 +208,7 @@ const pointsController = {
           points_redeemed: points,
           site_credit_added: parseFloat(siteCredit.toFixed(2)),
           new_balance: userPoints[0].total_points - points,
+          total_spent_points: (userPoints[0].spent_points || 0) + points
         },
       });
     } catch (err) {
@@ -648,6 +651,7 @@ const pointsController = {
         `SELECT 
            up.total_points,
            up.earned_points,
+           up.spent_points,
            up.redeemed_points,
            u.username,
            u.email,
