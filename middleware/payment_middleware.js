@@ -3,6 +3,7 @@ import Stripe from 'stripe';
 import paypal from '@paypal/checkout-server-sdk';
 import crypto from 'crypto';
 import secretManager, { SECRET_KEYS } from '../src/Utils/secretManager.js';
+import paymentGatewayService from '../src/api/Payments/PaymentGatewayService.js';
 
 export const validateWebhookSignature = (gateway) => {
   return async (req, res, next) => {
@@ -16,16 +17,29 @@ export const validateWebhookSignature = (gateway) => {
             break;
           }
 
-          let stripeSecret;
-          let webhookSecret;
-          try {
-            [stripeSecret, webhookSecret] = await Promise.all([
-              secretManager.getSecret(SECRET_KEYS.STRIPE_SECRET_KEY, { fallbackEnvVar: 'STRIPE_SECRET_KEY' }),
-              secretManager.getSecret(SECRET_KEYS.STRIPE_WEBHOOK_SECRET, { fallbackEnvVar: 'STRIPE_WEBHOOK_SECRET' })
-            ]);
-          } catch (secretError) {
-            console.error('Stripe secret retrieval error:', secretError.message);
-            return res.status(500).json({ success: false, error: 'Stripe secrets are not configured' });
+          // try to pull credentials from DB first
+          const gatewayCfg = await paymentGatewayService.fetchGatewayConfig('STRIPE');
+          let stripeSecret = gatewayCfg?.client_secret || gatewayCfg?.api_key || '';
+          let webhookSecret = gatewayCfg?.webhook_secret || '';
+
+          // fall back to file/env/secretManager if not defined in DB
+          if (!stripeSecret || !webhookSecret) {
+            // load from config file for backwards compatibility
+            const cfg = (await import('../src/config/payments.js')).default;
+            stripeSecret = stripeSecret || cfg.stripe.secretKey;
+            webhookSecret = webhookSecret || cfg.stripe.webhookSecret;
+
+            if (!stripeSecret || !webhookSecret) {
+              try {
+                [stripeSecret, webhookSecret] = await Promise.all([
+                  secretManager.getSecret(SECRET_KEYS.STRIPE_SECRET_KEY, { fallbackEnvVar: 'STRIPE_SECRET_KEY', optional: true }),
+                  secretManager.getSecret(SECRET_KEYS.STRIPE_WEBHOOK_SECRET, { fallbackEnvVar: 'STRIPE_WEBHOOK_SECRET', optional: true })
+                ]);
+              } catch (secretError) {
+                console.error('Stripe secret retrieval error:', secretError.message);
+                return res.status(500).json({ success: false, error: 'Stripe secrets are not configured' });
+              }
+            }
           }
 
           try {
@@ -54,18 +68,31 @@ export const validateWebhookSignature = (gateway) => {
             break;
           }
 
-          let clientId;
-          let clientSecret;
-          let webhookId;
-          try {
-            [clientId, clientSecret, webhookId] = await Promise.all([
-              secretManager.getSecret(SECRET_KEYS.PAYPAL_CLIENT_ID, { fallbackEnvVar: 'PAYPAL_CLIENT_ID' }),
-              secretManager.getSecret(SECRET_KEYS.PAYPAL_CLIENT_SECRET, { fallbackEnvVar: 'PAYPAL_CLIENT_SECRET' }),
-              secretManager.getSecret(SECRET_KEYS.PAYPAL_WEBHOOK_ID, { fallbackEnvVar: 'PAYPAL_WEBHOOK_ID' })
-            ]);
-          } catch (secretError) {
-            console.error('PayPal secret retrieval error:', secretError.message);
-            return res.status(500).json({ success: false, error: 'PayPal secrets are not configured' });
+          // try database first
+          const ppCfg = await paymentGatewayService.fetchGatewayConfig('PAYPAL');
+          let clientId = ppCfg?.client_id || '';
+          let clientSecret = ppCfg?.client_secret || '';
+          let webhookId = ppCfg?.webhook_secret || ''; // configurable field for webhook id
+
+          // fall back to file or secret manager
+          if (!clientId || !clientSecret || !webhookId) {
+            const cfg = (await import('../src/config/payments.js')).default;
+            clientId = clientId || cfg.paypal.clientId;
+            clientSecret = clientSecret || cfg.paypal.clientSecret;
+            webhookId = webhookId || cfg.paypal.webhookId;
+
+            if (!clientId || !clientSecret || !webhookId) {
+              try {
+                [clientId, clientSecret, webhookId] = await Promise.all([
+                  secretManager.getSecret(SECRET_KEYS.PAYPAL_CLIENT_ID, { fallbackEnvVar: 'PAYPAL_CLIENT_ID', optional: true }),
+                  secretManager.getSecret(SECRET_KEYS.PAYPAL_CLIENT_SECRET, { fallbackEnvVar: 'PAYPAL_CLIENT_SECRET', optional: true }),
+                  secretManager.getSecret(SECRET_KEYS.PAYPAL_WEBHOOK_ID, { fallbackEnvVar: 'PAYPAL_WEBHOOK_ID', optional: true })
+                ]);
+              } catch (secretError) {
+                console.error('PayPal secret retrieval error:', secretError.message);
+                return res.status(500).json({ success: false, error: 'PayPal secrets are not configured' });
+              }
+            }
           }
 
           const environment = process.env.NODE_ENV === 'production'
@@ -102,14 +129,26 @@ export const validateWebhookSignature = (gateway) => {
             break;
           }
 
-          let webhookSecret;
-          try {
-            webhookSecret = await secretManager.getSecret(SECRET_KEYS.REVOLUT_WEBHOOK_SECRET, {
-              fallbackEnvVar: 'REVOLUT_WEBHOOK_SECRET'
-            });
-          } catch (secretError) {
-            console.error('Revolut secret retrieval error:', secretError.message);
-            return res.status(500).json({ success: false, error: 'Revolut webhook secret is not configured' });
+          // check DB row first
+          const revCfg = await paymentGatewayService.fetchGatewayConfig('REVOLUT');
+          let webhookSecret = revCfg?.webhook_secret || '';
+
+          if (!webhookSecret) {
+            // fall back to config file
+            const cfg = (await import('../src/config/payments.js')).default;
+            webhookSecret = cfg.revolut.webhookSecret;
+
+            if (!webhookSecret) {
+              try {
+                webhookSecret = await secretManager.getSecret(SECRET_KEYS.REVOLUT_WEBHOOK_SECRET, {
+                  fallbackEnvVar: 'REVOLUT_WEBHOOK_SECRET',
+                  optional: true
+                });
+              } catch (secretError) {
+                console.error('Revolut secret retrieval error:', secretError.message);
+                return res.status(500).json({ success: false, error: 'Revolut secrets are not configured' });
+              }
+            }
           }
 
           const payload = req.rawBody || JSON.stringify(req.body);

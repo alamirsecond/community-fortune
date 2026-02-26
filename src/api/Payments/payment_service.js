@@ -3566,6 +3566,14 @@ class PaymentService {
           [net_amount, net_amount, net_amount, user_id]
         );
       }
+
+      // mark spin‑wheel purchases paid by this PayPal capture
+      await connection.query(
+        `UPDATE purchases
+         SET status = 'PAID'
+         WHERE gateway_reference = ? AND status = 'PENDING'`,
+        [resource.id]
+      );
     } finally {
       connection.release();
     }
@@ -3715,6 +3723,24 @@ class PaymentService {
           [net_amount, `STRIPE_${paymentIntent.id}`, user_id, deposit_to_wallet]
         );
       }
+
+      // **mark any related purchases paid**
+      const purchaseId = paymentIntent.metadata?.purchase_id;
+      if (purchaseId) {
+        await connection.query(
+          `UPDATE purchases
+           SET status = 'PAID', gateway_reference = ?
+           WHERE id = UUID_TO_BIN(?)`,
+          [paymentIntent.id, purchaseId]
+        );
+      } else {
+        await connection.query(
+          `UPDATE purchases
+           SET status = 'PAID'
+           WHERE gateway_reference = ? AND status = 'PENDING'`,
+          [paymentIntent.id]
+        );
+      }
     } finally {
       connection.release();
     }
@@ -3858,6 +3884,24 @@ class PaymentService {
            FROM wallets w 
            WHERE w.user_id = UUID_TO_BIN(?) AND w.type = ?`,
           [net_amount, `REVOLUT_${orderData.id}`, user_id, deposit_to_wallet]
+        );
+      }
+
+      // mark related purchases
+      const purchaseId = orderData.metadata?.purchase_id;
+      if (purchaseId) {
+        await connection.query(
+          `UPDATE purchases
+           SET status = 'PAID', gateway_reference = ?
+           WHERE id = UUID_TO_BIN(?)`,
+          [orderData.id, purchaseId]
+        );
+      } else {
+        await connection.query(
+          `UPDATE purchases
+           SET status = 'PAID'
+           WHERE gateway_reference = ? AND status = 'PENDING'`,
+          [orderData.id]
         );
       }
     } finally {

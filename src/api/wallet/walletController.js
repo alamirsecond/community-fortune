@@ -1430,7 +1430,7 @@ const walletController = {
       await connection.query(
         `INSERT INTO wallet_transactions 
          (id, wallet_id, amount, type, reference, description, created_at) 
-         VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), ?, 'DEBIT', UUID_TO_BIN(?), ?, CURRENT_TIMESTAMP)`,
+         VALUES (UUID_TO_BIN(?), ?, ?, 'DEBIT', ?, ?, CURRENT_TIMESTAMP)`,
         [
           transactionId,
           wallet[0].id,

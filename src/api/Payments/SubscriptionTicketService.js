@@ -749,10 +749,12 @@ class SubscriptionTicketService {
       );
 
       if (wallet.length) {
+        // wallet[0].id is already stored as binary(16); pass it directly
+        // instead of wrapping in UUID_TO_BIN() which expects a string.
         await connection.query(
           `INSERT INTO wallet_transactions 
            (id, wallet_id, amount, type, reference, description)
-           VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, 'DEBIT', ?, ?)`,
+           VALUES (UUID_TO_BIN(UUID()), ?, ?, 'DEBIT', ?, ?)`,
           [wallet[0].id, amount, `PURCHASE_${referenceId}`, description]
         );
       }
