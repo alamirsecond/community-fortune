@@ -23,7 +23,8 @@ export const RedeemPointsSchema = z.object({
     .number()
     .int("Points must be an integer")
     .min(1000, "Minimum redemption is 1000 points")
-    .max(100000, "Cannot redeem more than 100000 points at once"),
+    .max(100000, "Cannot redeem more than 100000 points at once")
+    .refine(p => p % 1000 === 0, { message: "Points must be in multiples of 1000" }),
 });
 
 export const MissionActionSchema = z
