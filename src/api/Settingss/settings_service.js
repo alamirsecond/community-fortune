@@ -3,6 +3,7 @@ import bcrypt from "bcrypt";
 import { v4 as uuidv4 } from 'uuid';
 import systemSettingsCache, { NOTIFICATION_DEFINITIONS } from "../../Utils/systemSettingsCache.js";
 import secretManager, { SECRET_KEYS } from "../../Utils/secretManager.js";
+import paymentGatewayService from '../Payments/PaymentGatewayService.js';
 
 const parseBoolean = (value, fallback = false) => {
   if (value === undefined || value === null) {
@@ -376,6 +377,8 @@ class SettingsService {
       );
 
       await connection.commit();
+      // ensure updated credentials/flags are used immediately
+      paymentGatewayService.refresh().catch(err => console.error('Gateway refresh failed:', err));
     } catch (error) {
       await connection.rollback();
       throw error;
@@ -435,6 +438,7 @@ class SettingsService {
       );
 
       await connection.commit();
+      paymentGatewayService.refresh().catch(err => console.error('Gateway refresh failed:', err));
     } catch (error) {
       await connection.rollback();
       throw error;
@@ -567,6 +571,8 @@ async configurePaymentGateway(data, adminId) {
     );
 
     await connection.commit();
+    // update in-memory gateway clients/config so new credentials take effect
+    paymentGatewayService.refresh().catch(err => console.error('Gateway refresh failed:', err));
 
     // Fetch and return updated gateway (FIXED SELECT)
     const [rows] = await connection.query(

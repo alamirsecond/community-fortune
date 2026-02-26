@@ -948,11 +948,13 @@ class SpinWheelController {
       }
 
       // Wallet-first logic (try to cover with wallet if requested)
-      let walletUsed = 0;
+      const purchaseId = crypto.randomUUID();
+      let creditUsed = 0;
+      let cashUsed = 0;
       let externalPayment = totalAmount;
 
       if (use_wallet) {
-        // Check wallets
+        // Check both wallet balances
         const [wallets] = await connection.query(
           `SELECT type, balance FROM wallets WHERE user_id = UUID_TO_BIN(?) AND (type = 'CASH' OR type = 'CREDIT')`,
           [user_id]
@@ -967,37 +969,67 @@ class SpinWheelController {
 
         if (creditBalance > 0) {
           const use = Math.min(creditBalance, externalPayment);
-          walletUsed += use;
+          creditUsed = use;
           externalPayment -= use;
         }
         if (externalPayment > 0 && cashBalance > 0) {
           const use = Math.min(cashBalance, externalPayment);
-          walletUsed += use;
+          cashUsed = use;
           externalPayment -= use;
         }
       }
 
-      const purchaseId = crypto.randomUUID();
+      // deduct from each wallet separately (walletController handles types)
+      if (creditUsed > 0) {
+        console.log("Deducting credit wallet:", creditUsed, "for user", user_id);
+        await deductFromWallet(connection, user_id, creditUsed, `PURCHASE_${purchaseId}`, 'CREDIT');
+      }
+      if (cashUsed > 0) {
+        console.log("Deducting cash wallet:", cashUsed, "for user", user_id);
+        await deductFromWallet(connection, user_id, cashUsed, `PURCHASE_${purchaseId}`, 'CASH');
+      }
+
+      // debug: fetch latest balances to include in response if needed
+      let walletInfo = null;
+      if (creditUsed > 0 || cashUsed > 0) {
+        const [walletRows] = await connection.query(
+          `SELECT type, balance FROM wallets WHERE user_id = UUID_TO_BIN(?)`,
+          [user_id]
+        );
+        walletInfo = walletRows;
+      }
+
+      // compute what we will store in the `payment_method` enum column
+      // and what we will pass to the gateway-service helper
+      let methodToStore;
+      let gatewayMethod;
 
       if (externalPayment <= 0) {
-        // Covered by wallet — deduct synchronously
+        // transaction covered completely by wallet; no external gateway call
+        methodToStore = 'WALLET';
+        gatewayMethod = null;
+      } else {
+        gatewayMethod = payment_method || 'STRIPE';
+
+        methodToStore = use_wallet ? 'WALLET' : gatewayMethod;
+      }
+
+      if (externalPayment <= 0) {
+        // Covered completely by wallet — the deduction already occurred above.
         await connection.beginTransaction();
         try {
-          if (walletUsed > 0) {
-            // Deduct from wallet(s) via helper
-            await subsSvc.deductFromWallet(user_id, walletUsed, purchaseId, `Wheel purchase: ${wheel.wheel_name}`);
-          }
-
           await connection.query(
             `INSERT INTO purchases (id, user_id, competition_id, spin_wheel_id, status, payment_method, total_amount, quantity)
-             VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), NULL, UUID_TO_BIN(?), 'PAID', 'WALLET', ?, ?)`,
-            [purchaseId, user_id, wheel_id, totalAmount, quantity]
+             VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), NULL, UUID_TO_BIN(?), 'PAID', ?, ?, ?)`,
+            [purchaseId, user_id, wheel_id, methodToStore, totalAmount, quantity]
           );
 
           await connection.commit();
 
           const eligibility = await checkSpinEligibility(connection, user_id, wheel_id);
-          return res.json({ success: true, purchase_id: purchaseId, paid: true, amount: totalAmount, eligibility });
+          const resp = { success: true, purchase_id: purchaseId, paid: true, amount: totalAmount, eligibility };
+          if (walletInfo) resp.wallet = walletInfo;
+          return res.json(resp);
         } catch (err) {
           await connection.rollback();
           throw err;
@@ -1008,7 +1040,7 @@ class SpinWheelController {
       await connection.query(
         `INSERT INTO purchases (id, user_id, competition_id, spin_wheel_id, status, payment_method, total_amount, quantity)
          VALUES (UUID_TO_BIN(?), UUID_TO_BIN(?), NULL, UUID_TO_BIN(?), 'PENDING', ?, ?, ?)`,
-        [purchaseId, user_id, wheel_id, payment_method || 'EXTERNAL', totalAmount, quantity]
+        [purchaseId, user_id, wheel_id, methodToStore, totalAmount, quantity]
       );
 
       // Create external payment intent using existing service
@@ -1017,16 +1049,24 @@ class SpinWheelController {
         return rows[0]?.email || null;
       })();
 
-      const paymentResult = await subsSvc.processTicketPayment(user_id, externalPayment, payment_method, `Spin wheel purchase (${wheel.wheel_name})`, userEmail);
+      const paymentResult = await subsSvc.processTicketPayment(user_id, externalPayment, gatewayMethod, `Spin wheel purchase (${wheel.wheel_name})`, userEmail);
 
       if (!paymentResult.success) {
         return res.status(400).json({ success: false, error: paymentResult.error });
       }
 
+      // if gateway gave us a reference, persist it so the webhook can look us up later
+      if (paymentResult.reference) {
+        await connection.query(
+          `UPDATE purchases SET gateway_reference = ? WHERE id = UUID_TO_BIN(?)`,
+          [paymentResult.reference, purchaseId]
+        );
+      }
+
       // Return payment instructions to client (checkoutUrl or clientSecret)
       {
         const eligibility = await checkSpinEligibility(connection, user_id, wheel_id);
-        return res.json({
+        const resp = {
           success: true,
           requires_payment: true,
           purchase_id: purchaseId,
@@ -1034,7 +1074,9 @@ class SpinWheelController {
           external_amount: externalPayment,
           payment: paymentResult, // contains checkoutUrl / clientSecret / reference
           eligibility,
-        });
+        };
+        if (walletInfo) resp.wallet = walletInfo;
+        return res.json(resp);
       }
     } catch (error) {
       console.error('Purchase wheel error:', error);

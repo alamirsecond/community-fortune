@@ -20,6 +20,22 @@ class PaymentGatewayService {
       return this.initPromise;
    }
 
+   /**
+    * Force refresh of all gateway configurations and clients.
+    * Clears existing state and re-runs initialization logic.
+    * Useful when credentials change at runtime (via admin UI).
+    */
+   async refresh() {
+      // clear existing clients and map
+      this.stripe = null;
+      this.paypalClient = null;
+      this.revolutApi = null;
+      this.gateways.clear();
+      // allow a new init promise
+      this.initPromise = null;
+      return this.init();
+   }
+
    async _initGateways() {
       try {
          const gateways = await this.getGatewayConfigurations();
@@ -34,7 +50,16 @@ class PaymentGatewayService {
          const stripeConfig = gateways.find(g => g.gateway === 'STRIPE' && g.environment === environment);
          if (stripeConfig && stripeConfig.is_enabled) {
             try {
-               const stripeSecret = await secretManager.getSecret(SECRET_KEYS.STRIPE_SECRET_KEY);
+               // priority order: DB table value -> secret manager -> env variable
+               let stripeSecret = stripeConfig.client_secret || stripeConfig.api_key || '';
+               if (!stripeSecret) {
+                  try {
+                     stripeSecret = await secretManager.getSecret(SECRET_KEYS.STRIPE_SECRET_KEY, {
+                        fallbackEnvVar: 'STRIPE_SECRET_KEY',
+                        optional: true
+                     });
+                  } catch {} // we'll handle absence below
+               }
                if (stripeSecret) {
                   this.stripe = new Stripe(stripeSecret);
                   const stripeMode = stripeSecret.startsWith('sk_test_') ? 'test' : stripeSecret.startsWith('sk_live_') ? 'live' : 'unknown';
@@ -42,7 +67,7 @@ class PaymentGatewayService {
                   this.gateways.set('STRIPE', stripeConfig);
                   console.log('Stripe initialized successfully.');
                } else {
-                  console.warn('Stripe secret key not found.');
+                  console.warn('Stripe secret key not found in DB/secret manager/env.');
                }
             } catch (err) {
                console.error('Failed to initialize Stripe:', err.message);
@@ -53,8 +78,18 @@ class PaymentGatewayService {
          const paypalConfig = gateways.find(g => g.gateway === 'PAYPAL' && g.environment === environment);
          if (paypalConfig && paypalConfig.is_enabled) {
             try {
-               const clientId = await secretManager.getSecret(SECRET_KEYS.PAYPAL_CLIENT_ID);
-               const clientSecret = await secretManager.getSecret(SECRET_KEYS.PAYPAL_CLIENT_SECRET);
+               // credentials may live in payment_gateway_settings row
+               let clientId = paypalConfig.client_id || '';
+               let clientSecret = paypalConfig.client_secret || '';
+
+               if (!clientId || !clientSecret) {
+                  try {
+                     [clientId, clientSecret] = await Promise.all([
+                        secretManager.getSecret(SECRET_KEYS.PAYPAL_CLIENT_ID, { fallbackEnvVar: 'PAYPAL_CLIENT_ID', optional: true }),
+                        secretManager.getSecret(SECRET_KEYS.PAYPAL_CLIENT_SECRET, { fallbackEnvVar: 'PAYPAL_CLIENT_SECRET', optional: true })
+                     ]);
+                  } catch {}
+               }
 
                if (clientId && clientSecret) {
                   const ppEnv = environment === 'LIVE'
@@ -64,7 +99,7 @@ class PaymentGatewayService {
                   this.gateways.set('PAYPAL', paypalConfig);
                   console.log('PayPal initialized successfully.');
                } else {
-                  console.warn('PayPal credentials not found.');
+                  console.warn('PayPal credentials not found in DB/secret manager/env.');
                }
             } catch (err) {
                console.error('Failed to initialize PayPal:', err.message);
@@ -75,7 +110,13 @@ class PaymentGatewayService {
          const revolutConfig = gateways.find(g => g.gateway === 'REVOLUT' && g.environment === environment);
          if (revolutConfig && revolutConfig.is_enabled) {
             try {
-               const apiKey = await secretManager.getSecret(SECRET_KEYS.REVOLUT_API_KEY);
+               // prefer value stored in settings table (api_key)
+               let apiKey = revolutConfig.api_key || '';
+               if (!apiKey) {
+                  try {
+                     apiKey = await secretManager.getSecret(SECRET_KEYS.REVOLUT_API_KEY, { optional: true });
+                  } catch {}
+               }
                if (apiKey) {
                   this.revolutApi = axios.create({
                      baseURL: environment === 'LIVE'
@@ -230,8 +271,33 @@ class PaymentGatewayService {
    }
 
    getGatewayConfig(gatewayName) {
+      // synchronous accessor for cached config (current environment only)
       const normalized = String(gatewayName).toUpperCase();
       return this.gateways.get(normalized);
+   }
+
+   /**
+    * Query the database for the configuration of a specific gateway
+    * for the current environment.  This bypasses the in-memory cache and
+    * is useful when immediate consistency is required (eg. during webhook
+    * handling or right after an admin update).
+    * @param {string} gatewayName
+    * @returns {Promise<Object|null>}
+    */
+   async fetchGatewayConfig(gatewayName) {
+      if (!gatewayName) return null;
+      const normalized = String(gatewayName).toUpperCase();
+      const environment = process.env.NODE_ENV === 'production' ? 'LIVE' : 'SANDBOX';
+      const connection = await pool.getConnection();
+      try {
+         const [rows] = await connection.query(
+            `SELECT * FROM payment_gateway_settings WHERE gateway = ? AND environment = ?`,
+            [normalized, environment]
+         );
+         return rows[0] || null;
+      } finally {
+         connection.release();
+      }
    }
 }
 
