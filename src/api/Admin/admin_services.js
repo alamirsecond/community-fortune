@@ -30,7 +30,7 @@ async function activateUserAccount(user_id) {
 
     if (existingPoints.length === 0) {
       await connection.query(
-        `INSERT INTO user_points (id, user_id) VALUES (UUID(), ?)`,
+        `INSERT INTO user_points (id, user_id) VALUES (UUID_TO_BIN(UUID()), ?)`,
         [user_id]
       );
     }
