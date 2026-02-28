@@ -21,7 +21,7 @@ const pointsController = {
       // Get user points balance
       const [userPoints] = await pool.query(
         `SELECT total_points, earned_points, redeemed_points, spent_points 
-         FROM user_points WHERE user_id = ?`,
+         FROM user_points WHERE user_id = UUID_TO_BIN(?)`,
         [user_id]
       );
 
@@ -29,7 +29,7 @@ const pointsController = {
         // Initialize points for new user
         await pool.query(
           `INSERT INTO user_points(id, user_id, total_points, earned_points, redeemed_points, spent_points)
-           VALUES (UUID(), ?, 0, 0, 0, 0)`,
+           VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), 0, 0, 0, 0)`,
           [user_id]
         );
         
@@ -85,7 +85,7 @@ const pointsController = {
       // Get point transactions
       const [transactions] = await pool.query(
         `SELECT * FROM points_history 
-         WHERE user_id = ? 
+         WHERE user_id = UUID_TO_BIN(?) 
          ORDER BY created_at DESC 
          LIMIT ? OFFSET ?`,
         [user_id, parseInt(limit), offset]
@@ -93,7 +93,7 @@ const pointsController = {
 
       // Get total count
       const [total] = await pool.query(
-        `SELECT COUNT(*) as total FROM points_history WHERE user_id = ?`,
+        `SELECT COUNT(*) as total FROM points_history WHERE user_id = UUID_TO_BIN(?)`, 
         [user_id]
       );
 
@@ -137,7 +137,7 @@ const pointsController = {
 
       // Check user has enough points
       const [userPoints] = await connection.query(
-        `SELECT total_points FROM user_points WHERE user_id = ? FOR UPDATE`,
+        `SELECT total_points FROM user_points WHERE user_id = UUID_TO_BIN(?) FOR UPDATE`, 
         [user_id]
       );
 
@@ -164,7 +164,7 @@ const pointsController = {
 
       // Add site credit to user's wallet
       const [wallet] = await connection.query(
-        `SELECT id FROM wallets WHERE user_id = ? AND wallet_type = 'SITE_CREDIT'`,
+        `SELECT id FROM wallets WHERE user_id = UUID_TO_BIN(?) AND type = 'SITE_CREDIT'`, 
         [user_id]
       );
 
@@ -178,24 +178,24 @@ const pointsController = {
       } else {
         // Create wallet if doesn't exist
         await connection.query(
-          `INSERT INTO wallets (id, user_id, wallet_type, balance)
-           VALUES (UUID(), ?, 'SITE_CREDIT', ?)`,
+          `INSERT INTO wallets (id, user_id, type, balance)
+           VALUES (UUID(), UUID_TO_BIN(?), 'SITE_CREDIT', ?)`,
           [user_id, siteCredit]
         );
       }
 
       // Record wallet transaction
       await connection.query(
-        `INSERT INTO wallet_transactions (id, wallet_id, amount, transaction_type, description)
+        `INSERT INTO wallet_transactions (id, wallet_id, amount, type, description)
          SELECT UUID(), id, ?, 'CREDIT', ?
-         FROM wallets WHERE user_id = ? AND wallet_type = 'SITE_CREDIT'`,
+         FROM wallets WHERE user_id = ? AND type = 'SITE_CREDIT'`,
         [siteCredit, `Points redemption: ${points} points`, user_id]
       );
 
-      // Record point transaction
+      //Record point transaction
       await connection.query(
         `INSERT INTO points_history (id, user_id, points, type, source, description)
-         VALUES (UUID(), ?, ?, 'REDEEMED', 'POINTS_REDEMPTION', ?)`,
+         VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, 'REDEEMED', 'PURCHASE', ?)`,
         [user_id, -points, `Redeemed ${points} points for £${siteCredit.toFixed(2)} site credit`]
       );
 
@@ -527,7 +527,7 @@ const pointsController = {
       // Update user points
       await connection.query(
         `INSERT INTO user_points (id, user_id, total_points, earned_points, redeemed_points)
-         VALUES (UUID(), ?, ?, ?, 0)
+         VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, 0)
          ON DUPLICATE KEY UPDATE 
            total_points = total_points + VALUES(total_points),
            earned_points = earned_points + VALUES(earned_points)`,
@@ -537,7 +537,7 @@ const pointsController = {
       // Record transaction
       await connection.query(
         `INSERT INTO points_history (id, user_id, points, type, source, description)
-         VALUES (UUID(), ?, ?, 'EARNED', ?, ?)`,
+         VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, 'EARNED', ?, ?)`,
         [user_id, points, source, `Admin award: ${reason}`]
       );
 
@@ -842,7 +842,7 @@ async function handleMissionComplete(connection, user_id, mission_id) {
   // Mark as completed
   await connection.query(
     `INSERT INTO user_missions (id, user_id, mission_id, completed, completed_at, progress)
-     VALUES (UUID(), ?, ?, TRUE, NOW(), 100)
+     VALUES (UUID(), UUID_TO_BIN(?), ?, TRUE, NOW(), 100)
      ON DUPLICATE KEY UPDATE 
        completed = VALUES(completed),
        completed_at = VALUES(completed_at),
