@@ -524,22 +524,27 @@ const pointsController = {
         });
       }
 
-      // Update user points
-      await connection.query(
-        `INSERT INTO user_points (id, user_id, total_points, earned_points, redeemed_points)
-         VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, ?, 0)
-         ON DUPLICATE KEY UPDATE 
-           total_points = total_points + VALUES(total_points),
-           earned_points = earned_points + VALUES(earned_points)`,
-        [user_id, points, points]
-      );
+      // normalize source same as helper
+      const allowed = new Set([
+        'PURCHASE','REFERRAL','SOCIAL_SHARE','DAILY_REWARD',
+        'SPIN_WIN','WHEEL_SPIN','DAILY_LOGIN','MISSION','GAME',
+        'ADMIN_AWARD'
+      ]);
+      const mapper = {
+        'MISSION_COMPLETE': 'MISSION',
+        'GAME_PLAY': 'GAME',
+        'ADMIN': 'ADMIN_AWARD',
+        'MANUAL_AWARD': 'ADMIN_AWARD',
+        'COMPENSATION': 'ADMIN_AWARD',
+        'PROMOTIONAL': 'ADMIN_AWARD',
+        'POINTS_REDEMPTION': 'PURCHASE'
+      };
+      let src = source || 'ADMIN';
+      if (mapper[src]) src = mapper[src];
+      if (!allowed.has(src)) src = 'PURCHASE';
 
-      // Record transaction
-      await connection.query(
-        `INSERT INTO points_history (id, user_id, points, type, source, description)
-         VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, 'EARNED', ?, ?)`,
-        [user_id, points, source, `Admin award: ${reason}`]
-      );
+      // Use the helper for consistency
+      await awardPointsToUser(connection, user_id, points, src, `Admin award: ${reason}`);
 
       await connection.commit();
 
@@ -858,6 +863,28 @@ async function awardPointsToUser(
   source,
   description
 ) {
+  // normalise source to one of the enum values in points_history
+  const allowed = new Set([
+    'PURCHASE', 'REFERRAL', 'SOCIAL_SHARE', 'DAILY_REWARD',
+    'SPIN_WIN', 'WHEEL_SPIN', 'DAILY_LOGIN', 'MISSION', 'GAME',
+    'ADMIN_AWARD'
+  ]);
+  const mapper = {
+    'MISSION_COMPLETE': 'MISSION',
+    'GAME_PLAY': 'GAME',
+    'ADMIN': 'ADMIN_AWARD',
+    'MANUAL_AWARD': 'ADMIN_AWARD',
+    'COMPENSATION': 'ADMIN_AWARD',
+    'PROMOTIONAL': 'ADMIN_AWARD',
+    'POINTS_REDEMPTION': 'PURCHASE'
+  };
+  let src = source || 'PURCHASE';
+  if (mapper[src]) src = mapper[src];
+  if (!allowed.has(src)) {
+    // fallback to PURCHASE if we don't recognise it
+    src = 'PURCHASE';
+  }
+
   // Update user points
   await connection.query(
     `INSERT INTO user_points (id, user_id, total_points, earned_points, redeemed_points)
@@ -868,11 +895,11 @@ async function awardPointsToUser(
     [user_id, points, points]
   );
 
-  // Record transaction
+  // Record transaction (use normalized source)
   await connection.query(
     `INSERT INTO points_history (id, user_id, points, type, source, description)
      VALUES (UUID_TO_BIN(UUID()), UUID_TO_BIN(?), ?, 'EARNED', ?, ?)`,
-    [user_id, points, source, description]
+    [user_id, points, src, description]
   );
 }
 
